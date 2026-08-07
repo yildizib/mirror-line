@@ -2,19 +2,38 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/models/peer.dart';
+import '../../providers/connection_provider.dart';
+import '../../providers/connection_status_provider.dart';
 import '../../providers/peer_provider.dart';
 import '../../services/permission_service.dart';
 import '../widgets/qr_display.dart';
 import 'pairing_screen.dart';
 import 'role_selection_screen.dart';
 
-class SettingsScreen extends ConsumerWidget {
+class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends ConsumerState<SettingsScreen> {
+  final _ipController = TextEditingController();
+  final _portController = TextEditingController(text: '45678');
+
+  @override
+  void dispose() {
+    _ipController.dispose();
+    _portController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final peer = ref.watch(peerProvider);
     final pairedPeers = ref.watch(pairedPeersProvider);
+    final isConnected = ref.watch(connectionProvider);
+    final status = ref.watch(connectionStatusProvider);
 
     return ListView(
       padding: const EdgeInsets.all(16),
@@ -40,9 +59,41 @@ class SettingsScreen extends ConsumerWidget {
                   _buildInfoRow('Rol', peer.role == 'main' ? 'Asıl Telefon' : 'Diğer Telefon'),
                   _buildInfoRow('ID', peer.id),
                   const SizedBox(height: 16),
-                  QrDisplay(data: '${peer.id}|${peer.ip}|${peer.port}|${peer.key}|${peer.deviceName}'),
+                  QrDisplay(data: '${peer.id}|${peer.ip}|${peer.port}|${peer.key}|${peer.deviceName}|${peer.role}'),
                 ] else ...[
                   const Text('Henüz cihaz bilgisi oluşturulmadı. Rol seçin.'),
+                ],
+              ],
+            ),
+          ),
+        ),
+
+        // Connection diagnostics
+        const SizedBox(height: 24),
+        _buildSectionTitle(context, 'Bağlantı Teşhisi'),
+        Card(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildInfoRow('Bu cihaz IP', status.localIp ?? 'belirlenemedi'),
+                _buildInfoRow('Eş cihaz IP', status.peerIp ?? '-'),
+                _buildInfoRow('Sunucu', status.serverRunning ? 'çalışıyor (port ${status.serverPort})' : 'kapalı'),
+                _buildInfoRow(
+                  'Son beacon',
+                  status.lastBeaconIp == null
+                      ? 'henüz yok'
+                      : '${status.lastBeaconIp} (${_formatTime(status.lastBeaconAt!)})',
+                ),
+                _buildInfoRow('Deneme sayısı', '${status.connectAttempts}'),
+                if (status.lastError != null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    status.lastError!,
+                    style: TextStyle(fontSize: 12, color: Colors.red[700]),
+                  ),
                 ],
               ],
             ),
@@ -74,6 +125,73 @@ class SettingsScreen extends ConsumerWidget {
         // Actions
         const SizedBox(height: 24),
         _buildSectionTitle(context, 'Eylemler'),
+        Card(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(
+                      isConnected ? Icons.wifi : Icons.wifi_off,
+                      color: isConnected ? Colors.green : Colors.orange,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        isConnected ? 'Bağlı' : 'Bağlı değil',
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                              fontWeight: FontWeight.bold,
+                            ),
+                      ),
+                    ),
+                    if (!isConnected)
+                      TextButton(
+                        onPressed: () => ref.read(connectionProvider.notifier).retryNow(),
+                        child: const Text('Yeniden Dene'),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: _ipController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'Karşı cihaz IP (manuel)',
+                    hintText: 'örn. 192.168.1.20',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _portController,
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(
+                          labelText: 'Port',
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    FilledButton(
+                      onPressed: () => _connectManually(context, ref),
+                      child: const Text('Bağlan'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
         FilledButton.icon(
           onPressed: () => Navigator.push(
             context,
@@ -172,8 +290,9 @@ class SettingsScreen extends ConsumerWidget {
         trailing: IconButton(
           icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
           onPressed: () async {
-            await ref.read(peerProvider.notifier).reset();
+            await ref.read(peerProvider.notifier).deletePeer(p);
             ref.invalidate(pairedPeersProvider);
+            await ref.read(connectionProvider.notifier).refresh();
           },
         ),
       ),
@@ -188,6 +307,31 @@ class SettingsScreen extends ConsumerWidget {
         style: Theme.of(context).textTheme.titleMedium?.copyWith(
               fontWeight: FontWeight.bold,
             ),
+      ),
+    );
+  }
+
+  String _formatTime(DateTime time) {
+    return '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}:${time.second.toString().padLeft(2, '0')}';
+  }
+
+  void _connectManually(BuildContext context, WidgetRef ref) async {
+    final ip = _ipController.text.trim();
+    final port = int.tryParse(_portController.text.trim()) ?? 45678;
+
+    if (ip.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('IP adresi girin')),
+      );
+      return;
+    }
+
+    final ok = await ref.read(connectionProvider.notifier).connectManually(ip, port);
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(ok ? 'Bağlantı kuruldu' : 'Bağlantı kurulamadı'),
+        backgroundColor: ok ? Colors.green : Colors.redAccent,
       ),
     );
   }
@@ -207,6 +351,7 @@ class SettingsScreen extends ConsumerWidget {
           ),
           TextButton(
             onPressed: () async {
+              await ref.read(connectionProvider.notifier).stopAll();
               await ref.read(peerProvider.notifier).reset();
               ref.invalidate(pairedPeersProvider);
               if (context.mounted) {

@@ -23,11 +23,12 @@ class TelephonyChannel {
     }
   }
 
-  static Future<void> rejectCall() async {
+  static Future<bool> rejectCall() async {
     try {
-      await _channel.invokeMethod('rejectCall');
+      final result = await _channel.invokeMethod<bool>('rejectCall');
+      return result ?? false;
     } on MissingPluginException {
-      // ignore
+      return false;
     } on PlatformException catch (e) {
       throw Exception('Failed to reject call: ${e.message}');
     }
@@ -46,15 +47,47 @@ class TelephonyChannel {
     }
   }
 
+  static Future<void> startService() async {
+    try {
+      await _channel.invokeMethod('startService');
+    } on MissingPluginException {
+      // ignore
+    } on PlatformException catch (e) {
+      throw Exception('Failed to start service: ${e.message}');
+    }
+  }
+
+  static Future<void> stopService() async {
+    try {
+      await _channel.invokeMethod('stopService');
+    } on MissingPluginException {
+      // ignore
+    } on PlatformException catch (e) {
+      throw Exception('Failed to stop service: ${e.message}');
+    }
+  }
+
+  /// Returns the active network's IPv4 address from the native side.
+  /// Returns null when unavailable (e.g. non-Android platforms).
+  static Future<String?> getLocalIp() async {
+    try {
+      return await _channel.invokeMethod<String>('getLocalIp');
+    } on MissingPluginException {
+      return null;
+    } on PlatformException {
+      return null;
+    }
+  }
+
   static void setEventHandler(void Function(String type, Map<dynamic, dynamic> data) handler) {
     _channel.setMethodCallHandler((call) async {
       switch (call.method) {
         case 'onCall':
         case 'onSms':
           handler(call.method, (call.arguments as Map? ?? {}));
-          break;
+          return null;
         default:
-          break;
+          return null;
       }
     });
   }

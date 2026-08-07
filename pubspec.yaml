@@ -27,7 +27,6 @@ dependencies:
   flutter_secure_storage: ^11.0.0
 
   # Network / discovery
-  multicast_dns: ^0.3.2+7
   web_socket_channel: ^3.0.3
 
   # QR

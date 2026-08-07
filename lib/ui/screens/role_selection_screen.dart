@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../providers/connection_provider.dart';
 import '../../providers/peer_provider.dart';
 
 class RoleSelectionScreen extends ConsumerWidget {
@@ -52,6 +53,7 @@ class RoleSelectionScreen extends ConsumerWidget {
 
   Future<void> _selectRole(BuildContext context, WidgetRef ref, String role) async {
     await ref.read(peerProvider.notifier).createPeer(role);
+    await ref.read(connectionProvider.notifier).refresh();
     if (context.mounted) {
       Navigator.pop(context);
       ScaffoldMessenger.of(context).showSnackBar(

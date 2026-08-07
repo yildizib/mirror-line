@@ -13,6 +13,11 @@ class PermissionService {
     return statuses.values.every((status) => status.isGranted);
   }
 
+  static Future<bool> requestNotifications() async {
+    final status = await Permission.notification.request();
+    return status.isGranted;
+  }
+
   static Future<bool> areAllGranted() async {
     for (final permission in _permissions) {
       if (!await permission.isGranted) return false;

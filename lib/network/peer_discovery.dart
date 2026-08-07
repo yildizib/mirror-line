@@ -2,16 +2,30 @@ import 'dart:io';
 
 import 'package:logger/logger.dart';
 
+import '../telephony/telephony_channel.dart';
+
 class PeerDiscovery {
-  static const String _serviceType = '_mirrorline._tcp';
   final Logger _logger = Logger();
 
-  String get serviceType => _serviceType;
-
   /// Returns the device's local IPv4 address on the LAN.
-  /// Supports all private ranges: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16.
-  /// Falls back to the first non-loopback IPv4 address.
+  ///
+  /// On Android the native platform channel is used first
+  /// (ConnectivityManager/LinkProperties — reliable), because
+  /// dart:io's NetworkInterface.list often returns the cellular
+  /// interface or nothing at all on Android.
+  /// Falls back to dart:io for other platforms and edge cases.
   Future<String?> getLocalIp() async {
+    // 1) Native (Android): active network's real IPv4.
+    try {
+      final native = await TelephonyChannel.getLocalIp();
+      if (native != null && native.isNotEmpty) {
+        return native;
+      }
+    } catch (e) {
+      _logger.w('Native getLocalIp failed: $e');
+    }
+
+    // 2) dart:io fallback: first private IPv4, else first non-loopback IPv4.
     try {
       final interfaces = await NetworkInterface.list(type: InternetAddressType.IPv4);
       String? fallback;

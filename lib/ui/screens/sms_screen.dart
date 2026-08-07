@@ -24,7 +24,7 @@ class SmsScreen extends ConsumerWidget {
     return ListView.separated(
       padding: const EdgeInsets.all(16),
       itemCount: messages.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 8),
+      separatorBuilder: (_, _) => const SizedBox(height: 8),
       itemBuilder: (context, index) {
         final message = messages[index];
         return SmsCard(
@@ -76,6 +76,7 @@ class SmsScreen extends ConsumerWidget {
                 ref.read(connectionProvider.notifier).sendReplySms(
                   message.address,
                   text,
+                  id: reply.id,
                 );
 
                 Navigator.pop(context);

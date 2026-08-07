@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:logger/logger.dart';
 
 class ConnectivityService {
   final Connectivity _connectivity = Connectivity();
@@ -10,21 +11,29 @@ class ConnectivityService {
   ConnectivityService({this.onChanged});
 
   void startListening() {
-    _subscription = _connectivity.onConnectivityChanged.listen((results) {
-      final isOnline = results.any((r) =>
-          r == ConnectivityResult.wifi ||
-          r == ConnectivityResult.ethernet ||
-          r == ConnectivityResult.mobile);
-      onChanged?.call(isOnline);
-    });
+    try {
+      _subscription = _connectivity.onConnectivityChanged.listen((results) {
+        final isOnline = results.any((r) =>
+            r == ConnectivityResult.wifi ||
+            r == ConnectivityResult.ethernet ||
+            r == ConnectivityResult.mobile);
+        onChanged?.call(isOnline);
+      });
+    } catch (e) {
+      Logger().e('Connectivity listen failed: $e');
+    }
   }
 
   Future<bool> isOnline() async {
-    final result = await _connectivity.checkConnectivity();
-    return result.any((r) =>
-        r == ConnectivityResult.wifi ||
-        r == ConnectivityResult.ethernet ||
-        r == ConnectivityResult.mobile);
+    try {
+      final result = await _connectivity.checkConnectivity();
+      return result.any((r) =>
+          r == ConnectivityResult.wifi ||
+          r == ConnectivityResult.ethernet ||
+          r == ConnectivityResult.mobile);
+    } catch (_) {
+      return true;
+    }
   }
 
   void stopListening() {

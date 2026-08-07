@@ -19,7 +19,7 @@ class ConnectionBanner extends StatelessWidget {
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              'Aynı ağda değilsiniz. Senkronizasyon duraklatıldı.',
+              'Bağlantı yok. Eş cihaz aranıyor; aynı WiFi ağında olduğunuzdan emin olun.',
               style: TextStyle(fontSize: 13, color: Colors.orange[900]),
             ),
           ),

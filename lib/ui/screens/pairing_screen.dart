@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../../data/models/peer.dart';
+import '../../providers/connection_provider.dart';
 import '../../providers/peer_provider.dart';
 import '../widgets/qr_display.dart';
 import 'role_selection_screen.dart';
@@ -17,6 +18,13 @@ class PairingScreen extends ConsumerStatefulWidget {
 class _PairingScreenState extends ConsumerState<PairingScreen> {
   bool _isScanning = false;
   bool _isProcessing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Make sure the QR displays the current local IP.
+    Future.microtask(() => ref.read(peerProvider.notifier).refreshLocalIp());
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -68,7 +76,7 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          QrDisplay(data: '${peer.id}|${peer.ip}|${peer.port}|${peer.key}|${peer.deviceName}'),
+          QrDisplay(data: '${peer.id}|${peer.ip}|${peer.port}|${peer.key}|${peer.deviceName}|${peer.role}'),
           const SizedBox(height: 16),
           const Text('Diğer telefon bu QR kodu taratsın.'),
         ],
@@ -91,7 +99,7 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
           // Overlay with scan area indicator
           ColorFiltered(
             colorFilter: ColorFilter.mode(
-              Colors.black.withOpacity(0.4),
+              Colors.black.withValues(alpha: 0.4),
               BlendMode.srcOut,
             ),
             child: Stack(
@@ -164,12 +172,12 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
     );
   }
 
-  void _handleScannedData(String data) {
+  void _handleScannedData(String data) async {
     if (_isProcessing) return;
 
     setState(() => _isProcessing = true);
 
-    // Parse scanned QR: id|ip|port|key|deviceName
+    // Parse scanned QR: id|ip|port|key|deviceName|role(optional)
     final parts = data.split('|');
     if (parts.length < 4) {
       setState(() {
@@ -186,18 +194,34 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
     final scannedIp = parts[1];
     final scannedPort = int.tryParse(parts[2]) ?? 45678;
     final scannedKey = parts[3];
-    final scannedName = parts.length > 4 ? parts.sublist(4).join('|') : 'Bilinmeyen Cihaz';
+
+    final hasRole = parts.length >= 6 && (parts.last == 'source' || parts.last == 'main');
+    final scannedRole = hasRole ? parts.last : null;
+    final scannedName = hasRole
+        ? parts.sublist(4, parts.length - 1).join('|')
+        : (parts.length > 4 ? parts.sublist(4).join('|') : 'Bilinmeyen Cihaz');
+
+    // This device takes the OPPOSITE role of the scanned device so that
+    // exactly one of the pair ends up as the server, regardless of which
+    // phone displayed the QR code.
+    final myRole = scannedRole == 'main'
+        ? 'source'
+        : 'main'; // default: main (client) for old-format QRs
 
     // Save peer info from scanned QR
-    ref.read(peerProvider.notifier).createPeerFromQr(
+    await ref.read(peerProvider.notifier).createPeerFromQr(
       id: scannedId,
       ip: scannedIp,
       port: scannedPort,
       keyBase64: scannedKey,
-      role: 'main', // Default role; user can change later
+      role: myRole,
       deviceName: scannedName,
     );
 
+    // Kick off discovery/connection with the newly paired peer.
+    await ref.read(connectionProvider.notifier).refresh();
+
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text('$scannedName ile eşleştirildi!'),

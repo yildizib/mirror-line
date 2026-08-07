@@ -34,13 +34,22 @@ class PeerNotifier extends StateNotifier<Peer?> {
     try {
       final deviceInfo = DeviceInfoPlugin();
       final androidInfo = await deviceInfo.androidInfo;
-      return androidInfo.model ?? 'Android Cihaz';
+      final model = androidInfo.model;
+      return model.isEmpty ? 'Android Cihaz' : model;
     } catch (_) {
       return 'Bilinmeyen Cihaz';
     }
   }
 
   Future<void> createPeer(String role) async {
+    final existing = await _dao.getPeer();
+    if (existing != null) {
+      final updated = existing.copyWith(role: role);
+      await _dao.update(updated);
+      state = updated;
+      return;
+    }
+
     final key = CryptoManager.generateKey();
     final keyBytes = await key.extractBytes();
     final keyBase64 = base64Encode(keyBytes);
@@ -98,6 +107,53 @@ class PeerNotifier extends StateNotifier<Peer?> {
     await KeyStore.setPeerId(peer.id);
     await KeyStore.setPeerKey(key);
     state = peer;
+  }
+
+  /// Applies an updated peer record (e.g. newly discovered IP address).
+  void applyUpdate(Peer peer) {
+    state = peer;
+  }
+
+  /// Re-detects the local IP (used before displaying the QR code so the
+  /// QR always carries the current address).
+  Future<void> refreshLocalIp() async {
+    final current = state;
+    if (current == null) return;
+    final ip = await PeerDiscovery().getLocalIp();
+    if (ip != null && ip != current.ip) {
+      final updated = current.copyWith(ip: ip);
+      await _dao.update(updated);
+      state = updated;
+    }
+  }
+
+  Future<void> updateConnectionInfo(String ip, int port) async {
+    final current = state;
+    if (current == null) return;
+    final updated = current.copyWith(ip: ip, port: port);
+    await _dao.update(updated);
+    state = updated;
+  }
+
+  /// Deletes a specific peer record.
+  /// If it was the active peer, the next available peer becomes active
+  /// (and its key is restored); otherwise the device becomes unpaired.
+  Future<void> deletePeer(Peer peer) async {
+    await _dao.delete(peer.id);
+    final current = state;
+    if (current?.id != peer.id) return;
+
+    final remaining = await _dao.getPeer();
+    if (remaining != null) {
+      final keyBytes = base64Decode(remaining.key);
+      final key = SecretKey(keyBytes);
+      await KeyStore.setPeerId(remaining.id);
+      await KeyStore.setPeerKey(key);
+      state = remaining;
+    } else {
+      await KeyStore.clearAll();
+      state = null;
+    }
   }
 
   Future<void> reset() async {

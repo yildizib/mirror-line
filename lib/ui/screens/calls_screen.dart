@@ -24,7 +24,7 @@ class CallsScreen extends ConsumerWidget {
     return ListView.separated(
       padding: const EdgeInsets.all(16),
       itemCount: calls.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 8),
+      separatorBuilder: (_, _) => const SizedBox(height: 8),
       itemBuilder: (context, index) {
         final call = calls[index];
         return CallCard(
@@ -39,7 +39,7 @@ class CallsScreen extends ConsumerWidget {
     ref.read(callListProvider.notifier).updateStatus(call.id, 'rejected');
 
     // Send reject command to peer device via socket
-    ref.read(connectionProvider.notifier).sendCallNotification(call.number);
+    ref.read(connectionProvider.notifier).sendCallRejected(call.id);
 
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Arama reddedildi')),
