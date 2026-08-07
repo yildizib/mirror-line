@@ -1,0 +1,96 @@
+import 'package:path_provider/path_provider.dart';
+import 'package:sqflite/sqflite.dart';
+import 'package:path/path.dart';
+
+class AppDatabase {
+  static final AppDatabase instance = AppDatabase._internal();
+  static Database? _database;
+
+  AppDatabase._internal();
+
+  Future<Database> get database async {
+    _database ??= await _initDatabase();
+    return _database!;
+  }
+
+  Future<Database> _initDatabase() async {
+    final documentsDirectory = await getApplicationDocumentsDirectory();
+    final path = join(documentsDirectory.path, 'mirrorline.db');
+
+    return openDatabase(
+      path,
+      version: 2,
+      onCreate: _createTables,
+      onUpgrade: _upgradeTables,
+    );
+  }
+
+  Future<void> _upgradeTables(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      await db.execute('ALTER TABLE peer ADD COLUMN device_name TEXT NOT NULL DEFAULT "";');
+    }
+  }
+
+  Future<void> _createTables(Database db, int version) async {
+    await db.execute('''
+      CREATE TABLE peer (
+        id TEXT PRIMARY KEY,
+        device_name TEXT NOT NULL DEFAULT "",
+        role TEXT NOT NULL,
+        ip TEXT NOT NULL,
+        port INTEGER NOT NULL,
+        key TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE call_event (
+        id TEXT PRIMARY KEY,
+        direction TEXT NOT NULL,
+        number TEXT NOT NULL,
+        timestamp INTEGER NOT NULL,
+        encrypted TEXT NOT NULL,
+        status TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE sms_message (
+        id TEXT PRIMARY KEY,
+        thread_id TEXT NOT NULL,
+        address TEXT NOT NULL,
+        body TEXT NOT NULL,
+        encrypted TEXT NOT NULL,
+        direction TEXT NOT NULL,
+        status TEXT NOT NULL,
+        timestamp INTEGER NOT NULL,
+        created_at INTEGER NOT NULL
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE offline_queue (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        type TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        retry_count INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL
+      )
+    ''');
+  }
+
+  Future<void> close() async {
+    await _database?.close();
+    _database = null;
+  }
+
+  Future<void> reset() async {
+    final db = await database;
+    await db.delete('peer');
+    await db.delete('call_event');
+    await db.delete('sms_message');
+    await db.delete('offline_queue');
+  }
+}
