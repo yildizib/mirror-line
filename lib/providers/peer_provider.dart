@@ -41,6 +41,12 @@ class PeerNotifier extends StateNotifier<Peer?> {
     }
   }
 
+  static String generateVerificationCode(String keyBase64, String peerId) {
+    final combined = '$keyBase64|$peerId';
+    final hash = combined.hashCode.abs();
+    return (hash % 1000000).toString().padLeft(6, '0');
+  }
+
   Future<void> createPeer(String role) async {
     final existing = await _dao.getPeer();
     if (existing != null) {

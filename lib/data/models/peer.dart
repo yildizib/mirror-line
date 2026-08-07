@@ -46,13 +46,19 @@ class Peer {
     String? key,
     DateTime? createdAt,
   }) =>
-      Peer(
-        id: id ?? this.id,
-        deviceName: deviceName ?? this.deviceName,
-        role: role ?? this.role,
-        ip: ip ?? this.ip,
-        port: port ?? this.port,
-        key: key ?? this.key,
-        createdAt: createdAt ?? this.createdAt,
-      );
+  Peer(
+    id: id ?? this.id,
+    deviceName: deviceName ?? this.deviceName,
+    role: role ?? this.role,
+    ip: ip ?? this.ip,
+    port: port ?? this.port,
+    key: key ?? this.key,
+    createdAt: createdAt ?? this.createdAt,
+  );
+
+  String get verificationCode {
+    final combined = '$key|$id';
+    final hash = combined.hashCode.abs();
+    return (hash % 1000000).toString().padLeft(6, '0');
+  }
 }

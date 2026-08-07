@@ -18,17 +18,15 @@ class PairingScreen extends ConsumerStatefulWidget {
 class _PairingScreenState extends ConsumerState<PairingScreen> {
   bool _isScanning = false;
   bool _isProcessing = false;
-
-  @override
-  void initState() {
-    super.initState();
-    // Make sure the QR displays the current local IP.
-    Future.microtask(() => ref.read(peerProvider.notifier).refreshLocalIp());
-  }
+  Peer? _cachedPeerForQr;
 
   @override
   Widget build(BuildContext context) {
     final peer = ref.watch(peerProvider);
+
+    if (peer != null && _cachedPeerForQr?.id != peer.id) {
+      _cachedPeerForQr = peer;
+    }
 
     return DefaultTabController(
       length: 2,
@@ -44,7 +42,7 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
         ),
         body: TabBarView(
           children: [
-            _buildShowQrTab(peer),
+            _buildShowQrTab(_cachedPeerForQr),
             _buildScanTab(),
           ],
         ),
@@ -72,12 +70,19 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
       );
     }
 
+    final qrData = '${peer.id}|${peer.ip}|${peer.port}|${peer.key}|${peer.deviceName}|${peer.role}';
+
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          QrDisplay(data: '${peer.id}|${peer.ip}|${peer.port}|${peer.key}|${peer.deviceName}|${peer.role}'),
+          QrDisplay(data: qrData),
           const SizedBox(height: 16),
+          Text(
+            'Doğrulama Kodu: ${peer.verificationCode}',
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 8),
           const Text('Diğer telefon bu QR kodu taratsın.'),
         ],
       ),
@@ -177,7 +182,6 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
 
     setState(() => _isProcessing = true);
 
-    // Parse scanned QR: id|ip|port|key|deviceName|role(optional)
     final parts = data.split('|');
     if (parts.length < 4) {
       setState(() {
@@ -195,20 +199,61 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
     final scannedPort = int.tryParse(parts[2]) ?? 45678;
     final scannedKey = parts[3];
 
-    final hasRole = parts.length >= 6 && (parts.last == 'source' || parts.last == 'main');
+    final hasRole = parts.length >= 6 && (parts.last == 'source'||parts.last == 'main');
     final scannedRole = hasRole ? parts.last : null;
     final scannedName = hasRole
-        ? parts.sublist(4, parts.length - 1).join('|')
-        : (parts.length > 4 ? parts.sublist(4).join('|') : 'Bilinmeyen Cihaz');
+      ? parts.sublist(4, parts.length - 1).join('|')
+      : (parts.length > 4 ? parts.sublist(4).join('|') : 'Bilinmeyen Cihaz');
 
-    // This device takes the OPPOSITE role of the scanned device so that
-    // exactly one of the pair ends up as the server, regardless of which
-    // phone displayed the QR code.
     final myRole = scannedRole == 'main'
-        ? 'source'
-        : 'main'; // default: main (client) for old-format QRs
+      ? 'source'
+      : 'main';
 
-    // Save peer info from scanned QR
+    final verificationCode = (scannedKey.hashCode.abs() % 1000000).toString().padLeft(6, '0');
+
+    if (!mounted) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Eşleşmeyi Onayla'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('$scannedName cihazı ile eşleşeceksiniz.'),
+            const SizedBox(height: 16),
+            const Text('Doğrulama Kodu:', style: TextStyle(fontWeight: FontWeight.bold)),
+            Text(
+              verificationCode,
+              style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, letterSpacing: 4),
+            ),
+            const SizedBox(height: 8),
+            const Text('Kod her iki cihazda aynı olmalı.'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              setState(() {
+                _isProcessing = false;
+                _isScanning = false;
+              });
+              Navigator.of(ctx).pop(false);
+            },
+            child: const Text('İptal'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Onayla'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) {
+      return;
+    }
+
     await ref.read(peerProvider.notifier).createPeerFromQr(
       id: scannedId,
       ip: scannedIp,
@@ -218,7 +263,6 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
       deviceName: scannedName,
     );
 
-    // Kick off discovery/connection with the newly paired peer.
     await ref.read(connectionProvider.notifier).refresh();
 
     if (!mounted) return;
@@ -229,7 +273,6 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
       ),
     );
 
-    // Navigate back to settings after saving
     Future.delayed(const Duration(milliseconds: 500), () {
       if (!mounted) return;
       setState(() {

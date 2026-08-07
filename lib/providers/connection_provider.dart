@@ -29,6 +29,30 @@ final connectionProvider = StateNotifierProvider<ConnectionNotifier, bool>((ref)
   return ConnectionNotifier(ref);
 });
 
+final connectionConnectingProvider = Provider<bool>((ref) {
+  return ref.watch(connectionProvider.notifier).isConnecting;
+});
+
+class PairingRequest {
+  final String peerId;
+  final String deviceName;
+  final String ip;
+  final int port;
+  final String verificationCode;
+
+  PairingRequest({
+    required this.peerId,
+    required this.deviceName,
+    required this.ip,
+    required this.port,
+    required this.verificationCode,
+  });
+}
+
+final pairingRequestProvider = StreamProvider<PairingRequest?>((ref) {
+  return ref.watch(connectionProvider.notifier).pairingRequestStream;
+});
+
 class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver {
   static const Duration _retryInterval = Duration(seconds: 10);
 
@@ -47,12 +71,15 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
   bool _connecting = false;
   bool _telephonyHandlerRegistered = false;
   String? _lastDiscoveredIp;
+  final _pairingRequestController = StreamController<PairingRequest?>.broadcast();
 
   ConnectionNotifier(this._ref) : super(false) {
     _init();
   }
 
   bool get isSource => _peer?.role == 'source';
+  bool get isConnecting => _connecting;
+  Stream<PairingRequest?> get pairingRequestStream => _pairingRequestController.stream;
 
   void _init() async {
     WidgetsBinding.instance.addObserver(this);
@@ -230,6 +257,14 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
     }
 
     if (!state && !_connecting) {
+      final verificationCode = (peer.key.hashCode.abs() % 1000000).toString().padLeft(6, '0');
+      _pairingRequestController.add(PairingRequest(
+        peerId: peer.id,
+        deviceName: info.deviceName,
+        ip: info.ip,
+        port: info.tcpPort,
+        verificationCode: verificationCode,
+      ));
       _connectTo(info.ip, info.tcpPort);
     }
   }

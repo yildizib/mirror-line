@@ -33,7 +33,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final peer = ref.watch(peerProvider);
     final pairedPeers = ref.watch(pairedPeersProvider);
     final isConnected = ref.watch(connectionProvider);
+    final isConnecting = ref.watch(connectionConnectingProvider);
     final status = ref.watch(connectionStatusProvider);
+    final pairingRequest = ref.watch(pairingRequestProvider);
+
+    pairingRequest.whenData((request) {
+      if (request != null && mounted) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _showPairingConfirmation(context, ref, request);
+        });
+      }
+    });
 
     return ListView(
       padding: const EdgeInsets.all(16),
@@ -135,20 +145,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 Row(
                   children: [
                     Icon(
-                      isConnected ? Icons.wifi : Icons.wifi_off,
-                      color: isConnected ? Colors.green : Colors.orange,
+                      isConnecting ? Icons.wifi_find : (isConnected ? Icons.wifi : Icons.wifi_off),
+                      color: isConnecting ? Colors.orange : (isConnected ? Colors.green : Colors.orange),
                       size: 20,
                     ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        isConnected ? 'Bağlı' : 'Bağlı değil',
+                        isConnecting ? 'Bağlanıyor...' : (isConnected ? 'Bağlı' : 'Bağlı değil'),
                         style: Theme.of(context).textTheme.titleSmall?.copyWith(
                               fontWeight: FontWeight.bold,
                             ),
                       ),
                     ),
-                    if (!isConnected)
+                    if (!isConnected && !isConnecting)
                       TextButton(
                         onPressed: () => ref.read(connectionProvider.notifier).retryNow(),
                         child: const Text('Yeniden Dene'),
@@ -366,5 +376,42 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         ],
       ),
     );
+  }
+}
+void _showPairingConfirmation(BuildContext context, WidgetRef ref, PairingRequest request) async {
+  final confirmed = await showDialog<bool>(
+    context: context,
+    barrierDismissible: false,
+    builder: (ctx) => AlertDialog(
+      title: const Text('Bağlantı İsteği'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text('${request.deviceName} cihazı bağlanmak istiyor.'),
+          const SizedBox(height: 16),
+          const Text('Doğrulama Kodu:', style: TextStyle(fontWeight: FontWeight.bold)),
+          Text(
+            request.verificationCode,
+            style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, letterSpacing: 4),
+          ),
+          const SizedBox(height: 8),
+          const Text('Kod her iki cihazda aynı olmalı.'),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(ctx).pop(false),
+          child: const Text('Reddet'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(ctx).pop(true),
+          child: const Text('Kabul Et'),
+        ),
+      ],
+    ),
+  );
+
+  if (confirmed != true) {
+    ref.read(connectionProvider.notifier).stopAll();
   }
 }

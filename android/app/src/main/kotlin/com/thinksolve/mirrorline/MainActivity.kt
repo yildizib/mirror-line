@@ -8,12 +8,12 @@ import android.net.ConnectivityManager
 import android.os.Build
 import android.telecom.TelecomManager
 import android.telephony.SmsManager
-import java.net.Inet4Address
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import java.net.Inet4Address
 
 class MainActivity : FlutterActivity() {
 
