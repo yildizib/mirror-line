@@ -373,6 +373,8 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
               }
               if (mounted) {
                 setState(() => _isProcessing = false);
+              }
+              if (ctx.mounted) {
                 Navigator.of(ctx).pop();
               }
             },
@@ -393,7 +395,6 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
               }
               if (mounted) {
                 setState(() => _isProcessing = false);
-                Navigator.of(ctx).pop();
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
                     content: Text(
@@ -401,10 +402,13 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
                     backgroundColor: Theme.of(context).status.success,
                   ),
                 );
-                Future.delayed(const Duration(milliseconds: 500), () {
-                  if (mounted) Navigator.of(context).pop();
-                });
               }
+              if (ctx.mounted) {
+                Navigator.of(ctx).pop();
+              }
+              Future.delayed(const Duration(milliseconds: 500), () {
+                if (mounted) Navigator.of(context).pop();
+              });
             },
             child: const Text('Onayla'),
           ),
