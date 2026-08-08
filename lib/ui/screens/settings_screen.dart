@@ -5,6 +5,7 @@ import '../../data/models/peer.dart';
 import '../../providers/connection_provider.dart';
 import '../../providers/connection_status_provider.dart';
 import '../../providers/peer_provider.dart';
+import '../../security/key_store.dart';
 import '../../services/permission_service.dart';
 import '../../telephony/telephony_channel.dart';
 import '../widgets/qr_display.dart';
@@ -21,6 +22,25 @@ class SettingsScreen extends ConsumerStatefulWidget {
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   final _ipController = TextEditingController();
   final _portController = TextEditingController(text: '45678');
+
+  String? _selfDeviceName;
+  String? _selfPublicKey;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSelfIdentity();
+  }
+
+  Future<void> _loadSelfIdentity() async {
+    final name = await KeyStore.getSelfDeviceName();
+    final pubKey = await KeyStore.getDevicePublicKey();
+    if (!mounted) return;
+    setState(() {
+      _selfDeviceName = name;
+      _selfPublicKey = pubKey;
+    });
+  }
 
   @override
   void dispose() {
@@ -40,7 +60,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        // This device info
+        // This device's own identity -- always self-scoped (KeyStore +
+        // live local IP), never the paired peer's info, regardless of
+        // pairing direction.
         _buildSectionTitle(context, 'Bu Cihaz'),
         Card(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -51,17 +73,23 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               children: [
                 if (peer != null) ...[
                   Text(
-                    peer.deviceName,
+                    _selfDeviceName ?? peer.deviceName,
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
                           fontWeight: FontWeight.bold,
                         ),
                   ),
                   const SizedBox(height: 8),
-                  _buildInfoRow('IP', '${peer.ip}:${peer.port}'),
+                  _buildInfoRow('IP', status.localIp ?? peer.ip),
                   _buildInfoRow('Rol', peer.role == 'main' ? 'Asıl Telefon' : 'Diğer Telefon'),
-                  _buildInfoRow('ID', peer.id),
-                  const SizedBox(height: 16),
-                  QrDisplay(data: '${peer.id}|${peer.ip}|${peer.port}|${peer.key}|${peer.deviceName}|${peer.role}'),
+                  if (_selfPublicKey != null) _buildInfoRow('Public Key', _selfPublicKey!),
+                  if (peer.publicKey.isEmpty) ...[
+                    const SizedBox(height: 16),
+                    const Text('Henüz eşleşmediniz. Karşı cihaza taratmak için:'),
+                    const SizedBox(height: 8),
+                    QrDisplay(
+                      data: '${peer.id}|${peer.ip}|${peer.port}|${peer.key}|${peer.deviceName}|${peer.role}|${_selfPublicKey ?? ''}',
+                    ),
+                  ],
                 ] else ...[
                   const Text('Henüz cihaz bilgisi oluşturulmadı. Rol seçin.'),
                 ],
@@ -69,6 +97,49 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             ),
           ),
         ),
+
+        // The paired other device's identity -- persists here once pairing
+        // succeeds, regardless of who scanned whom, until the device is
+        // reset (which requires pairing again from scratch).
+        if (peer != null && peer.publicKey.isNotEmpty) ...[
+          const SizedBox(height: 24),
+          _buildSectionTitle(context, 'Bağlı Cihaz'),
+          Card(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        isConnecting ? Icons.wifi_find : (isConnected ? Icons.wifi : Icons.wifi_off),
+                        color: isConnecting ? Colors.orange : (isConnected ? Colors.green : Colors.orange),
+                        size: 20,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          peer.deviceName,
+                          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                fontWeight: FontWeight.bold,
+                              ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  _buildInfoRow('Durum', isConnecting ? 'Bağlanıyor...' : (isConnected ? 'Bağlı' : 'Bağlı değil')),
+                  _buildInfoRow('IP', '${peer.ip}:${peer.port}'),
+                  _buildInfoRow('Rol', peer.role == 'main' ? 'Diğer Telefon (karşı)' : 'Asıl Telefon (karşı)'),
+                  _buildInfoRow('Public Key', peer.publicKey),
+                  _buildInfoRow('MAC', 'Android bunu başka bir cihazdan okumaya izin vermiyor'),
+                ],
+              ),
+            ),
+          ),
+        ],
 
         // Connection diagnostics
         const SizedBox(height: 24),
@@ -238,6 +309,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
  trailing: const Icon(Icons.chevron_right),
  onTap: () async {
  await TelephonyChannel.openNotificationListenerSettings();
+ },
+ ),
+ ListTile(
+ leading: const Icon(Icons.shield_outlined),
+ title: const Text('Kullanılmıyorsa izinleri kaldırma'),
+ subtitle: const Text(
+ 'Uygulama Bilgisi\'nde "Kullanılmıyorsa izinleri kaldır" (HyperOS\'ta "Uygulama kullanılmıyorsa") seçeneğini kapatın — açık kalırsa Android birkaç ay sonra SMS/arama izinlerini geri alabilir',
+ ),
+ trailing: const Icon(Icons.chevron_right),
+ onTap: () async {
+ await PermissionService.openAppInfoSettings();
  },
  ),
  ListTile(

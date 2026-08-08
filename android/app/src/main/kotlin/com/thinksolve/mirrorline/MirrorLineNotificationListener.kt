@@ -25,7 +25,7 @@ class MirrorLineNotificationListener : NotificationListenerService() {
             "id" to "${timestamp}_$packageName"
         )
 
-        MainActivity.channel?.invokeMethod("onNotification", payload)
+        MirrorLineChannel.channel?.invokeMethod("onNotification", payload)
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification?) {
@@ -39,6 +39,6 @@ class MirrorLineNotificationListener : NotificationListenerService() {
             "id" to "${timestamp}_$packageName"
         )
 
-        MainActivity.channel?.invokeMethod("onNotificationRemoved", payload)
+        MirrorLineChannel.channel?.invokeMethod("onNotificationRemoved", payload)
     }
 }

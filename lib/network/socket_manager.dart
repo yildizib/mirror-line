@@ -38,6 +38,10 @@ class SocketManager {
   /// Completer for the client-side auth challenge.
   Completer<void>? _authCompleter;
 
+  /// Server-side watchdog: closes the connection if the client never
+  /// completes authentication (e.g. it connected but went silent).
+  Timer? _serverAuthTimer;
+
   ServerSocket? _server;
   Socket? _client;
   SecretKey? _key;
@@ -57,6 +61,11 @@ class SocketManager {
 
   bool get isConnected => _isConnected;
   bool get isAuthed => _authed;
+
+  /// The connected peer's real IP address (from the live TCP socket),
+  /// or null if no client is connected. More trustworthy than anything the
+  /// peer claims about itself in application-level messages.
+  String? get remoteAddress => _client?.remoteAddress.address;
 
   /// Configure the authentication identity for this socket.
   /// [peerPublicKeyBase64] is the other device's public key (for verifying
@@ -81,9 +90,14 @@ class SocketManager {
 
       _server!.listen((socket) {
         if (_client != null) {
-          _logger.w('A client is already connected. Rejecting new connection.');
-          socket.close();
-          return;
+          // A previous connection is still registered. It may be a genuine
+          // second peer, but in this app's 1:1 pairing model it is far more
+          // likely a stale/zombie socket (e.g. the other side's process died
+          // without a clean TCP close). Drop it and accept the new one —
+          // otherwise a single silent disconnect would permanently block all
+          // future reconnect attempts until this device's app is restarted.
+          _logger.w('Replacing previous connection with new incoming connection.');
+          _handleClosed();
         }
         _accept(socket);
       });
@@ -171,6 +185,7 @@ class SocketManager {
     _isConnected = false;
     _authed = false;
     _stopHeartbeat();
+    _stopServerAuthTimer();
     _client?.destroy();
     _client = null;
     _buffer.clear();
@@ -285,6 +300,21 @@ class SocketManager {
     final nonce = CryptoManager.generateNonce();
     _logger.i('Server sending auth challenge.');
     sendMessage(MessageTypes.authChallenge, {'nonce': nonce});
+
+    // If the client never responds (e.g. it silently died), don't hold this
+    // connection slot forever — close it so a real reconnect can get through.
+    _stopServerAuthTimer();
+    _serverAuthTimer = Timer(_authTimeout, () {
+      if (!_authed) {
+        _logger.w('Server auth timeout: client never completed authentication.');
+        _handleClosed();
+      }
+    });
+  }
+
+  void _stopServerAuthTimer() {
+    _serverAuthTimer?.cancel();
+    _serverAuthTimer = null;
   }
 
   /// Client side: wait for the server's challenge, sign it, and respond.
@@ -374,6 +404,7 @@ class SocketManager {
   void _onAuthSuccess() {
     if (_authed) return;
     _authed = true;
+    _stopServerAuthTimer();
     _logger.i('Auth complete. Connection fully established.');
     if (_authCompleter != null && !_authCompleter!.isCompleted) {
       _authCompleter!.complete();
@@ -394,6 +425,7 @@ class SocketManager {
     _disposed = true;
     _authed = false;
     _stopHeartbeat();
+    _stopServerAuthTimer();
     try {
       _client?.destroy();
     } catch (_) {}
@@ -406,10 +438,22 @@ class SocketManager {
     _buffer.clear();
   }
 
+  /// Closes only the listening server socket; leaves an active client
+  /// connection (if any) untouched. Used to tear down a temporary
+  /// pairing-time server once a device that isn't permanently a server
+  /// (i.e. not 'source') finishes pairing.
+  Future<void> stopServer() async {
+    try {
+      await _server?.close();
+    } catch (_) {}
+    _server = null;
+  }
+
   /// Closes only the active client connection; keeps the server listening.
   Future<void> disconnectClient() async {
     _authed = false;
     _stopHeartbeat();
+    _stopServerAuthTimer();
     try {
       _client?.destroy();
     } catch (_) {}

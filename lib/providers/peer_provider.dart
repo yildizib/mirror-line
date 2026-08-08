@@ -81,6 +81,7 @@ class PeerNotifier extends StateNotifier<Peer?> {
     await _dao.insert(peer);
     await KeyStore.setPeerId(peer.id);
     await KeyStore.setPeerKey(key);
+    await KeyStore.setSelfIdentity(id: peer.id, deviceName: deviceName);
     state = peer;
   }
 
@@ -110,7 +111,16 @@ class PeerNotifier extends StateNotifier<Peer?> {
       createdAt: DateTime.now(),
     );
 
-    await _dao.insert(peer);
+    // Replace (not just insert): before pairing this device had its own
+    // self-only row under a different id. Plain insert() would leave that
+    // old row behind as an orphaned duplicate (visible as a phantom entry
+    // in the paired-devices list) since the new row has a different id.
+    final oldId = state?.id;
+    if (oldId != null) {
+      await _dao.replaceId(oldId, peer);
+    } else {
+      await _dao.insert(peer);
+    }
     await KeyStore.setPeerId(peer.id);
     await KeyStore.setPeerKey(key);
     state = peer;
@@ -128,13 +138,27 @@ class PeerNotifier extends StateNotifier<Peer?> {
     return KeyStore.ensureDeviceKeyPair();
   }
 
-  /// Updates only the peer's public key (received during pairing handshake).
-  /// Preserves this device's own identity (id, role, deviceName, ip, port, key).
-  Future<void> updatePeerPublicKey(String publicKey) async {
+  /// Called on the *scanned* side once pairing completes. Persists the
+  /// scanner's (the other device's) full identity -- not just its public
+  /// key -- so that afterwards `peer` consistently represents the paired
+  /// other device on both sides, regardless of who scanned whom. Preserves
+  /// this device's own role/key/port.
+  Future<void> applyPairedPeer({
+    required String id,
+    required String deviceName,
+    required String publicKey,
+    String? ip,
+  }) async {
     final current = state;
     if (current == null) return;
-    final updated = current.copyWith(publicKey: publicKey);
-    await _dao.update(updated);
+    final updated = current.copyWith(
+      id: id,
+      deviceName: deviceName,
+      publicKey: publicKey,
+      ip: ip ?? current.ip,
+    );
+    await _dao.replaceId(current.id, updated);
+    await KeyStore.setPeerId(updated.id);
     state = updated;
   }
 

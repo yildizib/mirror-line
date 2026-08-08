@@ -15,12 +15,38 @@ class KeyStore {
   static const _devicePrivateKeyKey = 'device_ed25519_private';
   static const _devicePublicKeyKey = 'device_ed25519_public';
 
+  // This device's own identity (id + display name), set once at role
+  // selection time and never overwritten by pairing. The `peer` table row
+  // is repurposed by pairing to represent the *other* device, so anything
+  // that needs to know "who am I" (e.g. the beacon broadcaster advertising
+  // itself, or the Settings "Bu Cihaz" card) must read from here instead.
+  static const _selfIdKey = 'self_peer_id';
+  static const _selfDeviceNameKey = 'self_device_name';
+
   static Future<String?> getPeerId() => _storage.read(key: _peerIdKey);
 
   static Future<void> setPeerId(String id) =>
       _storage.write(key: _peerIdKey, value: id);
 
   static Future<void> clearPeerId() => _storage.delete(key: _peerIdKey);
+
+  static Future<void> setSelfIdentity({
+    required String id,
+    required String deviceName,
+  }) async {
+    await _storage.write(key: _selfIdKey, value: id);
+    await _storage.write(key: _selfDeviceNameKey, value: deviceName);
+  }
+
+  static Future<String?> getSelfId() => _storage.read(key: _selfIdKey);
+
+  static Future<String?> getSelfDeviceName() =>
+      _storage.read(key: _selfDeviceNameKey);
+
+  static Future<void> clearSelfIdentity() async {
+    await _storage.delete(key: _selfIdKey);
+    await _storage.delete(key: _selfDeviceNameKey);
+  }
 
   static Future<SecretKey?> getPeerKey() async {
     final encoded = await _storage.read(key: _peerKeyKey);
@@ -81,5 +107,6 @@ class KeyStore {
     await clearPeerId();
     await clearPeerKey();
     await clearDeviceKeyPair();
+    await clearSelfIdentity();
   }
 }

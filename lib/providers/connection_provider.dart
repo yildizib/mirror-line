@@ -72,8 +72,15 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
         refresh();
         _scheduleReconnect();
       } else {
-        _logger.i('Network offline. Pausing connection attempts.');
+        _logger.i('Network offline. Dropping stale connection, pausing attempts.');
         state = false;
+        // Actually tear down the client-side connection, not just the UI
+        // flag. Some network transitions (e.g. Wi-Fi AP roam) never deliver
+        // a socket error, so SocketManager's internal _isConnected can stay
+        // stuck true; its connect() then short-circuits to a no-op "success"
+        // on the next attempt without ever firing onConnected, leaving
+        // `state` permanently stuck at false until the app is restarted.
+        _socketManager?.disconnectClient();
       }
     };
     _connectivity.startListening();
@@ -146,10 +153,15 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
       }
     }
 
+    // Broadcast this device's OWN identity, not `peer` (which represents
+    // the *other* device once paired -- see applyPairedPeer). Fall back to
+    // the peer record for pre-fix installs that never persisted a self id.
+    final selfId = await KeyStore.getSelfId() ?? peer.id;
+    final selfName = await KeyStore.getSelfDeviceName() ?? peer.deviceName;
     await _broadcaster.start(
-      peerId: peer.id,
+      peerId: selfId,
       tcpPort: peer.port,
-      deviceName: peer.deviceName,
+      deviceName: selfName,
     );
 
     _registerTelephonyHandler();
@@ -162,6 +174,34 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
   }
 
   Future<void> _startAsMain() async {
+    final peer = _peer!;
+    final key = _key!;
+    final isPaired = peer.publicKey.isNotEmpty;
+
+    if (!isPaired) {
+      // Not yet paired to a specific device: also listen on our own port,
+      // exactly like 'source' always does, so a QR scan works regardless
+      // of who scans whom. There's no real peer to dial out to yet, so
+      // skip the client/beacon machinery entirely until pairing completes
+      // (only 'source' keeps a permanent server afterwards -- see
+      // _startAsSource).
+      _socketManager ??= _createSocketManager();
+      await _configureAuth(_socketManager!);
+      if (_socketManager!.isConnected == false) {
+        try {
+          await _socketManager!.startServer(peer.port, key);
+          _ref.read(connectionStatusProvider.notifier).setServer(peer.port, true);
+        } catch (e) {
+          _logger.e('Pairing-time server start failed: $e');
+        }
+      }
+      return;
+    }
+
+    // Paired: pure client role. Tear down any leftover pairing-time server.
+    await _socketManager?.stopServer();
+    _ref.read(connectionStatusProvider.notifier).setServer(0, false);
+
     if (!_listener.isListening) {
       await _listener.start(onBeacon: _onBeacon);
     }

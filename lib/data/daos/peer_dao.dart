@@ -33,6 +33,22 @@ class PeerDao {
     await db.update('peer', peer.toJson(), where: 'id = ?', whereArgs: [peer.id]);
   }
 
+  /// Replaces the row keyed by [oldId] with [newPeer], which may have a
+  /// different `id` (the primary key). `update()` can't do this since it
+  /// filters by the *new* object's id, which won't match any existing row
+  /// when the id itself is changing -- it would silently update 0 rows.
+  /// Used when pairing completes and this device's peer row switches from
+  /// representing itself to representing the newly paired other device.
+  Future<void> replaceId(String oldId, Peer newPeer) async {
+    final db = await _database;
+    await db.transaction((txn) async {
+      if (oldId != newPeer.id) {
+        await txn.delete('peer', where: 'id = ?', whereArgs: [oldId]);
+      }
+      await txn.insert('peer', newPeer.toJson(), conflictAlgorithm: ConflictAlgorithm.replace);
+    });
+  }
+
   Future<void> delete(String id) async {
     final db = await _database;
     await db.delete('peer', where: 'id = ?', whereArgs: [id]);

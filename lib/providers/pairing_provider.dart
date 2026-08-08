@@ -262,11 +262,21 @@ class PairingNotifier extends StateNotifier<PairingState> {
       'publicKey': myPublicKey,
     });
 
-    // The scanner's public key is saved as the peer's public key.
-    // This device's own identity (id, role, ip, key) is preserved.
+    // Persist the scanner's full identity (id, name, public key), and its
+    // real IP straight from the live TCP socket (more trustworthy than
+    // anything it claims about itself). This makes `peer` consistently
+    // represent the other device after pairing, on both sides, regardless
+    // of who scanned whom.
+    final scannerId = scannerInfo['peerId'] as String? ?? '';
+    final scannerDeviceName = scannerInfo['deviceName'] as String? ?? 'Bilinmeyen Cihaz';
     final scannerPublicKey = scannerInfo['publicKey'] as String? ?? '';
-    if (scannerPublicKey.isNotEmpty) {
-      await _ref.read(peerProvider.notifier).updatePeerPublicKey(scannerPublicKey);
+    if (scannerId.isNotEmpty && scannerPublicKey.isNotEmpty) {
+      await _ref.read(peerProvider.notifier).applyPairedPeer(
+            id: scannerId,
+            deviceName: scannerDeviceName,
+            publicKey: scannerPublicKey,
+            ip: socketManager.remoteAddress,
+          );
     }
 
     state = const PairingState();
