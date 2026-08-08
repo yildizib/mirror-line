@@ -14,7 +14,11 @@ class SmsThread {
 
   SmsMessage get lastMessage => messages.last;
 
-  String get displayName => contactName.isNotEmpty ? contactName : address;
+  String get displayName {
+    if (contactName.isNotEmpty) return contactName;
+    if (address.isNotEmpty) return address;
+    return 'Bilinmeyen gönderen';
+  }
 }
 
 /// Derives conversations from smsListProvider's flat list, grouped by

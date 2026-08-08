@@ -46,7 +46,7 @@ class CallEvent {
   CallEvent copyWith({String? status, String? number, String? contactName}) => CallEvent(
         id: id,
         direction: direction,
-        number: (number != null && number.isNotEmpty && number != 'unknown') ? number : this.number,
+        number: (number != null && number.isNotEmpty) ? number : this.number,
         contactName: (contactName != null && contactName.isNotEmpty) ? contactName : this.contactName,
         timestamp: timestamp,
         encrypted: encrypted,
@@ -55,8 +55,13 @@ class CallEvent {
       );
 
   /// Display name for UI/notifications: contact name if resolved, else the
-  /// raw phone number.
-  String get displayName => contactName.isNotEmpty ? contactName : number;
+  /// raw phone number, else a placeholder when neither is known (the
+  /// carrier/OS never delivered a number for this call).
+  String get displayName {
+    if (contactName.isNotEmpty) return contactName;
+    if (number.isNotEmpty) return number;
+    return 'Bilinmeyen numara';
+  }
 
   /// Turkish status label shared by the calls list UI and notifications.
   String get statusLabel => switch (status) {

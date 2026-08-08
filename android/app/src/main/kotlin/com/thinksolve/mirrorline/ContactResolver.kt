@@ -16,7 +16,7 @@ import androidx.core.content.ContextCompat
  */
 object ContactResolver {
     fun resolveName(context: Context, phoneNumber: String): String? {
-        if (phoneNumber.isBlank() || phoneNumber == "unknown") return null
+        if (phoneNumber.isBlank()) return null
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS)
             != PackageManager.PERMISSION_GRANTED
         ) {

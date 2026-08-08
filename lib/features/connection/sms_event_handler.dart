@@ -41,7 +41,7 @@ class SmsEventHandler {
     required String id,
     required DateTime now,
   }) async {
-    final address = (data['address'] as String?) ?? 'unknown';
+    final address = (data['address'] as String?) ?? '';
     final contactName = (data['contactName'] as String?) ?? '';
     final body = (data['body'] as String?) ?? '';
     final threadId = (data['threadId'] as String?) ?? '';
@@ -80,7 +80,7 @@ class SmsEventHandler {
   ) async {
     switch (type) {
       case MessageTypes.smsIncoming:
-        final address = payload['address'] as String? ?? 'unknown';
+        final address = payload['address'] as String? ?? '';
         var contactName = payload['contact_name'] as String? ?? '';
         if (contactName.isEmpty) {
           contactName = await TelephonyChannel.resolveContactName(address) ?? '';

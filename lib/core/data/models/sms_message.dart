@@ -63,8 +63,12 @@ class SmsMessage {
       );
 
   /// Display name for UI/notifications: contact name if resolved, else the
-  /// raw phone number/address.
-  String get displayName => contactName.isNotEmpty ? contactName : address;
+  /// raw address, else a placeholder when neither is known.
+  String get displayName {
+    if (contactName.isNotEmpty) return contactName;
+    if (address.isNotEmpty) return address;
+    return 'Bilinmeyen gönderen';
+  }
 
   /// Turkish status label for the SMS list UI.
   String get statusLabel => switch (status) {

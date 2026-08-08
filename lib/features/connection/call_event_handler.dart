@@ -57,7 +57,7 @@ class CallEventHandler {
     final callState = (data['state'] as String?) ?? 'RINGING';
 
     if (callState == 'RINGING') {
-      final number = (data['number'] as String?) ?? 'unknown';
+      final number = (data['number'] as String?) ?? '';
       final contactName = (data['contactName'] as String?) ?? '';
       final event = CallEvent(
         id: id,
@@ -151,7 +151,7 @@ class CallEventHandler {
   ) async {
     switch (type) {
       case MessageTypes.callIncoming:
-        final number = payload['number'] as String? ?? 'unknown';
+        final number = payload['number'] as String? ?? '';
         var contactName = payload['contact_name'] as String? ?? '';
         final id = payload['id'] as String? ?? message.id;
         // The Source device's address book may not have this contact even

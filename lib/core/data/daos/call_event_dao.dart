@@ -26,7 +26,7 @@ class CallEventDao {
   /// Patches number/contact_name in place (see CallListNotifier.updateCallerInfo).
   Future<void> updateCallerInfo(String id, {String? number, String? contactName}) async {
     final values = <String, Object?>{};
-    if (number != null && number.isNotEmpty && number != 'unknown') values['number'] = number;
+    if (number != null && number.isNotEmpty) values['number'] = number;
     if (contactName != null && contactName.isNotEmpty) values['contact_name'] = contactName;
     if (values.isEmpty) return;
     final db = await _database;

@@ -15,6 +15,7 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
+import android.telephony.PhoneStateListener
 import android.telephony.SmsMessage
 import android.telephony.TelephonyManager
 import androidx.core.app.NotificationCompat
@@ -26,6 +27,12 @@ class MirrorLineService : Service() {
     private var smsReceiver: BroadcastReceiver? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
+
+    // Independent second source for the live incoming number, alongside
+    // ACTION_PHONE_STATE_CHANGED below -- see registerCallStateListener.
+    private var telephonyManager: TelephonyManager? = null
+    private var phoneStateListener: PhoneStateListener? = null
+    private var lastListenerNumber: String? = null
 
     // Tracks the previous EXTRA_STATE so transitions can be classified
     // (e.g. RINGING -> IDLE means missed, OFFHOOK -> IDLE means the
@@ -139,20 +146,29 @@ class MirrorLineService : Service() {
 
     /**
      * The call-log entry for a just-finished call isn't guaranteed to be
-     * written the instant IDLE fires, so this queries slightly delayed and
-     * off the main thread, then reports the (MISSED/ENDED) state change
-     * together with whatever caller info CallLogResolver could add. Dart's
-     * CallEvent merge (see CallEvent.copyWith) only ever improves on what it
-     * already has -- an empty/"unknown" result here is simply a no-op.
+     * written the instant IDLE fires -- some ROMs (observed on HyperOS) run
+     * their own caller-ID/spam lookup before writing it, which can take well
+     * over a second. A single short delay was missing the write entirely, so
+     * this retries with growing delays (off the main thread) until a fresh
+     * entry (see CallLogResolver's sinceMs bound) shows up or attempts run
+     * out, then reports the (MISSED/ENDED) state change together with
+     * whatever caller info was found. Dart's CallEvent merge (see
+     * CallEvent.copyWith) only ever improves on what it already has -- an
+     * empty result here is simply a no-op.
      */
     private fun enrichFromCallLogThenNotify(context: Context, state: String) {
         val mainHandler = Handler(Looper.getMainLooper())
+        val callEndedAt = System.currentTimeMillis()
         Thread {
-            try {
-                Thread.sleep(CALL_LOG_QUERY_DELAY_MS)
-            } catch (_: InterruptedException) {
+            var info: CallLogResolver.Entry? = null
+            for (delayMs in CALL_LOG_RETRY_DELAYS_MS) {
+                try {
+                    Thread.sleep(delayMs)
+                } catch (_: InterruptedException) {
+                }
+                info = CallLogResolver.latestEntry(context, sinceMs = callEndedAt)
+                if (info != null) break
             }
-            val info = CallLogResolver.latestEntry(context)
             mainHandler.post {
                 val args = mutableMapOf<String, Any>("state" to state)
                 if (info != null) {
@@ -175,7 +191,7 @@ class MirrorLineService : Service() {
                     when (state) {
                         TelephonyManager.EXTRA_STATE_RINGING -> {
                             val number = intent.getStringExtra(TelephonyManager.EXTRA_INCOMING_NUMBER)
-                                ?: "unknown"
+                                ?: ""
                             val contactName = ContactResolver.resolveName(context, number) ?: ""
                             // Android commonly re-broadcasts RINGING for the
                             // *same* call (often once without the number,
@@ -230,7 +246,7 @@ class MirrorLineService : Service() {
                     if (messages.isEmpty()) return
 
                     messages
-                        .groupBy { it.displayOriginatingAddress ?: it.originatingAddress ?: "unknown" }
+                        .groupBy { it.displayOriginatingAddress ?: it.originatingAddress ?: "" }
                         .forEach { (address, group) ->
                             val body = group.joinToString("") { it.messageBody ?: "" }
                             bufferSms(context, address, body)
@@ -241,6 +257,69 @@ class MirrorLineService : Service() {
             filter.priority = 999
             registerExported(smsReceiver!!, filter)
         }
+
+        registerCallStateListener()
+    }
+
+    /**
+     * ACTION_PHONE_STATE_CHANGED's EXTRA_INCOMING_NUMBER can come back
+     * empty on *every* broadcast for a given call on some ROMs (observed on
+     * HyperOS) even though the number resolves moments later -- Android's
+     * own Phone app shows it correctly because it isn't relying on that
+     * broadcast alone. PhoneStateListener.onCallStateChanged's deprecated
+     * phoneNumber overload is a second, independently-delivered read of the
+     * same telephony state (still functional despite the class being
+     * deprecated in API 31 -- its replacement, TelephonyCallback, dropped
+     * the phone number parameter entirely for privacy, so this remains the
+     * only public API that provides it at all). When it resolves a number
+     * the broadcast missed, it's reported the same way the broadcast's own
+     * RINGING_UPDATE case is: Dart's CallEventHandler already merges it
+     * into whichever call is currently tracked as ringing.
+     */
+    @Suppress("DEPRECATION")
+    private fun registerCallStateListener() {
+        if (phoneStateListener != null) return
+        try {
+            val tm = getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager ?: return
+            val listener = object : PhoneStateListener() {
+                @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
+                override fun onCallStateChanged(state: Int, phoneNumber: String?) {
+                    if (state == TelephonyManager.CALL_STATE_IDLE) {
+                        lastListenerNumber = null
+                        return
+                    }
+                    if (state != TelephonyManager.CALL_STATE_RINGING) return
+                    if (phoneNumber.isNullOrEmpty() || phoneNumber == lastListenerNumber) return
+                    lastListenerNumber = phoneNumber
+                    val contactName = ContactResolver.resolveName(this@MirrorLineService, phoneNumber) ?: ""
+                    invokeFlutter(
+                        "onCall",
+                        mapOf(
+                            "number" to phoneNumber,
+                            "contactName" to contactName,
+                            "state" to "RINGING_UPDATE"
+                        )
+                    )
+                }
+            }
+            phoneStateListener = listener
+            telephonyManager = tm
+            tm.listen(listener, PhoneStateListener.LISTEN_CALL_STATE)
+        } catch (_: Exception) {
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun unregisterCallStateListener() {
+        phoneStateListener?.let { listener ->
+            try {
+                telephonyManager?.listen(listener, PhoneStateListener.LISTEN_NONE)
+            } catch (_: Exception) {
+            }
+        }
+        phoneStateListener = null
+        telephonyManager = null
+        lastListenerNumber = null
     }
 
     /**
@@ -305,6 +384,8 @@ class MirrorLineService : Service() {
         }
         smsReceiver = null
 
+        unregisterCallStateListener()
+
         // Flush anything still buffered rather than silently dropping it,
         // then cancel so nothing fires after teardown.
         pendingSms.values.toList().forEach { smsHandler.removeCallbacks(it.flush) }
@@ -339,6 +420,8 @@ class MirrorLineService : Service() {
         const val CHANNEL_ID = "mirrorline_service"
         const val NOTIFICATION_ID = 10001
         const val SMS_DEBOUNCE_MS = 700L
-        const val CALL_LOG_QUERY_DELAY_MS = 400L
+        // Cumulative ~2s across up to 3 attempts -- enough slack for a ROM's
+        // own caller-ID/spam lookup to finish writing the call-log entry.
+        val CALL_LOG_RETRY_DELAYS_MS = longArrayOf(400L, 600L, 1000L)
     }
 }
