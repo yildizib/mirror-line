@@ -8,6 +8,7 @@ import '../../providers/peer_provider.dart';
 import '../../security/key_store.dart';
 import '../../services/permission_service.dart';
 import '../../telephony/telephony_channel.dart';
+import '../theme.dart';
 import '../widgets/qr_display.dart';
 import 'pairing_screen.dart';
 import 'role_selection_screen.dart';
@@ -56,136 +57,146 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final isConnected = ref.watch(connectionProvider);
     final isConnecting = ref.watch(connectionConnectingProvider);
     final status = ref.watch(connectionStatusProvider);
+    final theme = Theme.of(context);
 
     return ListView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(AppSpacing.md),
       children: [
         // This device's own identity -- always self-scoped (KeyStore +
         // live local IP), never the paired peer's info, regardless of
         // pairing direction.
-        _buildSectionTitle(context, 'Bu Cihaz'),
-        Card(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (peer != null) ...[
-                  Text(
-                    _selfDeviceName ?? peer.deviceName,
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
+        _sectionTitle(context, 'Bu Cihaz'),
+        _sectionCard(
+          child: peer == null
+              ? const Text('Henüz cihaz bilgisi oluşturulmadı. Rol seçin.')
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        _avatar(
+                          theme,
+                          icon: peer.role == 'main' ? Icons.phone_android_rounded : Icons.sim_card_rounded,
+                          color: theme.colorScheme.primary,
+                          background: theme.colorScheme.primaryContainer,
                         ),
-                  ),
-                  const SizedBox(height: 8),
-                  _buildInfoRow('IP', status.localIp ?? peer.ip),
-                  _buildInfoRow('Rol', peer.role == 'main' ? 'Asıl Telefon' : 'Diğer Telefon'),
-                  if (_selfPublicKey != null) _buildInfoRow('Public Key', _selfPublicKey!),
-                  if (peer.publicKey.isEmpty) ...[
-                    const SizedBox(height: 16),
-                    const Text('Henüz eşleşmediniz. Karşı cihaza taratmak için:'),
-                    const SizedBox(height: 8),
-                    QrDisplay(
-                      data: '${peer.id}|${peer.ip}|${peer.port}|${peer.key}|${peer.deviceName}|${peer.role}|${_selfPublicKey ?? ''}',
+                        const SizedBox(width: AppSpacing.md),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                _selfDeviceName ?? peer.deviceName,
+                                style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                              ),
+                              Text(
+                                peer.role == 'main' ? 'Asıl Telefon' : 'Diğer Telefon',
+                                style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 13),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
+                    const SizedBox(height: AppSpacing.md),
+                    _infoRow(context, 'IP', status.localIp ?? peer.ip),
+                    if (_selfPublicKey != null) _infoRow(context, 'Public Key', _selfPublicKey!),
+                    if (peer.publicKey.isEmpty) ...[
+                      const SizedBox(height: AppSpacing.md),
+                      Text(
+                        'Henüz eşleşmediniz. Karşı cihaza taratmak için:',
+                        style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
+                      ),
+                      const SizedBox(height: AppSpacing.sm),
+                      Center(
+                        child: QrDisplay(
+                          data:
+                              '${peer.id}|${peer.ip}|${peer.port}|${peer.key}|${peer.deviceName}|${peer.role}|${_selfPublicKey ?? ''}',
+                        ),
+                      ),
+                    ],
                   ],
-                ] else ...[
-                  const Text('Henüz cihaz bilgisi oluşturulmadı. Rol seçin.'),
-                ],
-              ],
-            ),
-          ),
+                ),
         ),
 
         // The paired other device's identity -- persists here once pairing
         // succeeds, regardless of who scanned whom, until the device is
         // reset (which requires pairing again from scratch).
         if (peer != null && peer.publicKey.isNotEmpty) ...[
-          const SizedBox(height: 24),
-          _buildSectionTitle(context, 'Bağlı Cihaz'),
-          Card(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Icon(
-                        isConnecting ? Icons.wifi_find : (isConnected ? Icons.wifi : Icons.wifi_off),
-                        color: isConnecting ? Colors.orange : (isConnected ? Colors.green : Colors.orange),
-                        size: 20,
+          const SizedBox(height: AppSpacing.lg),
+          _sectionTitle(context, 'Bağlı Cihaz'),
+          _sectionCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    _avatar(
+                      theme,
+                      icon: peer.role == 'main' ? Icons.sim_card_rounded : Icons.phone_android_rounded,
+                      color: theme.status.success,
+                      background: theme.status.successContainer,
+                    ),
+                    const SizedBox(width: AppSpacing.md),
+                    Expanded(
+                      child: Text(
+                        peer.deviceName,
+                        style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
                       ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          peer.deviceName,
-                          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                                fontWeight: FontWeight.bold,
-                              ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  _buildInfoRow('Durum', isConnecting ? 'Bağlanıyor...' : (isConnected ? 'Bağlı' : 'Bağlı değil')),
-                  _buildInfoRow('IP', '${peer.ip}:${peer.port}'),
-                  _buildInfoRow('Rol', peer.role == 'main' ? 'Diğer Telefon (karşı)' : 'Asıl Telefon (karşı)'),
-                  _buildInfoRow('Public Key', peer.publicKey),
-                  _buildInfoRow('MAC', 'Android bunu başka bir cihazdan okumaya izin vermiyor'),
-                ],
-              ),
+                    ),
+                    _connectionStatusChip(context, isConnected: isConnected, isConnecting: isConnecting),
+                  ],
+                ),
+                const SizedBox(height: AppSpacing.md),
+                _infoRow(context, 'IP', '${peer.ip}:${peer.port}'),
+                _infoRow(context, 'Rol', peer.role == 'main' ? 'Diğer Telefon (karşı)' : 'Asıl Telefon (karşı)'),
+                _infoRow(context, 'Public Key', peer.publicKey),
+                _infoRow(context, 'MAC', 'Android bunu başka bir cihazdan okumaya izin vermiyor'),
+              ],
             ),
           ),
         ],
 
         // Connection diagnostics
-        const SizedBox(height: 24),
-        _buildSectionTitle(context, 'Bağlantı Teşhisi'),
-        Card(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _buildInfoRow('Bu cihaz IP', status.localIp ?? 'belirlenemedi'),
-                _buildInfoRow('Eş cihaz IP', status.peerIp ?? '-'),
-                _buildInfoRow('Sunucu', status.serverRunning ? 'çalışıyor (port ${status.serverPort})' : 'kapalı'),
-                _buildInfoRow(
-                  'Son beacon',
-                  status.lastBeaconIp == null
-                      ? 'henüz yok'
-                      : '${status.lastBeaconIp} (${_formatTime(status.lastBeaconAt!)})',
+        const SizedBox(height: AppSpacing.lg),
+        _sectionTitle(context, 'Bağlantı Teşhisi'),
+        _sectionCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _infoRow(context, 'Bu cihaz IP', status.localIp ?? 'belirlenemedi'),
+              _infoRow(context, 'Eş cihaz IP', status.peerIp ?? '-'),
+              _infoRow(
+                context,
+                'Sunucu',
+                status.serverRunning ? 'çalışıyor (port ${status.serverPort})' : 'kapalı',
+              ),
+              _infoRow(
+                context,
+                'Son beacon',
+                status.lastBeaconIp == null
+                    ? 'henüz yok'
+                    : '${status.lastBeaconIp} (${_formatTime(status.lastBeaconAt!)})',
+              ),
+              _infoRow(context, 'Deneme sayısı', '${status.connectAttempts}'),
+              if (status.lastError != null) ...[
+                const SizedBox(height: AppSpacing.sm),
+                Text(
+                  status.lastError!,
+                  style: TextStyle(fontSize: 12, color: theme.colorScheme.error),
                 ),
-                _buildInfoRow('Deneme sayısı', '${status.connectAttempts}'),
-                if (status.lastError != null) ...[
-                  const SizedBox(height: 8),
-                  Text(
-                    status.lastError!,
-                    style: TextStyle(fontSize: 12, color: Colors.red[700]),
-                  ),
-                ],
               ],
-            ),
+            ],
           ),
         ),
 
         // Paired devices list
-        const SizedBox(height: 24),
-        _buildSectionTitle(context, 'Eşleşmiş Cihazlar'),
+        const SizedBox(height: AppSpacing.lg),
+        _sectionTitle(context, 'Eşleşmiş Cihazlar'),
         pairedPeers.when(
           data: (peers) {
             if (peers.isEmpty) {
-              return Card(
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                child: const Padding(
-                  padding: EdgeInsets.all(16),
-                  child: Text('Henüz eşleşmiş cihaz yok.'),
-                ),
-              );
+              return _sectionCard(child: const Text('Henüz eşleşmiş cihaz yok.'));
             }
             return Column(
               children: peers.map((p) => _buildPeerCard(context, ref, p)).toList(),
@@ -196,84 +207,66 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         ),
 
         // Actions
-        const SizedBox(height: 24),
-        _buildSectionTitle(context, 'Eylemler'),
-        Card(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Icon(
-                      isConnecting ? Icons.wifi_find : (isConnected ? Icons.wifi : Icons.wifi_off),
-                      color: isConnecting ? Colors.orange : (isConnected ? Colors.green : Colors.orange),
-                      size: 20,
+        const SizedBox(height: AppSpacing.lg),
+        _sectionTitle(context, 'Eylemler'),
+        _sectionCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  _connectionStatusChip(context, isConnected: isConnected, isConnecting: isConnecting),
+                  const Spacer(),
+                  if (!isConnected && !isConnecting)
+                    TextButton(
+                      onPressed: () => ref.read(connectionProvider.notifier).retryNow(),
+                      child: const Text('Yeniden Dene'),
                     ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        isConnecting ? 'Bağlanıyor...' : (isConnected ? 'Bağlı' : 'Bağlı değil'),
-                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
-                      ),
-                    ),
-                    if (!isConnected && !isConnecting)
-                      TextButton(
-                        onPressed: () => ref.read(connectionProvider.notifier).retryNow(),
-                        child: const Text('Yeniden Dene'),
-                      ),
-                  ],
+                ],
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              TextField(
+                controller: _ipController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Karşı cihaz IP (manuel)',
+                  hintText: 'örn. 192.168.1.20',
+                  isDense: true,
                 ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: _ipController,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(
-                    labelText: 'Karşı cihaz IP (manuel)',
-                    hintText: 'örn. 192.168.1.20',
-                    border: OutlineInputBorder(),
-                    isDense: true,
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _portController,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        labelText: 'Port',
+                        isDense: true,
+                      ),
+                    ),
                   ),
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _portController,
-                        keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(
-                          labelText: 'Port',
-                          border: OutlineInputBorder(),
-                          isDense: true,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    FilledButton(
-                      onPressed: () => _connectManually(context, ref),
-                      child: const Text('Bağlan'),
-                    ),
-                  ],
-                ),
-              ],
-            ),
+                  const SizedBox(width: AppSpacing.sm),
+                  FilledButton(
+                    onPressed: () => _connectManually(context, ref),
+                    child: const Text('Bağlan'),
+                  ),
+                ],
+              ),
+            ],
           ),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: AppSpacing.sm),
         FilledButton.icon(
           onPressed: () => Navigator.push(
             context,
             MaterialPageRoute(builder: (_) => const PairingScreen()),
           ),
-          icon: const Icon(Icons.qr_code_scanner),
+          icon: const Icon(Icons.qr_code_scanner_rounded),
           label: const Text('Cihaz Eşleştir'),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: AppSpacing.sm),
         OutlinedButton.icon(
           onPressed: peer == null
               ? null
@@ -281,74 +274,143 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   context,
                   MaterialPageRoute(builder: (_) => const RoleSelectionScreen()),
                 ),
-          icon: const Icon(Icons.swap_horiz),
+          icon: const Icon(Icons.swap_horiz_rounded),
           label: const Text('Rol Değiştir'),
         ),
 
         // System
-        const SizedBox(height: 24),
-        _buildSectionTitle(context, 'Sistem'),
-        ListTile(
-          leading: const Icon(Icons.battery_alert),
-          title: const Text('Pil optimizasyonunu kaldır'),
-          subtitle: const Text('Uygulamanın arka planda güvenilir çalışması için'),
-          trailing: const Icon(Icons.chevron_right),
-          onTap: () async {
-            await PermissionService.requestIgnoreBatteryOptimizations();
-            if (context.mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Pil ayarları açıldı')),
-              );
-            }
-          },
-        ),
- ListTile(
- leading: const Icon(Icons.notifications_active),
- title: const Text('Bildirim erişimi'),
- subtitle: const Text('Diğer telefondan bildirimleri yansıtmak için gerekli'),
- trailing: const Icon(Icons.chevron_right),
- onTap: () async {
- await TelephonyChannel.openNotificationListenerSettings();
- },
- ),
- ListTile(
- leading: const Icon(Icons.shield_outlined),
- title: const Text('Kullanılmıyorsa izinleri kaldırma'),
- subtitle: const Text(
- 'Uygulama Bilgisi\'nde "Kullanılmıyorsa izinleri kaldır" (HyperOS\'ta "Uygulama kullanılmıyorsa") seçeneğini kapatın — açık kalırsa Android birkaç ay sonra SMS/arama izinlerini geri alabilir',
- ),
- trailing: const Icon(Icons.chevron_right),
- onTap: () async {
- await PermissionService.openAppInfoSettings();
- },
- ),
- ListTile(
- leading: const Icon(Icons.delete_forever, color: Colors.redAccent),
-          title: const Text('Cihazı sıfırla', style: TextStyle(color: Colors.redAccent)),
-          subtitle: const Text('Tüm verileri sil ve yeni QR oluştur'),
-          onTap: () => _confirmReset(context, ref),
+        const SizedBox(height: AppSpacing.lg),
+        _sectionTitle(context, 'Sistem'),
+        _sectionCard(
+          padding: EdgeInsets.zero,
+          child: Column(
+            children: [
+              ListTile(
+                leading: const Icon(Icons.battery_charging_full_rounded),
+                title: const Text('Pil optimizasyonunu kaldır'),
+                subtitle: const Text('Uygulamanın arka planda güvenilir çalışması için'),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap: () async {
+                  await PermissionService.requestIgnoreBatteryOptimizations();
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Pil ayarları açıldı')),
+                    );
+                  }
+                },
+              ),
+              const Divider(height: 1, indent: 16, endIndent: 16),
+              ListTile(
+                leading: const Icon(Icons.notifications_active_rounded),
+                title: const Text('Bildirim erişimi'),
+                subtitle: const Text('Diğer telefondan bildirimleri yansıtmak için gerekli'),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap: () async {
+                  await TelephonyChannel.openNotificationListenerSettings();
+                },
+              ),
+              const Divider(height: 1, indent: 16, endIndent: 16),
+              ListTile(
+                leading: const Icon(Icons.shield_outlined),
+                title: const Text('Kullanılmıyorsa izinleri kaldırma'),
+                subtitle: const Text(
+                  'Uygulama Bilgisi\'nde "Kullanılmıyorsa izinleri kaldır" (HyperOS\'ta "Uygulama kullanılmıyorsa") '
+                  'seçeneğini kapatın — açık kalırsa Android birkaç ay sonra SMS/arama izinlerini geri alabilir',
+                ),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap: () async {
+                  await PermissionService.openAppInfoSettings();
+                },
+              ),
+              const Divider(height: 1, indent: 16, endIndent: 16),
+              ListTile(
+                leading: Icon(Icons.delete_forever_rounded, color: theme.colorScheme.error),
+                title: Text('Cihazı sıfırla', style: TextStyle(color: theme.colorScheme.error)),
+                subtitle: const Text('Tüm verileri sil ve yeni QR oluştur'),
+                onTap: () => _confirmReset(context, ref),
+              ),
+            ],
+          ),
         ),
       ],
     );
   }
 
-  Widget _buildInfoRow(String label, String value) {
+  // ---------------------------------------------------------------------
+  // Shared building blocks
+  // ---------------------------------------------------------------------
+
+  Widget _sectionCard({required Widget child, EdgeInsetsGeometry? padding}) {
+    return Card(
+      child: Padding(
+        padding: padding ?? const EdgeInsets.all(AppSpacing.md),
+        child: child,
+      ),
+    );
+  }
+
+  Widget _sectionTitle(BuildContext context, String title) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 2),
+      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+      child: Text(
+        title,
+        style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+      ),
+    );
+  }
+
+  Widget _avatar(ThemeData theme, {required IconData icon, required Color color, required Color background}) {
+    return CircleAvatar(
+      radius: 22,
+      backgroundColor: background,
+      child: Icon(icon, color: color),
+    );
+  }
+
+  /// Small pill showing live connection status, reused wherever it's shown.
+  Widget _connectionStatusChip(BuildContext context, {required bool isConnected, required bool isConnecting}) {
+    final status = Theme.of(context).status;
+    final (icon, color, label) = isConnecting
+        ? (Icons.sync_rounded, status.warning, 'Bağlanıyor...')
+        : isConnected
+            ? (Icons.check_circle_rounded, status.success, 'Bağlı')
+            : (Icons.wifi_off_rounded, status.warning, 'Bağlı değil');
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(AppRadius.pill),
+      ),
       child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 4),
+          Text(label, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: color)),
+        ],
+      ),
+    );
+  }
+
+  Widget _infoRow(BuildContext context, String label, String value) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(
-            width: 40,
-            child: Text(
-              label,
-              style: const TextStyle(
-                fontWeight: FontWeight.bold,
-                color: Colors.grey,
-              ),
+          Text(
+            label.toUpperCase(),
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.4,
+              color: colorScheme.onSurfaceVariant,
             ),
           ),
-          Expanded(child: Text(value)),
+          const SizedBox(height: 2),
+          SelectableText(value, style: TextStyle(fontSize: 14, color: colorScheme.onSurface)),
         ],
       ),
     );
@@ -357,49 +419,31 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   Widget _buildPeerCard(BuildContext context, WidgetRef ref, Peer p) {
     final theme = Theme.of(context);
     return Card(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      margin: const EdgeInsets.only(bottom: 8),
+      margin: const EdgeInsets.only(bottom: AppSpacing.sm),
       child: ListTile(
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        leading: CircleAvatar(
-          backgroundColor: p.role == 'main'
-              ? theme.colorScheme.primaryContainer
-              : Colors.green[100],
-          child: Icon(
-            p.role == 'main' ? Icons.phone_android : Icons.sim_card,
-            color: p.role == 'main' ? theme.colorScheme.primary : Colors.green,
-          ),
+        leading: _avatar(
+          theme,
+          icon: p.role == 'main' ? Icons.phone_android_rounded : Icons.sim_card_rounded,
+          color: p.role == 'main' ? theme.colorScheme.primary : theme.status.success,
+          background: p.role == 'main' ? theme.colorScheme.primaryContainer : theme.status.successContainer,
         ),
-        title: Text(p.deviceName, style: const TextStyle(fontWeight: FontWeight.bold)),
+        title: Text(p.deviceName, style: const TextStyle(fontWeight: FontWeight.w700)),
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text('IP: ${p.ip}:${p.port}'),
-            Text(
-              'Rol: ${p.role == 'main' ? 'Asıl Telefon' : 'Diğer Telefon'}',
-            ),
+            Text('Rol: ${p.role == 'main' ? 'Asıl Telefon' : 'Diğer Telefon'}'),
           ],
         ),
         trailing: IconButton(
-          icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+          icon: Icon(Icons.delete_outline_rounded, color: theme.colorScheme.error),
           onPressed: () async {
             await ref.read(peerProvider.notifier).deletePeer(p);
             ref.invalidate(pairedPeersProvider);
             await ref.read(connectionProvider.notifier).refresh();
           },
         ),
-      ),
-    );
-  }
-
-  Widget _buildSectionTitle(BuildContext context, String title) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Text(
-        title,
-        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.bold,
-            ),
       ),
     );
   }
@@ -421,10 +465,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
     final ok = await ref.read(connectionProvider.notifier).connectManually(ip, port);
     if (!context.mounted) return;
+    final theme = Theme.of(context);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(ok ? 'Bağlantı kuruldu' : 'Bağlantı kurulamadı'),
-        backgroundColor: ok ? Colors.green : Colors.redAccent,
+        backgroundColor: ok ? theme.status.success : theme.colorScheme.error,
       ),
     );
   }
@@ -454,7 +499,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 );
               }
             },
-            child: const Text('Sıfırla', style: TextStyle(color: Colors.redAccent)),
+            child: Text('Sıfırla', style: TextStyle(color: Theme.of(context).colorScheme.error)),
           ),
         ],
       ),

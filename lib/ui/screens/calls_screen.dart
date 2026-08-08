@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/models/call_event.dart';
 import '../../providers/call_list_provider.dart';
 import '../../providers/connection_provider.dart';
+import '../theme.dart';
 import '../widgets/call_card.dart';
 import '../widgets/empty_state.dart';
 
@@ -16,15 +17,15 @@ class CallsScreen extends ConsumerWidget {
 
     if (calls.isEmpty) {
       return const EmptyState(
-        icon: Icons.call_end,
+        icon: Icons.call_end_rounded,
         message: 'Henüz gelen arama yok',
       );
     }
 
     return ListView.separated(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(AppSpacing.md),
       itemCount: calls.length,
-      separatorBuilder: (_, _) => const SizedBox(height: 8),
+      separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.sm),
       itemBuilder: (context, index) {
         final call = calls[index];
         return CallCard(

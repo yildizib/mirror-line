@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/models/sms_message.dart';
 import '../../providers/connection_provider.dart';
 import '../../providers/sms_list_provider.dart';
+import '../theme.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/sms_card.dart';
 
@@ -16,15 +17,15 @@ class SmsScreen extends ConsumerWidget {
 
     if (messages.isEmpty) {
       return const EmptyState(
-        icon: Icons.message,
+        icon: Icons.message_rounded,
         message: 'Henüz mesaj yok',
       );
     }
 
     return ListView.separated(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(AppSpacing.md),
       itemCount: messages.length,
-      separatorBuilder: (_, _) => const SizedBox(height: 8),
+      separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.sm),
       itemBuilder: (context, index) {
         final message = messages[index];
         return SmsCard(
@@ -45,9 +46,9 @@ class SmsScreen extends ConsumerWidget {
         content: TextField(
           controller: controller,
           maxLines: 4,
+          autofocus: true,
           decoration: const InputDecoration(
             hintText: 'Yanıtınızı yazın...',
-            border: OutlineInputBorder(),
           ),
         ),
         actions: [

@@ -7,6 +7,7 @@ import '../../providers/connection_provider.dart';
 import '../../providers/pairing_provider.dart';
 import '../../providers/peer_provider.dart';
 import '../../security/key_store.dart';
+import '../theme.dart';
 import '../widgets/qr_display.dart';
 import 'role_selection_screen.dart';
 
@@ -56,8 +57,8 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
           title: const Text('Cihaz Eşleştir'),
           bottom: const TabBar(
             tabs: [
-              Tab(text: 'QR Göster', icon: Icon(Icons.qr_code)),
-              Tab(text: 'QR Tara', icon: Icon(Icons.qr_code_scanner)),
+              Tab(text: 'QR Göster', icon: Icon(Icons.qr_code_rounded)),
+              Tab(text: 'QR Tara', icon: Icon(Icons.qr_code_scanner_rounded)),
             ],
           ),
         ),
@@ -72,21 +73,29 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
   }
 
   Widget _buildShowQrTab(Peer? peer, PairingState pairingState) {
+    final theme = Theme.of(context);
+
     if (peer == null) {
       return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Text('Önce rol seçimi yapmalısınız.'),
-            const SizedBox(height: 16),
-            FilledButton(
-              onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const RoleSelectionScreen()),
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpacing.lg),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                'Önce rol seçimi yapmalısınız.',
+                style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
               ),
-              child: const Text('Rol Seç'),
-            ),
-          ],
+              const SizedBox(height: AppSpacing.md),
+              FilledButton(
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const RoleSelectionScreen()),
+                ),
+                child: const Text('Rol Seç'),
+              ),
+            ],
+          ),
         ),
       );
     }
@@ -99,34 +108,78 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
         '${peer.id}|${peer.ip}|${peer.port}|${peer.key}|${peer.deviceName}|${peer.role}|$myPub';
 
     return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          QrDisplay(data: qrData),
-          const SizedBox(height: 16),
-          Text(
-            'Doğrulama Kodu: ${peer.verificationCode}',
-            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 8),
-          const Text('Diğer telefon bu QR kodu taratsın.'),
-          const SizedBox(height: 16),
-          if (pairingState.isShowingRequest)
-            const Card(
-              child: Padding(
-                padding: EdgeInsets.all(16),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.link, color: Colors.green),
-                    SizedBox(width: 8),
-                    Text('Eşleşme isteği alındı!'),
-                  ],
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(AppSpacing.lg),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            QrDisplay(data: qrData),
+            const SizedBox(height: AppSpacing.lg),
+            _verificationCodeBadge(context, peer.verificationCode),
+            const SizedBox(height: AppSpacing.sm),
+            Text(
+              'Diğer telefon bu QR kodu taratsın.',
+              style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
+            ),
+            if (pairingState.isShowingRequest) ...[
+              const SizedBox(height: AppSpacing.md),
+              Card(
+                color: theme.status.successContainer,
+                child: Padding(
+                  padding: const EdgeInsets.all(AppSpacing.md),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.link_rounded, color: theme.status.success),
+                      const SizedBox(width: AppSpacing.sm),
+                      Text(
+                        'Eşleşme isteği alındı!',
+                        style: TextStyle(color: theme.status.onSuccessContainer),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
-        ],
+            ],
+          ],
+        ),
       ),
+    );
+  }
+
+  /// Shared "6-digit code" display used on the QR tab, the scan-waiting
+  /// state, and both confirmation dialogs so it looks the same everywhere.
+  Widget _verificationCodeBadge(BuildContext context, String code) {
+    final theme = Theme.of(context);
+    return Column(
+      children: [
+        Text(
+          'DOĞRULAMA KODU',
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.6,
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.primaryContainer,
+            borderRadius: BorderRadius.circular(AppRadius.pill),
+          ),
+          child: Text(
+            code,
+            style: TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 4,
+              color: theme.colorScheme.onPrimaryContainer,
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -148,17 +201,12 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
             if (pairingState.verificationCode != null)
               Column(
                 children: [
-                  const Text('Doğrulama Kodu:',
-                      style: TextStyle(fontWeight: FontWeight.bold)),
+                  _verificationCodeBadge(context, pairingState.verificationCode!),
+                  const SizedBox(height: AppSpacing.sm),
                   Text(
-                    pairingState.verificationCode!,
-                    style: const TextStyle(
-                        fontSize: 28,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 4),
+                    'Kod her iki cihazda aynı olmalı.',
+                    style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
                   ),
-                  const SizedBox(height: 8),
-                  const Text('Kod her iki cihazda aynı olmalı.'),
                 ],
               ),
             const SizedBox(height: 24),
@@ -177,14 +225,14 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.error_outline, size: 64, color: Colors.red[300]),
-            const SizedBox(height: 16),
+            Icon(Icons.error_outline_rounded, size: 64, color: Theme.of(context).colorScheme.error),
+            const SizedBox(height: AppSpacing.md),
             Text(
               pairingState.errorMessage!,
               style: const TextStyle(fontSize: 16),
               textAlign: TextAlign.center,
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: AppSpacing.lg),
             FilledButton(
               onPressed: () {
                 ref.read(pairingProvider.notifier).reset();
@@ -265,16 +313,28 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.qr_code_scanner, size: 64, color: Colors.grey[400]),
-          const SizedBox(height: 16),
+          Container(
+            width: 88,
+            height: 88,
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.5),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              Icons.qr_code_scanner_rounded,
+              size: 36,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.md),
           const Text(
             'Diğer cihazın QR kodunu tarayın',
             style: TextStyle(fontSize: 16),
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: AppSpacing.lg),
           FilledButton.icon(
             onPressed: () => setState(() => _isScanning = true),
-            icon: const Icon(Icons.qr_code_scanner),
+            icon: const Icon(Icons.qr_code_scanner_rounded),
             label: const Text('Taramayı Başlat'),
           ),
         ],
@@ -294,15 +354,13 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
             Text(
               '${pairingState.remoteDeviceName ?? "Bilinmeyen Cihaz"} cihazı ile eşleşmek istiyor.',
             ),
-            const SizedBox(height: 16),
-            const Text('Doğrulama Kodu:', style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: AppSpacing.md),
+            _verificationCodeBadge(ctx, pairingState.verificationCode ?? ''),
+            const SizedBox(height: AppSpacing.sm),
             Text(
-              pairingState.verificationCode ?? '',
-              style: const TextStyle(
-                  fontSize: 28, fontWeight: FontWeight.bold, letterSpacing: 4),
+              'Kod her iki cihazda aynı olmalı.',
+              style: TextStyle(color: Theme.of(ctx).colorScheme.onSurfaceVariant),
             ),
-            const SizedBox(height: 8),
-            const Text('Kod her iki cihazda aynı olmalı.'),
           ],
         ),
         actions: [
@@ -341,7 +399,7 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
                   SnackBar(
                     content: Text(
                         '${pairingState.remoteDeviceName ?? "Cihaz"} ile eşleştirildi!'),
-                    backgroundColor: Colors.green,
+                    backgroundColor: Theme.of(context).status.success,
                   ),
                 );
                 Future.delayed(const Duration(milliseconds: 500), () {
@@ -417,15 +475,13 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text('$scannedName cihazı ile eşleşeceksiniz.'),
-            const SizedBox(height: 16),
-            const Text('Doğrulama Kodu:', style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: AppSpacing.md),
+            _verificationCodeBadge(ctx, verificationCode),
+            const SizedBox(height: AppSpacing.sm),
             Text(
-              verificationCode,
-              style: const TextStyle(
-                  fontSize: 28, fontWeight: FontWeight.bold, letterSpacing: 4),
+              'Kod her iki cihazda aynı olmalı.',
+              style: TextStyle(color: Theme.of(ctx).colorScheme.onSurfaceVariant),
             ),
-            const SizedBox(height: 8),
-            const Text('Kod her iki cihazda aynı olmalı.'),
           ],
         ),
         actions: [
@@ -475,7 +531,7 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('$scannedName ile eşleştirildi!'),
-          backgroundColor: Colors.green,
+          backgroundColor: Theme.of(context).status.success,
         ),
       );
       Future.delayed(const Duration(milliseconds: 500), () {

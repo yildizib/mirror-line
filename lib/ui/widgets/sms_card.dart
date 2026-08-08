@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../data/models/sms_message.dart';
+import '../theme.dart';
 
 class SmsCard extends StatelessWidget {
   final SmsMessage message;
@@ -15,38 +16,57 @@ class SmsCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final status = theme.status;
     final isIncoming = message.direction == 'incoming';
 
     return Card(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        leading: CircleAvatar(
-          backgroundColor: isIncoming ? theme.colorScheme.primaryContainer : Colors.green[100],
-          child: Icon(Icons.message, color: isIncoming ? theme.colorScheme.primary : Colors.green),
-        ),
-        title: Text(
-          message.address,
-          style: const TextStyle(fontWeight: FontWeight.w600),
-        ),
-        subtitle: Column(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              message.body,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
+            CircleAvatar(
+              radius: 22,
+              backgroundColor: isIncoming ? colorScheme.primaryContainer : status.successContainer,
+              child: Icon(
+                isIncoming ? Icons.call_received_rounded : Icons.call_made_rounded,
+                color: isIncoming ? colorScheme.primary : status.success,
+                size: 20,
+              ),
             ),
-            const SizedBox(height: 4),
-            Text(
-              '${_formatTime(message.timestamp)} · ${message.status}',
-              style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+            const SizedBox(width: AppSpacing.md),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    message.address,
+                    style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    message.body,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: colorScheme.onSurfaceVariant),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '${_formatTime(message.timestamp)} · ${message.status}',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: colorScheme.onSurfaceVariant.withValues(alpha: 0.8),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            IconButton.filledTonal(
+              icon: const Icon(Icons.reply_rounded),
+              onPressed: onReply,
             ),
           ],
-        ),
-        trailing: IconButton(
-          icon: Icon(Icons.reply, color: theme.colorScheme.primary),
-          onPressed: onReply,
         ),
       ),
     );

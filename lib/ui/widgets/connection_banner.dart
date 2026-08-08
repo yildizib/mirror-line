@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../theme.dart';
+
 class ConnectionBanner extends StatelessWidget {
   final bool isConnected;
 
@@ -7,24 +9,39 @@ class ConnectionBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (isConnected) return const SizedBox.shrink();
+    final status = Theme.of(context).status;
 
-    return Container(
-      width: double.infinity,
-      color: Colors.orange[100],
-      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-      child: Row(
-        children: [
-          Icon(Icons.wifi_off, size: 18, color: Colors.orange[800]),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              'Bağlantı yok. Eş cihaz aranıyor; aynı WiFi ağında olduğunuzdan emin olun.',
-              style: TextStyle(fontSize: 13, color: Colors.orange[900]),
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 250),
+      curve: Curves.easeOut,
+      alignment: Alignment.topCenter,
+      child: isConnected
+          ? const SizedBox(width: double.infinity)
+          : Container(
+              width: double.infinity,
+              margin: const EdgeInsets.fromLTRB(AppSpacing.md, AppSpacing.sm, AppSpacing.md, 0),
+              padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 14),
+              decoration: BoxDecoration(
+                color: status.warningContainer,
+                borderRadius: BorderRadius.circular(AppRadius.pill),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.wifi_off_rounded, size: 18, color: status.onWarningContainer),
+                  const SizedBox(width: AppSpacing.sm),
+                  Expanded(
+                    child: Text(
+                      'Bağlantı yok. Eş cihaz aranıyor; aynı WiFi ağında olduğunuzdan emin olun.',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: status.onWarningContainer,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
-        ],
-      ),
     );
   }
 }
