@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:mirrorline/l10n/app_localizations.dart';
 import 'package:mirrorline/core/theme/theme.dart';
 import 'package:mirrorline/features/home/home_screen.dart';
 
@@ -61,6 +62,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final l = AppLocalizations.of(context);
 
     return Scaffold(
       backgroundColor: colorScheme.surface,
@@ -98,7 +100,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
                 ),
                 const SizedBox(height: AppSpacing.lg),
                 Text(
-                  'MirrorLine',
+                  l.appTitle,
                   style: theme.textTheme.headlineMedium?.copyWith(
                     fontWeight: FontWeight.w800,
                     letterSpacing: -0.5,
@@ -106,7 +108,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
                 ),
                 const SizedBox(height: AppSpacing.xs),
                 Text(
-                  'İki telefon, uçtan uca şifreli bağlantı',
+                  l.splashTagline,
                   style: theme.textTheme.bodyMedium?.copyWith(
                     color: colorScheme.onSurfaceVariant,
                   ),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:mirrorline/l10n/app_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mirrorline/core/data/models/call_event.dart';
 import 'package:mirrorline/core/theme/theme.dart';
@@ -39,6 +40,7 @@ class _CallGroupDetailScreenState extends ConsumerState<CallGroupDetailScreen> {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final group = _group;
+    final l = AppLocalizations.of(context);
 
     // The group can disappear entirely if every call in it was deleted --
     // pop back to the calls list instead of rendering an empty screen.
@@ -62,7 +64,7 @@ class _CallGroupDetailScreenState extends ConsumerState<CallGroupDetailScreen> {
           children: [
             Text(group.displayName, style: const TextStyle(fontSize: 17)),
             Text(
-              '${group.count} arama',
+              l.callsCallCount(group.count),
               style: TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w400,
@@ -75,14 +77,14 @@ class _CallGroupDetailScreenState extends ConsumerState<CallGroupDetailScreen> {
             ? [
                 IconButton(
                   icon: const Icon(Icons.delete_rounded),
-                  tooltip: 'Seçilenleri sil',
+                  tooltip: l.commonDeleteSelected,
                   onPressed: _selected.isEmpty ? null : () => _deleteSelected(context),
                 ),
               ]
             : [
                 IconButton(
                   icon: const Icon(Icons.checklist_rounded),
-                  tooltip: 'Seç',
+                  tooltip: l.commonSelect,
                   onPressed: () => setState(() => _selecting = true),
                 ),
               ],
@@ -120,15 +122,16 @@ class _CallGroupDetailScreenState extends ConsumerState<CallGroupDetailScreen> {
   }
 
   void _deleteSelected(BuildContext context) {
+    final l = AppLocalizations.of(context);
     showDialog(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Seçilen aramaları sil'),
-        content: Text('${_selected.length} arama kalıcı olarak silinecek.'),
+        title: Text(l.callsDeleteSelected),
+        content: Text(l.callsDeleteOne(_selected.length)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('İptal'),
+            child: Text(l.commonCancel),
           ),
           TextButton(
             onPressed: () async {
@@ -136,12 +139,12 @@ class _CallGroupDetailScreenState extends ConsumerState<CallGroupDetailScreen> {
               if (context.mounted) {
                 Navigator.pop(dialogContext);
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Seçilen aramalar silindi')),
+                  SnackBar(content: Text(l.callsDeleted)),
                 );
               }
               _exitSelectionMode();
             },
-            child: Text('Sil', style: TextStyle(color: Theme.of(context).colorScheme.error)),
+            child: Text(l.commonDelete, style: TextStyle(color: Theme.of(context).colorScheme.error)),
           ),
         ],
       ),
@@ -193,7 +196,7 @@ class _CallDetailTile extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    _formatFullTime(event.timestamp),
+                    _formatFullTime(event.timestamp, context),
                     style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
                   ),
                   const SizedBox(height: 2),
@@ -222,12 +225,13 @@ class _CallDetailTile extends StatelessWidget {
     );
   }
 
-  String _formatFullTime(DateTime time) {
+  String _formatFullTime(DateTime time, BuildContext context) {
     final now = DateTime.now();
     final sameDay = time.year == now.year && time.month == now.month && time.day == now.day;
     final hh = time.hour.toString().padLeft(2, '0');
     final mm = time.minute.toString().padLeft(2, '0');
-    if (sameDay) return 'Bugün $hh:$mm';
+    final l = AppLocalizations.of(context);
+    if (sameDay) return '${l.commonToday} $hh:$mm';
     return '${time.day.toString().padLeft(2, '0')}.${time.month.toString().padLeft(2, '0')}.$time.year $hh:$mm';
   }
 }

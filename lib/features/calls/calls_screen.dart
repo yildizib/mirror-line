@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:mirrorline/l10n/app_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mirrorline/core/data/models/call_event.dart';
 import 'package:mirrorline/core/theme/theme.dart';
@@ -22,11 +23,12 @@ class _CallsScreenState extends ConsumerState<CallsScreen> {
   @override
   Widget build(BuildContext context) {
     final groups = ref.watch(callGroupsProvider);
+    final l = AppLocalizations.of(context);
 
     if (groups.isEmpty) {
-      return const EmptyState(
+      return EmptyState(
         icon: Icons.call_end_rounded,
-        message: 'Henüz gelen arama yok',
+        message: l.callsEmpty,
       );
     }
 
@@ -61,11 +63,11 @@ class _CallsScreenState extends ConsumerState<CallsScreen> {
                 icon: const Icon(Icons.close_rounded),
                 onPressed: _exitSelectionMode,
               ),
-              title: Text('${_selected.length} seçili'),
+              title: Text(l.callsSelectedCount(_selected.length)),
               actions: [
                 IconButton(
                   icon: const Icon(Icons.delete_rounded),
-                  tooltip: 'Seçilenleri sil',
+                  tooltip: l.commonDeleteSelected,
                   onPressed: _selected.isEmpty ? null : () => _deleteSelected(context, groups),
                 ),
               ],
@@ -74,7 +76,7 @@ class _CallsScreenState extends ConsumerState<CallsScreen> {
       floatingActionButton: _selecting
           ? null
           : FloatingActionButton(
-              tooltip: 'Aramaları seç',
+              tooltip: l.callsSelectMode,
               onPressed: () => setState(() => _selecting = true),
               child: const Icon(Icons.checklist_rounded),
             ),
@@ -105,15 +107,16 @@ class _CallsScreenState extends ConsumerState<CallsScreen> {
     for (final g in selectedGroups) {
       ids.addAll(g.calls.map((c) => c.id));
     }
+    final l = AppLocalizations.of(context);
     showDialog(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Seçilen aramaları sil'),
-        content: Text('${selectedGroups.length} kişiye ait ${ids.length} arama kalıcı olarak silinecek.'),
+        title: Text(l.callsDeleteSelected),
+        content: Text(l.callsDeleteConfirmBody(selectedGroups.length, ids.length)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('İptal'),
+            child: Text(l.commonCancel),
           ),
           TextButton(
             onPressed: () async {
@@ -121,12 +124,12 @@ class _CallsScreenState extends ConsumerState<CallsScreen> {
               if (context.mounted) {
                 Navigator.pop(dialogContext);
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Seçilen aramalar silindi')),
+                  SnackBar(content: Text(l.callsDeleted)),
                 );
               }
               _exitSelectionMode();
             },
-            child: Text('Sil', style: TextStyle(color: Theme.of(context).colorScheme.error)),
+            child: Text(l.commonDelete, style: TextStyle(color: Theme.of(context).colorScheme.error)),
           ),
         ],
       ),
@@ -139,7 +142,7 @@ class _CallsScreenState extends ConsumerState<CallsScreen> {
     ref.read(connectionProvider.notifier).sendCallRejected(call.id);
 
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Arama reddedildi')),
+      SnackBar(content: Text(AppLocalizations.of(context).callsRejected)),
     );
   }
 }

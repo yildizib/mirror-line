@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:mirrorline/l10n/app_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mirrorline/core/theme/theme.dart';
 import 'package:mirrorline/features/sms/sms_list_provider.dart';
@@ -21,11 +22,12 @@ class _SmsScreenState extends ConsumerState<SmsScreen> {
   @override
   Widget build(BuildContext context) {
     final threads = ref.watch(smsThreadsProvider);
+    final l = AppLocalizations.of(context);
 
     if (threads.isEmpty) {
-      return const EmptyState(
+      return EmptyState(
         icon: Icons.message_rounded,
-        message: 'Henüz mesaj yok',
+        message: l.smsEmpty,
       );
     }
 
@@ -55,11 +57,11 @@ class _SmsScreenState extends ConsumerState<SmsScreen> {
                 icon: const Icon(Icons.close_rounded),
                 onPressed: _exitSelectionMode,
               ),
-              title: Text('${_selected.length} seçili'),
+              title: Text(l.smsSelectedCount(_selected.length)),
               actions: [
                 IconButton(
                   icon: const Icon(Icons.delete_rounded),
-                  tooltip: 'Seçilenleri sil',
+                  tooltip: l.commonDeleteSelected,
                   onPressed: _selected.isEmpty ? null : () => _deleteSelected(context),
                 ),
               ],
@@ -68,7 +70,7 @@ class _SmsScreenState extends ConsumerState<SmsScreen> {
       floatingActionButton: _selecting
           ? null
           : FloatingActionButton(
-              tooltip: 'Mesajları seç',
+              tooltip: l.smsSelectMode,
               onPressed: () => setState(() => _selecting = true),
               child: const Icon(Icons.checklist_rounded),
             ),
@@ -94,15 +96,16 @@ class _SmsScreenState extends ConsumerState<SmsScreen> {
   }
 
   void _deleteSelected(BuildContext context) {
+    final l = AppLocalizations.of(context);
     showDialog(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Seçilen konuşmaları sil'),
-        content: Text('${_selected.length} konuşma ve tüm mesajları kalıcı olarak silinecek.'),
+        title: Text(l.smsDeleteSelected),
+        content: Text(l.smsDeleteConfirmBody(_selected.length)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('İptal'),
+            child: Text(l.commonCancel),
           ),
           TextButton(
             onPressed: () async {
@@ -113,12 +116,12 @@ class _SmsScreenState extends ConsumerState<SmsScreen> {
               if (context.mounted) {
                 Navigator.pop(dialogContext);
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Seçilen konuşmalar silindi')),
+                  SnackBar(content: Text(l.smsDeleted)),
                 );
               }
               _exitSelectionMode();
             },
-            child: Text('Sil', style: TextStyle(color: Theme.of(context).colorScheme.error)),
+            child: Text(l.commonDelete, style: TextStyle(color: Theme.of(context).colorScheme.error)),
           ),
         ],
       ),

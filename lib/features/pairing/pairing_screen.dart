@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:mirrorline/l10n/app_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mirrorline/core/data/models/peer.dart';
 import 'package:mirrorline/core/security/key_store.dart';
@@ -36,6 +37,7 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
   Widget build(BuildContext context) {
     final peer = ref.watch(peerProvider);
     final pairingState = ref.watch(pairingProvider);
+    final l = AppLocalizations.of(context);
 
     if (peer != null && _cachedPeerForQr?.id != peer.id) {
       _cachedPeerForQr = peer;
@@ -53,11 +55,11 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
       length: 2,
       child: Scaffold(
         appBar: AppBar(
-          title: const Text('Cihaz Eşleştir'),
-          bottom: const TabBar(
+          title: Text(l.pairingTitle),
+          bottom: TabBar(
             tabs: [
-              Tab(text: 'QR Göster', icon: Icon(Icons.qr_code_rounded)),
-              Tab(text: 'QR Tara', icon: Icon(Icons.qr_code_scanner_rounded)),
+              Tab(text: l.pairingShowQr, icon: const Icon(Icons.qr_code_rounded)),
+              Tab(text: l.pairingScanQr, icon: const Icon(Icons.qr_code_scanner_rounded)),
             ],
           ),
         ),
@@ -73,6 +75,7 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
 
   Widget _buildShowQrTab(Peer? peer, PairingState pairingState) {
     final theme = Theme.of(context);
+    final l = AppLocalizations.of(context);
 
     if (peer == null) {
       return Center(
@@ -82,7 +85,7 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Text(
-                'Önce rol seçimi yapmalısınız.',
+                l.pairingSelectRoleFirst,
                 style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
               ),
               const SizedBox(height: AppSpacing.md),
@@ -91,7 +94,7 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
                   context,
                   MaterialPageRoute(builder: (_) => const RoleSelectionScreen()),
                 ),
-                child: const Text('Rol Seç'),
+                child: Text(l.pairingSelectRoleButton),
               ),
             ],
           ),
@@ -117,7 +120,7 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
             _verificationCodeBadge(context, peer.verificationCode),
             const SizedBox(height: AppSpacing.sm),
             Text(
-              'Diğer telefon bu QR kodu taratsın.',
+              l.pairingOtherScanHint,
               style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
             ),
             if (pairingState.isShowingRequest) ...[
@@ -132,7 +135,7 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
                       Icon(Icons.link_rounded, color: theme.status.success),
                       const SizedBox(width: AppSpacing.sm),
                       Text(
-                        'Eşleşme isteği alındı!',
+                        l.pairingRequestReceived,
                         style: TextStyle(color: theme.status.onSuccessContainer),
                       ),
                     ],
@@ -150,10 +153,11 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
   /// state, and both confirmation dialogs so it looks the same everywhere.
   Widget _verificationCodeBadge(BuildContext context, String code) {
     final theme = Theme.of(context);
+    final l = AppLocalizations.of(context);
     return Column(
       children: [
         Text(
-          'DOĞRULAMA KODU',
+          l.verificationCodeLabel,
           style: TextStyle(
             fontSize: 11,
             fontWeight: FontWeight.w700,
@@ -183,6 +187,7 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
   }
 
   Widget _buildScanTab(PairingState pairingState) {
+    final l = AppLocalizations.of(context);
     // Show waiting state while handshake is in progress.
     if (pairingState.isWaitingForAccept) {
       return Center(
@@ -192,7 +197,7 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
             const CircularProgressIndicator(),
             const SizedBox(height: 24),
             Text(
-              '${pairingState.remoteDeviceName ?? "Cihaz"} ile eşleşme bekleniyor...',
+              l.pairingWaiting(pairingState.remoteDeviceName ?? l.pairingUnknownDevice),
               style: const TextStyle(fontSize: 16),
               textAlign: TextAlign.center,
             ),
@@ -203,7 +208,7 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
                   _verificationCodeBadge(context, pairingState.verificationCode!),
                   const SizedBox(height: AppSpacing.sm),
                   Text(
-                    'Kod her iki cihazda aynı olmalı.',
+                    l.pairingCodeMatch,
                     style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
                   ),
                 ],
@@ -211,7 +216,7 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
             const SizedBox(height: 24),
             FilledButton.tonal(
               onPressed: () => ref.read(pairingProvider.notifier).reset(),
-              child: const Text('İptal'),
+              child: Text(l.pairingCancel),
             ),
           ],
         ),
@@ -237,7 +242,7 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
                 ref.read(pairingProvider.notifier).reset();
                 setState(() {});
               },
-              child: const Text('Tekrar Dene'),
+              child: Text(l.pairingRetry),
             ),
           ],
         ),
@@ -299,7 +304,7 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
             child: Center(
               child: FilledButton.tonal(
                 onPressed: () => setState(() => _isScanning = false),
-                child: const Text('İptal'),
+                child: Text(l.pairingCancel),
               ),
             ),
           ),
@@ -326,15 +331,15 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
             ),
           ),
           const SizedBox(height: AppSpacing.md),
-          const Text(
-            'Diğer cihazın QR kodunu tarayın',
-            style: TextStyle(fontSize: 16),
+          Text(
+            l.pairingScanPrompt,
+            style: const TextStyle(fontSize: 16),
           ),
           const SizedBox(height: AppSpacing.lg),
           FilledButton.icon(
             onPressed: () => setState(() => _isScanning = true),
             icon: const Icon(Icons.qr_code_scanner_rounded),
-            label: const Text('Taramayı Başlat'),
+            label: Text(l.pairingStartScan),
           ),
         ],
       ),
@@ -342,22 +347,25 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
   }
 
   void _showIncomingRequestDialog(PairingState pairingState) {
+    final l = AppLocalizations.of(context);
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Eşleşme İsteği'),
+      builder: (ctx) {
+        final dl = AppLocalizations.of(ctx);
+        return AlertDialog(
+        title: Text(l.pairingRequestTitle),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              '${pairingState.remoteDeviceName ?? "Bilinmeyen Cihaz"} cihazı ile eşleşmek istiyor.',
+              dl.pairingRequestFrom(pairingState.remoteDeviceName ?? dl.pairingUnknownDevice),
             ),
             const SizedBox(height: AppSpacing.md),
             _verificationCodeBadge(ctx, pairingState.verificationCode ?? ''),
             const SizedBox(height: AppSpacing.sm),
             Text(
-              'Kod her iki cihazda aynı olmalı.',
+              dl.pairingCodeMatch,
               style: TextStyle(color: Theme.of(ctx).colorScheme.onSurfaceVariant),
             ),
           ],
@@ -378,7 +386,7 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
                 Navigator.of(ctx).pop();
               }
             },
-            child: const Text('Reddet'),
+            child: Text(l.pairingReject),
           ),
           FilledButton(
             onPressed: () async {
@@ -398,7 +406,7 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
                     content: Text(
-                        '${pairingState.remoteDeviceName ?? "Cihaz"} ile eşleştirildi!'),
+                        l.pairingPairedWith(pairingState.remoteDeviceName ?? l.pairingUnknownDevice)),
                     backgroundColor: Theme.of(context).status.success,
                   ),
                 );
@@ -410,10 +418,11 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
                 if (mounted) Navigator.of(context).pop();
               });
             },
-            child: const Text('Onayla'),
+            child: Text(l.pairingConfirm),
           ),
         ],
-      ),
+      );
+      },
     );
   }
 
@@ -421,6 +430,7 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
     if (_isProcessing) return;
 
     setState(() => _isProcessing = true);
+    final l = AppLocalizations.of(context);
 
     final parts = data.split('|');
     // QR format: id|ip|port|key|deviceName|role|publicKey (7 parts)
@@ -431,7 +441,7 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
         _isScanning = false;
       });
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Geçersiz QR kod formatı')),
+        SnackBar(content: Text(l.pairingInvalidQr)),
       );
       return;
     }
@@ -449,7 +459,7 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
         ? parts.sublist(4, parts.length - 2).join('|')
         : (hasRole
             ? parts.sublist(4, parts.length - 1).join('|')
-            : (parts.length > 4 ? parts.sublist(4).join('|') : 'Bilinmeyen Cihaz'));
+            : (parts.length > 4 ? parts.sublist(4).join('|') : l.pairingUnknownDevice));
 
     final myPeer = ref.read(peerProvider);
     if (myPeer == null) {
@@ -458,7 +468,7 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
         _isScanning = false;
       });
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Önce rol seçimi yapmalısınız')),
+        SnackBar(content: Text(l.pairingSelectRoleFirst)),
       );
       return;
     }
@@ -472,17 +482,19 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Eşleşmeyi Onayla'),
+      builder: (ctx) {
+        final dl = AppLocalizations.of(ctx);
+        return AlertDialog(
+        title: Text(dl.pairingConfirmTitle),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text('$scannedName cihazı ile eşleşeceksiniz.'),
+            Text(dl.pairingConfirmBody(scannedName)),
             const SizedBox(height: AppSpacing.md),
             _verificationCodeBadge(ctx, verificationCode),
             const SizedBox(height: AppSpacing.sm),
             Text(
-              'Kod her iki cihazda aynı olmalı.',
+              dl.pairingCodeMatch,
               style: TextStyle(color: Theme.of(ctx).colorScheme.onSurfaceVariant),
             ),
           ],
@@ -496,14 +508,15 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
               });
               Navigator.of(ctx).pop(false);
             },
-            child: const Text('İptal'),
+            child: Text(dl.pairingCancel),
           ),
           FilledButton(
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Onayla'),
+            child: Text(dl.pairingConfirm),
           ),
         ],
-      ),
+      );
+      },
     );
 
     if (confirmed != true || !mounted) {
@@ -533,7 +546,7 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
     if (pairingState.errorMessage == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('$scannedName ile eşleştirildi!'),
+          content: Text(l.pairingPairedWith(scannedName)),
           backgroundColor: Theme.of(context).status.success,
         ),
       );

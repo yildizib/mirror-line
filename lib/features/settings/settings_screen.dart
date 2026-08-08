@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:mirrorline/l10n/app_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mirrorline/core/data/models/peer.dart';
 import 'package:mirrorline/core/security/key_store.dart';
+import 'package:mirrorline/core/services/locale_service.dart';
 import 'package:mirrorline/core/services/permission_service.dart';
 import 'package:mirrorline/core/telephony/telephony_channel.dart';
 import 'package:mirrorline/core/theme/theme.dart';
@@ -73,6 +75,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final isConnecting = ref.watch(connectionConnectingProvider);
     final status = ref.watch(connectionStatusProvider);
     final theme = Theme.of(context);
+    final l = AppLocalizations.of(context);
 
     return ListView(
       padding: const EdgeInsets.all(AppSpacing.md),
@@ -80,10 +83,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         // This device's own identity -- always self-scoped (KeyStore +
         // live local IP), never the paired peer's info, regardless of
         // pairing direction.
-        _sectionTitle(context, 'Bu Cihaz'),
+        _sectionTitle(context, l.settingsThisDevice),
         _sectionCard(
           child: peer == null
-              ? const Text('Henüz cihaz bilgisi oluşturulmadı. Rol seçin.')
+              ? Text(l.settingsNoDeviceInfo)
               : Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -105,7 +108,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                 style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
                               ),
                               Text(
-                                peer.role == 'main' ? 'Asıl Telefon' : 'Diğer Telefon',
+                                peer.role == 'main' ? l.roleMain : l.roleSource,
                                 style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 13),
                               ),
                             ],
@@ -119,7 +122,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     if (peer.publicKey.isEmpty) ...[
                       const SizedBox(height: AppSpacing.md),
                       Text(
-                        'Henüz eşleşmediniz. Karşı cihaza taratmak için:',
+                        l.settingsNotPairedHint,
                         style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
                       ),
                       const SizedBox(height: AppSpacing.sm),
@@ -139,7 +142,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         // reset (which requires pairing again from scratch).
         if (peer != null && peer.publicKey.isNotEmpty) ...[
           const SizedBox(height: AppSpacing.lg),
-          _sectionTitle(context, 'Bağlı Cihaz'),
+          _sectionTitle(context, l.settingsPairedDevice),
           _sectionCard(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -164,9 +167,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ),
                 const SizedBox(height: AppSpacing.md),
                 _infoRow(context, 'IP', '${peer.ip}:${peer.port}'),
-                _infoRow(context, 'Rol', peer.role == 'main' ? 'Diğer Telefon (karşı)' : 'Asıl Telefon (karşı)'),
+                _infoRow(context, l.settingsPort, peer.role == 'main' ? '${l.roleSource} (karşı)' : '${l.roleMain} (karşı)'),
                 _infoRow(context, 'Public Key', peer.publicKey),
-                _infoRow(context, 'MAC', 'Android bunu başka bir cihazdan okumaya izin vermiyor'),
               ],
             ),
           ),
@@ -174,26 +176,26 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
         // Connection diagnostics
         const SizedBox(height: AppSpacing.lg),
-        _sectionTitle(context, 'Bağlantı Teşhisi'),
+        _sectionTitle(context, l.settingsConnectionDiag),
         _sectionCard(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _infoRow(context, 'Bu cihaz IP', status.localIp ?? 'belirlenemedi'),
-              _infoRow(context, 'Eş cihaz IP', status.peerIp ?? '-'),
+              _infoRow(context, l.settingsLocalIp, status.localIp ?? 'belirlenemedi'),
+              _infoRow(context, l.settingsPeerIp, status.peerIp ?? '-'),
               _infoRow(
                 context,
-                'Sunucu',
-                status.serverRunning ? 'çalışıyor (port ${status.serverPort})' : 'kapalı',
+                l.settingsServer,
+                status.serverRunning ? l.settingsServerRunning(status.serverPort) : l.settingsServerStopped,
               ),
               _infoRow(
                 context,
-                'Son beacon',
+                l.settingsLastBeacon,
                 status.lastBeaconIp == null
-                    ? 'henüz yok'
+                    ? l.settingsNoBeacon
                     : '${status.lastBeaconIp} (${_formatTime(status.lastBeaconAt!)})',
               ),
-              _infoRow(context, 'Deneme sayısı', '${status.connectAttempts}'),
+              _infoRow(context, l.settingsConnectAttempts, '${status.connectAttempts}'),
               if (status.lastError != null) ...[
                 const SizedBox(height: AppSpacing.sm),
                 Text(
@@ -207,23 +209,23 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
         // Paired devices list
         const SizedBox(height: AppSpacing.lg),
-        _sectionTitle(context, 'Eşleşmiş Cihazlar'),
+        _sectionTitle(context, l.settingsPairedDevices),
         pairedPeers.when(
           data: (peers) {
             if (peers.isEmpty) {
-              return _sectionCard(child: const Text('Henüz eşleşmiş cihaz yok.'));
+              return _sectionCard(child: Text(l.settingsNoPairedDevices));
             }
             return Column(
               children: peers.map((p) => _buildPeerCard(context, ref, p)).toList(),
             );
           },
           loading: () => const Center(child: CircularProgressIndicator()),
-          error: (err, _) => Text('Hata: $err'),
+          error: (err, _) => Text(l.commonError(err.toString())),
         ),
 
         // Actions
         const SizedBox(height: AppSpacing.lg),
-        _sectionTitle(context, 'Eylemler'),
+        _sectionTitle(context, l.settingsActions),
         _sectionCard(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -235,7 +237,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   if (!isConnected && !isConnecting)
                     TextButton(
                       onPressed: () => ref.read(connectionProvider.notifier).retryNow(),
-                      child: const Text('Yeniden Dene'),
+                      child: Text(l.settingsRetry),
                     ),
                 ],
               ),
@@ -243,9 +245,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               TextField(
                 controller: _ipController,
                 keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: 'Karşı cihaz IP (manuel)',
-                  hintText: 'örn. 192.168.1.20',
+                decoration: InputDecoration(
+                  labelText: l.settingsManualIp,
+                  hintText: l.settingsIpHint,
                   isDense: true,
                 ),
               ),
@@ -256,8 +258,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     child: TextField(
                       controller: _portController,
                       keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(
-                        labelText: 'Port',
+                      decoration: InputDecoration(
+                        labelText: l.settingsPort,
                         isDense: true,
                       ),
                     ),
@@ -265,7 +267,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   const SizedBox(width: AppSpacing.sm),
                   FilledButton(
                     onPressed: () => _connectManually(context, ref),
-                    child: const Text('Bağlan'),
+                    child: Text(l.settingsConnect),
                   ),
                 ],
               ),
@@ -279,7 +281,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             MaterialPageRoute(builder: (_) => const PairingScreen()),
           ),
           icon: const Icon(Icons.qr_code_scanner_rounded),
-          label: const Text('Cihaz Eşleştir'),
+          label: Text(l.settingsPairDevice),
         ),
         const SizedBox(height: AppSpacing.sm),
         OutlinedButton.icon(
@@ -290,26 +292,47 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   MaterialPageRoute(builder: (_) => const RoleSelectionScreen()),
                 ),
           icon: const Icon(Icons.swap_horiz_rounded),
-          label: const Text('Rol Değiştir'),
+          label: Text(l.settingsChangeRole),
         ),
 
         // System
         const SizedBox(height: AppSpacing.lg),
-        _sectionTitle(context, 'Sistem'),
+        _sectionTitle(context, l.settingsSystem),
         _sectionCard(
           padding: EdgeInsets.zero,
           child: Column(
             children: [
               ListTile(
+                leading: const Icon(Icons.language_rounded),
+                title: Text(l.settingsLanguage),
+                trailing: DropdownButton<Locale?>(
+                  value: ref.watch(localeProvider),
+                  items: [
+                    DropdownMenuItem<Locale?>(
+                      value: null,
+                      child: Text(l.settingsLanguageSystem),
+                    ),
+                    ...LocaleNotifier.supportedLocales.map((loc) =>
+                      DropdownMenuItem<Locale?>(
+                        value: loc,
+                        child: Text(_localeDisplayName(loc)),
+                      ),
+                    ),
+                  ],
+                  onChanged: (loc) => ref.read(localeProvider.notifier).set(loc),
+                ),
+              ),
+              const Divider(height: 1, indent: 16, endIndent: 16),
+              ListTile(
                 leading: const Icon(Icons.battery_charging_full_rounded),
-                title: const Text('Pil optimizasyonunu kaldır'),
-                subtitle: const Text('Uygulamanın arka planda güvenilir çalışması için'),
+                title: Text(l.settingsRemoveBatteryOpt),
+                subtitle: Text(l.settingsRemoveBatteryOptDesc),
                 trailing: const Icon(Icons.chevron_right_rounded),
                 onTap: () async {
                   await PermissionService.requestIgnoreBatteryOptimizations();
                   if (context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Pil ayarları açıldı')),
+                      SnackBar(content: Text(l.settingsBatteryOpened)),
                     );
                   }
                 },
@@ -317,8 +340,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               const Divider(height: 1, indent: 16, endIndent: 16),
               ListTile(
                 leading: const Icon(Icons.notifications_active_rounded),
-                title: const Text('Bildirim erişimi'),
-                subtitle: const Text('Diğer telefondan bildirimleri yansıtmak için gerekli'),
+                title: Text(l.settingsNotifAccess),
+                subtitle: Text(l.settingsNotifAccessDesc),
                 trailing: const Icon(Icons.chevron_right_rounded),
                 onTap: () async {
                   await TelephonyChannel.openNotificationListenerSettings();
@@ -327,11 +350,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               const Divider(height: 1, indent: 16, endIndent: 16),
               ListTile(
                 leading: const Icon(Icons.shield_outlined),
-                title: const Text('Kullanılmıyorsa izinleri kaldırma'),
-                subtitle: const Text(
-                  'Uygulama Bilgisi\'nde "Kullanılmıyorsa izinleri kaldır" (HyperOS\'ta "Uygulama kullanılmıyorsa") '
-                  'seçeneğini kapatın — açık kalırsa Android birkaç ay sonra SMS/arama izinlerini geri alabilir',
-                ),
+                title: Text(l.settingsKeepPermissions),
+                subtitle: Text(l.settingsKeepPermissionsDesc),
                 trailing: const Icon(Icons.chevron_right_rounded),
                 onTap: () async {
                   await PermissionService.openAppInfoSettings();
@@ -340,12 +360,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               const Divider(height: 1, indent: 16, endIndent: 16),
               ListTile(
                 leading: const Icon(Icons.rocket_launch_rounded),
-                title: const Text('Arka planda otomatik başlatma izni'),
+                title: Text(l.settingsAutoStart),
                 subtitle: Text(
-                  _hasKnownAutoStartScreen
-                      ? 'Bu cihazın üreticisi (Xiaomi/Huawei/OPPO/Vivo/Samsung vb.) kendi ek arka '
-                          'plan kısıtlamasını uygulayabilir — uygulamayı buradan izinli listesine ekleyin'
-                      : 'Üretici ayarları bulunamadıysa Uygulama Bilgisi açılır',
+                  _hasKnownAutoStartScreen ? l.settingsAutoStartKnown : l.settingsAutoStartFallback,
                 ),
                 trailing: const Icon(Icons.chevron_right_rounded),
                 onTap: () async {
@@ -356,12 +373,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 const Divider(height: 1, indent: 16, endIndent: 16),
                 ListTile(
                   leading: const Icon(Icons.battery_saver_rounded),
-                  title: const Text('Pil tasarrufu istisnası'),
-                  subtitle: const Text(
-                    'Bu cihazın üreticisi (HyperOS/MIUI) ayrı bir pil tasarrufu listesi '
-                    'kullanır — bağlantının ekran kapalıyken kopmaması için burada da '
-                    '"Kısıtlama yok" seçin',
-                  ),
+                  title: Text(l.settingsBatterySaver),
+                  subtitle: Text(l.settingsBatterySaverDesc),
                   trailing: const Icon(Icons.chevron_right_rounded),
                   onTap: () async {
                     await TelephonyChannel.openBatterySaverSettings();
@@ -371,8 +384,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               const Divider(height: 1, indent: 16, endIndent: 16),
               ListTile(
                 leading: Icon(Icons.delete_forever_rounded, color: theme.colorScheme.error),
-                title: Text('Cihazı sıfırla', style: TextStyle(color: theme.colorScheme.error)),
-                subtitle: const Text('Tüm verileri sil ve yeni QR oluştur'),
+                title: Text(l.settingsResetDevice, style: TextStyle(color: theme.colorScheme.error)),
+                subtitle: Text(l.settingsResetDesc),
                 onTap: () => _confirmReset(context, ref),
               ),
             ],
@@ -413,14 +426,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
-  /// Small pill showing live connection status, reused wherever it's shown.
   Widget _connectionStatusChip(BuildContext context, {required bool isConnected, required bool isConnecting}) {
     final status = Theme.of(context).status;
+    final l = AppLocalizations.of(context);
     final (icon, color, label) = isConnecting
-        ? (Icons.sync_rounded, status.warning, 'Bağlanıyor...')
+        ? (Icons.sync_rounded, status.warning, l.connStatusConnecting)
         : isConnected
-            ? (Icons.check_circle_rounded, status.success, 'Bağlı')
-            : (Icons.wifi_off_rounded, status.warning, 'Bağlı değil');
+            ? (Icons.check_circle_rounded, status.success, l.connStatusConnected)
+            : (Icons.wifi_off_rounded, status.warning, l.connStatusDisconnected);
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
@@ -464,6 +477,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   Widget _buildPeerCard(BuildContext context, WidgetRef ref, Peer p) {
     final theme = Theme.of(context);
+    final l = AppLocalizations.of(context);
     return Card(
       margin: const EdgeInsets.only(bottom: AppSpacing.sm),
       child: ListTile(
@@ -479,7 +493,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text('IP: ${p.ip}:${p.port}'),
-            Text('Rol: ${p.role == 'main' ? 'Asıl Telefon' : 'Diğer Telefon'}'),
+            Text('Rol: ${p.role == 'main' ? l.roleMain : l.roleSource}'),
           ],
         ),
         trailing: IconButton(
@@ -501,10 +515,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   void _connectManually(BuildContext context, WidgetRef ref) async {
     final ip = _ipController.text.trim();
     final port = int.tryParse(_portController.text.trim()) ?? 45678;
+    final l = AppLocalizations.of(context);
 
     if (ip.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('IP adresi girin')),
+        SnackBar(content: Text(l.settingsEnterIp)),
       );
       return;
     }
@@ -514,24 +529,23 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final theme = Theme.of(context);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(ok ? 'Bağlantı kuruldu' : 'Bağlantı kurulamadı'),
+        content: Text(ok ? l.settingsConnected : l.settingsConnectFailed),
         backgroundColor: ok ? theme.status.success : theme.colorScheme.error,
       ),
     );
   }
 
   void _confirmReset(BuildContext context, WidgetRef ref) {
+    final l = AppLocalizations.of(context);
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Cihazı sıfırla'),
-        content: const Text(
-          'Tüm eşleştirme bilgileri, arama ve SMS geçmişi silinecek. Yeni QR oluşturulacak.',
-        ),
+        title: Text(l.settingsResetConfirmTitle),
+        content: Text(l.settingsResetConfirmBody),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('İptal'),
+            child: Text(l.commonCancel),
           ),
           TextButton(
             onPressed: () async {
@@ -541,14 +555,25 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               if (context.mounted) {
                 Navigator.pop(context);
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Cihaz sıfırlandı')),
+                  SnackBar(content: Text(l.settingsResetDone)),
                 );
               }
             },
-            child: Text('Sıfırla', style: TextStyle(color: Theme.of(context).colorScheme.error)),
+            child: Text(l.commonReset, style: TextStyle(color: Theme.of(context).colorScheme.error)),
           ),
         ],
       ),
     );
+  }
+
+  String _localeDisplayName(Locale loc) {
+    switch (loc.languageCode) {
+      case 'tr':
+        return 'Türkçe';
+      case 'en':
+        return 'English';
+      default:
+        return loc.languageCode;
+    }
   }
 }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:mirrorline/l10n/app_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mirrorline/core/data/models/sms_message.dart';
 import 'package:mirrorline/core/theme/theme.dart';
@@ -121,6 +122,7 @@ class _ComposeBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final l = AppLocalizations.of(context);
     return SafeArea(
       top: false,
       child: Container(
@@ -139,7 +141,7 @@ class _ComposeBar extends StatelessWidget {
                 maxLines: 4,
                 textInputAction: TextInputAction.send,
                 onSubmitted: (_) => onSend(),
-                decoration: const InputDecoration(hintText: 'Yanıtınızı yazın...'),
+                decoration: InputDecoration(hintText: l.smsReplyHint),
               ),
             ),
             const SizedBox(width: AppSpacing.sm),

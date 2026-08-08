@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:mirrorline/l10n/app_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logger/logger.dart';
 import 'package:mirrorline/core/services/notification_service.dart';
@@ -96,13 +97,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final isConnected = ref.watch(connectionProvider);
     final theme = Theme.of(context);
     final status = theme.status;
+    final l = AppLocalizations.of(context);
 
     return Scaffold(
       appBar: AppBar(
         title: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text('MirrorLine'),
+            Text(l.appTitle),
             const SizedBox(width: AppSpacing.sm),
             AnimatedContainer(
               duration: const Duration(milliseconds: 300),
@@ -133,21 +135,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       bottomNavigationBar: NavigationBar(
         selectedIndex: _selectedIndex,
         onDestinationSelected: (index) => setState(() => _selectedIndex = index),
-        destinations: const [
+        destinations: [
           NavigationDestination(
-            icon: Icon(Icons.call_outlined),
-            selectedIcon: Icon(Icons.call_rounded),
-            label: 'Aramalar',
+            icon: const Icon(Icons.call_outlined),
+            selectedIcon: const Icon(Icons.call_rounded),
+            label: l.navCalls,
           ),
           NavigationDestination(
-            icon: Icon(Icons.message_outlined),
-            selectedIcon: Icon(Icons.message_rounded),
-            label: 'SMS',
+            icon: const Icon(Icons.message_outlined),
+            selectedIcon: const Icon(Icons.message_rounded),
+            label: l.navSms,
           ),
           NavigationDestination(
-            icon: Icon(Icons.settings_outlined),
-            selectedIcon: Icon(Icons.settings_rounded),
-            label: 'Ayarlar',
+            icon: const Icon(Icons.settings_outlined),
+            selectedIcon: const Icon(Icons.settings_rounded),
+            label: l.navSettings,
           ),
         ],
       ),

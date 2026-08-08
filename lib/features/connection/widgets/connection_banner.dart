@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:mirrorline/l10n/app_localizations.dart';
 import 'package:mirrorline/core/theme/theme.dart';
 
 class ConnectionBanner extends StatelessWidget {
@@ -9,6 +10,7 @@ class ConnectionBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final status = Theme.of(context).status;
+    final l = AppLocalizations.of(context);
 
     return AnimatedSize(
       duration: const Duration(milliseconds: 250),
@@ -30,7 +32,7 @@ class ConnectionBanner extends StatelessWidget {
                   const SizedBox(width: AppSpacing.sm),
                   Expanded(
                     child: Text(
-                      'Bağlantı yok. Eş cihaz aranıyor; aynı WiFi ağında olduğunuzdan emin olun.',
+                      l.connBannerOffline,
                       style: TextStyle(
                         fontSize: 13,
                         color: status.onWarningContainer,
