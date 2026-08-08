@@ -1,0 +1,48 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:mirrorline/core/data/models/call_event.dart';
+import 'package:mirrorline/core/theme/theme.dart';
+import 'package:mirrorline/features/calls/call_list_provider.dart';
+import 'package:mirrorline/features/calls/widgets/call_card.dart';
+import 'package:mirrorline/features/connection/connection_provider.dart';
+import 'package:mirrorline/shared/widgets/empty_state.dart';
+
+class CallsScreen extends ConsumerWidget {
+  const CallsScreen({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final calls = ref.watch(callListProvider);
+
+    if (calls.isEmpty) {
+      return const EmptyState(
+        icon: Icons.call_end_rounded,
+        message: 'Henüz gelen arama yok',
+      );
+    }
+
+    return ListView.separated(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      itemCount: calls.length,
+      separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.sm),
+      itemBuilder: (context, index) {
+        final call = calls[index];
+        return CallCard(
+          event: call,
+          onReject: () => _handleReject(context, ref, call),
+        );
+      },
+    );
+  }
+
+  void _handleReject(BuildContext context, WidgetRef ref, CallEvent call) {
+    ref.read(callListProvider.notifier).updateStatus(call.id, 'rejected');
+
+    // Send reject command to peer device via socket
+    ref.read(connectionProvider.notifier).sendCallRejected(call.id);
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Arama reddedildi')),
+    );
+  }
+}

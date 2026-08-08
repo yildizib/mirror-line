@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logger/logger.dart';
-
-import 'app.dart';
-import 'services/notification_service.dart';
+import 'package:mirrorline/app.dart';
+import 'package:mirrorline/core/services/notification_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();

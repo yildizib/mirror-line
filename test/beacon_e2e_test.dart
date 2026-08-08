@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:mirrorline/network/lan_beacon.dart';
+import 'package:mirrorline/core/network/lan_beacon.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

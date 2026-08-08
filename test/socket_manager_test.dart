@@ -3,9 +3,9 @@ import 'dart:convert';
 
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:mirrorline/network/message_protocol.dart';
-import 'package:mirrorline/network/socket_manager.dart';
-import 'package:mirrorline/security/crypto_manager.dart';
+import 'package:mirrorline/core/network/message_protocol.dart';
+import 'package:mirrorline/core/network/socket_manager.dart';
+import 'package:mirrorline/core/security/crypto_manager.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

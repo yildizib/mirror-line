@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:mirrorline/security/crypto_manager.dart';
+import 'package:mirrorline/core/security/crypto_manager.dart';
 
 void main() {
   group('CryptoManager', () {

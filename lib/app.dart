@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
-
-import 'ui/screens/splash_screen.dart';
-import 'ui/theme.dart';
+import 'package:mirrorline/core/theme/theme.dart';
+import 'package:mirrorline/features/home/splash_screen.dart';
 
 class MirrorLineApp extends StatelessWidget {
   const MirrorLineApp({super.key});
