@@ -46,4 +46,19 @@ class CallListNotifier extends StateNotifier<List<CallEvent>> {
     await _dao.delete(id);
     state = state.where((e) => e.id != id).toList();
   }
+
+  /// Permanently deletes every call in [ids] (used by multi-select clear).
+  Future<void> removeMany(Iterable<String> ids) async {
+    final idSet = ids.toSet();
+    for (final id in idSet) {
+      await _dao.delete(id);
+    }
+    state = state.where((e) => !idSet.contains(e.id)).toList();
+  }
+
+  /// Permanently deletes all calls (used by "clear all" / device reset).
+  Future<void> removeAll() async {
+    await _dao.deleteAll();
+    state = [];
+  }
 }

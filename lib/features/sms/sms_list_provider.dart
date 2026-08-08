@@ -38,4 +38,30 @@ class SmsListNotifier extends StateNotifier<List<SmsMessage>> {
     await _dao.delete(id);
     state = state.where((m) => m.id != id).toList();
   }
+
+  /// Permanently deletes every message in [ids] (used by multi-select clear).
+  Future<void> removeMany(Iterable<String> ids) async {
+    final idSet = ids.toSet();
+    for (final id in idSet) {
+      await _dao.delete(id);
+    }
+    state = state.where((m) => !idSet.contains(m.id)).toList();
+  }
+
+  /// Deletes every message exchanged with [address] -- i.e. an entire
+  /// thread, used from the SMS list's per-thread swipe-to-delete.
+  Future<void> removeThread(String address) async {
+    final toRemove = state.where((m) => m.address == address).map((m) => m.id).toSet();
+    if (toRemove.isEmpty) return;
+    for (final id in toRemove) {
+      await _dao.delete(id);
+    }
+    state = state.where((m) => !toRemove.contains(m.id)).toList();
+  }
+
+  /// Permanently deletes all messages (used by "clear all" / device reset).
+  Future<void> removeAll() async {
+    await _dao.deleteAll();
+    state = [];
+  }
 }

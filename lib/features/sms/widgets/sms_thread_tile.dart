@@ -6,9 +6,18 @@ class SmsThreadTile extends StatelessWidget {
   final SmsThread thread;
   final VoidCallback onTap;
 
+  /// When true the tile shows a checkbox overlay and a tap toggles
+  /// selection instead of opening the thread.
+  final bool isSelecting;
+  final bool isSelected;
+  final VoidCallback? onTapSelect;
+
   const SmsThreadTile({
     required this.thread,
     required this.onTap,
+    this.isSelecting = false,
+    this.isSelected = false,
+    this.onTapSelect,
     super.key,
   });
 
@@ -21,14 +30,23 @@ class SmsThreadTile extends StatelessWidget {
     final isPending = last.status == 'pending';
 
     return Card(
+      color: isSelected ? colorScheme.primaryContainer.withValues(alpha: 0.4) : null,
       child: InkWell(
         borderRadius: BorderRadius.circular(AppRadius.md),
-        onTap: onTap,
+        onTap: isSelecting ? onTapSelect : onTap,
         child: Padding(
           padding: const EdgeInsets.all(12),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              if (isSelecting)
+                Padding(
+                  padding: const EdgeInsets.only(right: AppSpacing.sm),
+                  child: Icon(
+                    isSelected ? Icons.check_circle_rounded : Icons.circle_outlined,
+                    color: isSelected ? colorScheme.primary : colorScheme.outline,
+                  ),
+                ),
               CircleAvatar(
                 radius: 22,
                 backgroundColor: colorScheme.primaryContainer,
@@ -120,9 +138,11 @@ class SmsThreadTile extends StatelessWidget {
 
   String _formatTime(DateTime time) {
     final now = DateTime.now();
-    if (time.year == now.year && time.month == now.month && time.day == now.day) {
+    final sameDay = time.year == now.year && time.month == now.month && time.day == now.day;
+    if (sameDay) {
       return '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
     }
-    return '${time.day.toString().padLeft(2, '0')}.${time.month.toString().padLeft(2, '0')}';
+    return '${time.day.toString().padLeft(2, '0')}.${time.month.toString().padLeft(2, '0')} '
+        '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
   }
 }

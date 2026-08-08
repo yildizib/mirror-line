@@ -3,6 +3,7 @@ import 'package:logger/logger.dart';
 import 'package:mirrorline/core/data/models/sms_message.dart';
 import 'package:mirrorline/core/network/message_protocol.dart' show MessageTypes, MirrorMessage;
 import 'package:mirrorline/core/network/socket_manager.dart';
+import 'package:mirrorline/core/services/notification_service.dart';
 import 'package:mirrorline/core/telephony/telephony_channel.dart';
 import 'package:mirrorline/features/connection/call_event_handler.dart' show SendOrQueue, ShowNotification;
 import 'package:mirrorline/features/sms/sms_list_provider.dart';
@@ -105,7 +106,7 @@ class SmsEventHandler {
           id: int.tryParse(id) ?? 2,
           title: smsEvent.displayName,
           body: body,
-          payload: message.id,
+          payload: NotificationPayload(type: 'sms', id: id, address: address),
         );
         break;
 

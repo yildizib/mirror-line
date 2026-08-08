@@ -549,7 +549,7 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
     required int id,
     required String title,
     required String body,
-    String? payload,
+    NotificationPayload? payload,
   }) async {
     try {
       // Android notification ids must fit in a 32-bit int.

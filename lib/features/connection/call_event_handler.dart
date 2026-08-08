@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logger/logger.dart';
 import 'package:mirrorline/core/data/models/call_event.dart';
 import 'package:mirrorline/core/network/message_protocol.dart' show MessageTypes, MirrorMessage;
+import 'package:mirrorline/core/services/notification_service.dart';
 import 'package:mirrorline/core/telephony/telephony_channel.dart';
 import 'package:mirrorline/features/calls/call_list_provider.dart';
 
@@ -15,7 +16,7 @@ typedef ShowNotification = Future<void> Function({
   required int id,
   required String title,
   required String body,
-  String? payload,
+  NotificationPayload? payload,
 });
 
 /// Everything about interpreting native call events (on the Source device)
@@ -176,7 +177,7 @@ class CallEventHandler {
           id: int.tryParse(id) ?? 1,
           title: event.displayName,
           body: event.statusLabel,
-          payload: message.id,
+          payload: NotificationPayload(type: 'call', id: id),
         );
         break;
 
@@ -209,7 +210,7 @@ class CallEventHandler {
               id: int.tryParse(id) ?? 1,
               title: updated.displayName,
               body: updated.statusLabel,
-              payload: message.id,
+              payload: NotificationPayload(type: 'call', id: id),
             );
           }
         }
@@ -229,7 +230,7 @@ class CallEventHandler {
             id: int.tryParse(id) ?? 1,
             title: enriched.displayName,
             body: enriched.statusLabel,
-            payload: message.id,
+            payload: NotificationPayload(type: 'call', id: id),
           );
         }
         break;

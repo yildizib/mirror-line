@@ -6,9 +6,18 @@ class CallCard extends StatelessWidget {
   final CallEvent event;
   final VoidCallback onReject;
 
+  /// When true the card shows a checkbox overlay and a tap toggles
+  /// selection instead of any single-call action.
+  final bool isSelecting;
+  final bool isSelected;
+  final VoidCallback? onTapSelect;
+
   const CallCard({
     required this.event,
     required this.onReject,
+    this.isSelecting = false,
+    this.isSelected = false,
+    this.onTapSelect,
     super.key,
   });
 
@@ -19,11 +28,20 @@ class CallCard extends StatelessWidget {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
 
-    return Card(
+    final card = Card(
+      color: isSelected ? colorScheme.primaryContainer.withValues(alpha: 0.4) : null,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         child: Row(
           children: [
+            if (isSelecting)
+              Padding(
+                padding: const EdgeInsets.only(right: AppSpacing.sm),
+                child: Icon(
+                  isSelected ? Icons.check_circle_rounded : Icons.circle_outlined,
+                  color: isSelected ? colorScheme.primary : colorScheme.outline,
+                ),
+              ),
             CircleAvatar(
               radius: 22,
               backgroundColor: colorScheme.primaryContainer,
@@ -46,7 +64,7 @@ class CallCard extends StatelessWidget {
                 ],
               ),
             ),
-            if (_isActive)
+            if (_isActive && !isSelecting)
               IconButton.filledTonal(
                 icon: const Icon(Icons.call_end_rounded),
                 style: IconButton.styleFrom(
@@ -55,16 +73,30 @@ class CallCard extends StatelessWidget {
                 ),
                 onPressed: onReject,
               )
-            else
+            else if (!isSelecting)
               _StatusChip(event: event),
           ],
         ),
       ),
     );
+
+    if (!isSelecting) return card;
+
+    return GestureDetector(
+      onTap: onTapSelect,
+      behavior: HitTestBehavior.opaque,
+      child: card,
+    );
   }
 
   String _formatTime(DateTime time) {
-    return '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
+    final now = DateTime.now();
+    final sameDay = time.year == now.year && time.month == now.month && time.day == now.day;
+    if (sameDay) {
+      return '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
+    }
+    return '${time.day.toString().padLeft(2, '0')}.${time.month.toString().padLeft(2, '0')} '
+        '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
   }
 }
 
