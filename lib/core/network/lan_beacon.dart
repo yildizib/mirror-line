@@ -1,13 +1,18 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:logger/logger.dart';
 
 abstract class BeaconConfig {
   static const int port = 45679;
   static const String app = 'mirrorline';
-  static const Duration interval = Duration(seconds: 3);
+  // Fast while disconnected (peer needs to find us ASAP), slow once a TCP
+  // connection is established (the beacon is just a keep-alive fallback
+  // then, so rare broadcasts spare the Wi-Fi radio during screen-off).
+  static const Duration intervalFast = Duration(seconds: 3);
+  static const Duration intervalSlow = Duration(seconds: 15);
 }
 
 class BeaconInfo {
@@ -68,8 +73,33 @@ class BeaconBroadcaster {
   final Logger _logger = Logger();
   RawDatagramSocket? _socket;
   Timer? _timer;
+  Duration _interval = BeaconConfig.intervalFast;
 
   bool get isBroadcasting => _timer != null;
+
+  /// Switches between fast (3s, while searching for the peer) and slow
+  /// (15s, once a TCP connection is established) beacon cadence without
+  /// tearing down and rebinding the socket. No-op if already at the
+  /// requested cadence.
+  void setThrottle(bool connected) {
+    final target = connected ? BeaconConfig.intervalSlow : BeaconConfig.intervalFast;
+    if (target == _interval) return;
+    _interval = target;
+    _timer?.cancel();
+    void sendOnce() async {
+      final targets = await _broadcastTargets();
+      for (final target in targets) {
+        try {
+          _socket?.send(payload, target, BeaconConfig.port);
+        } catch (e) {
+          _logger.w('Beacon send to $target failed: $e');
+        }
+      }
+    }
+    _timer = Timer.periodic(_interval, (_) => sendOnce());
+  }
+
+  late final Uint8List payload;
 
   Future<void> start({
     required String peerId,
@@ -82,8 +112,8 @@ class BeaconBroadcaster {
       socket.broadcastEnabled = true;
       _socket = socket;
 
-      final payload = utf8.encode(
-        BeaconCodec.encode(peerId: peerId, tcpPort: tcpPort, deviceName: deviceName),
+      payload = Uint8List.fromList(
+        utf8.encode(BeaconCodec.encode(peerId: peerId, tcpPort: tcpPort, deviceName: deviceName)),
       );
 
       void sendOnce() async {
@@ -98,7 +128,7 @@ class BeaconBroadcaster {
       }
 
       sendOnce();
-      _timer = Timer.periodic(BeaconConfig.interval, (_) => sendOnce());
+      _timer = Timer.periodic(_interval, (_) => sendOnce());
       _logger.i('Beacon broadcaster started (peerId=$peerId, tcpPort=$tcpPort)');
     } catch (e) {
       _logger.e('Failed to start beacon broadcaster: $e');
@@ -106,7 +136,7 @@ class BeaconBroadcaster {
     }
   }
 
- Future<List<InternetAddress>> _broadcastTargets() async {
+  Future<List<InternetAddress>> _broadcastTargets() async {
  final targets = <InternetAddress>{InternetAddress('255.255.255.255')};
  try {
  final interfaces = await NetworkInterface.list(type: InternetAddressType.IPv4);
@@ -144,11 +174,25 @@ class BeaconListener {
   RawDatagramSocket? _socket;
   void Function(BeaconInfo)? _onBeacon;
   Timer? _broadcastTimer;
+  Duration _interval = BeaconConfig.intervalFast;
   String? _myPeerId;
   int? _myTcpPort;
   String? _myDeviceName;
 
   bool get isListening => _socket != null;
+
+  /// Switches between fast (3s) and slow (15s) beacon cadence without
+  /// tearing down the listener socket. No-op if already at the requested
+  /// cadence or if broadcasting isn't running.
+  void setThrottle(bool connected) {
+    final target = connected ? BeaconConfig.intervalSlow : BeaconConfig.intervalFast;
+    if (target == _interval) return;
+    _interval = target;
+    if (_myPeerId != null && _myTcpPort != null && _myDeviceName != null) {
+      _broadcastTimer?.cancel();
+      _startBroadcasting(_myPeerId!, _myTcpPort!, _myDeviceName!);
+    }
+  }
 
   Future<void> start({
     required void Function(BeaconInfo) onBeacon,
@@ -214,7 +258,7 @@ class BeaconListener {
     }
 
     sendOnce();
-    _broadcastTimer = Timer.periodic(BeaconConfig.interval, (_) => sendOnce());
+    _broadcastTimer = Timer.periodic(_interval, (_) => sendOnce());
     _logger.i('Beacon broadcaster started (peerId=$peerId, tcpPort=$tcpPort)');
   }
 

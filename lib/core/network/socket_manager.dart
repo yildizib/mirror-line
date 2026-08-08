@@ -8,8 +8,9 @@ import 'package:mirrorline/core/network/message_protocol.dart';
 import 'package:mirrorline/core/security/crypto_manager.dart';
 
 class SocketManager {
-  static const Duration _heartbeatInterval = Duration(seconds: 15);
-  static const Duration _receiveTimeout = Duration(seconds: 45);
+  static const Duration _heartbeatInterval = Duration(seconds: 30);
+  static const Duration _heartbeatIntervalBackground = Duration(seconds: 60);
+  static const Duration _receiveTimeout = Duration(seconds: 90);
   static const Duration _authTimeout = Duration(seconds: 10);
 
   final Logger _logger = Logger();
@@ -60,6 +61,19 @@ class SocketManager {
 
   bool get isConnected => _isConnected;
   bool get isAuthed => _authed;
+
+  /// Extends the heartbeat cadence when the app goes to the background
+  /// (screen off) and restores it on resume. A slower ping while the
+  /// screen is off is friendlier to the Wi-Fi radio's power-save state
+  /// (the high-perf wifi lock keeps it alive, but less frequent wake-ups
+  /// still save battery) while the 90s receive-timeout is generous enough
+  /// to tolerate the longer gap.
+  void setBackgroundMode(bool background) {
+    _backgroundMode = background;
+    if (_authed) _startHeartbeat();
+  }
+
+  bool _backgroundMode = false;
 
   /// The connected peer's real IP address (from the live TCP socket),
   /// or null if no client is connected. More trustworthy than anything the
@@ -193,7 +207,8 @@ class SocketManager {
 
   void _startHeartbeat() {
     _stopHeartbeat();
-    _heartbeatTimer = Timer.periodic(_heartbeatInterval, (_) async {
+    final interval = _backgroundMode ? _heartbeatIntervalBackground : _heartbeatInterval;
+    _heartbeatTimer = Timer.periodic(interval, (_) async {
       if (!_isConnected) return;
       if (DateTime.now().difference(_lastDataAt) > _receiveTimeout) {
         _logger.w('Peer unresponsive (no data for ${_receiveTimeout.inSeconds}s). Closing.');

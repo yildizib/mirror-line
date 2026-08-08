@@ -104,12 +104,14 @@ class MirrorLineService : Service() {
      * that alone doesn't stop the Wi-Fi radio from dropping into a
      * power-save state once the screen turns off, which was causing the
      * TCP mirroring connection to drop shortly after the screen locks.
-     * Holding a low-latency Wi-Fi lock plus a partial wake lock for as long
+     * Holding a high-perf Wi-Fi lock plus a partial wake lock for as long
      * as this foreground service runs keeps the radio and CPU responsive
-     * enough for the socket/heartbeat to survive screen-off. This does cost
-     * extra battery -- an inherent trade-off for an app that must keep a
-     * live, low-latency connection while the screen is off, which is why
-     * the app also asks the user to exempt it from battery optimization.
+     * enough for the 30s heartbeat / 90s receive-timeout socket to survive
+     * screen-off, without pinning the radio at peak latency the way
+     * WIFI_MODE_FULL_LOW_LATENCY did. This still costs extra battery --
+     * an inherent trade-off for an app that must keep a live connection
+     * while the screen is off, which is why the app also asks the user to
+     * exempt it from battery optimization.
      */
     private fun acquireLocks() {
         if (wakeLock == null) {
@@ -130,8 +132,16 @@ class MirrorLineService : Service() {
             try {
                 val wifiManager =
                     applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+                // WIFI_MODE_FULL_LOW_LATENCY kept the radio at full power even
+                // with the screen off, which was costing an outsized share of
+                // battery for the benefit it gave. Now that the heartbeat
+                // runs every 30s (see SocketManager._heartbeatInterval) and
+                // the receive timeout is 90s, a standard high-perf Wi-Fi lock
+                // is enough to keep the TCP connection alive through Doze --
+                // the OS is still prevented from dropping the radio into its
+                // deepest power-save, just not pinned at peak latency.
                 val lockType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    WifiManager.WIFI_MODE_FULL_LOW_LATENCY
+                    WifiManager.WIFI_MODE_FULL_HIGH_PERF
                 } else {
                     @Suppress("DEPRECATION")
                     WifiManager.WIFI_MODE_FULL_HIGH_PERF

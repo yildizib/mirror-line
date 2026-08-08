@@ -36,7 +36,9 @@ final connectionConnectingProvider = Provider<bool>((ref) {
 });
 
 class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver {
-  static const Duration _retryInterval = Duration(seconds: 10);
+  static const Duration _retryInterval = Duration(seconds: 30);
+  static const Duration _reconnectInitialDelay = Duration(seconds: 2);
+  static const Duration _reconnectMaxDelay = Duration(seconds: 30);
   // Fallback active network scan (see SubnetScanner): only kicks in after
   // being disconnected this long (beacon/direct-IP get a fair chance
   // first), and won't run again more often than this -- scanning ~254
@@ -65,6 +67,7 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
   String? _lastDiscoveredIp;
   DateTime? _disconnectedSince;
   DateTime? _lastScanAt;
+  int _reconnectAttempts = 0;
 
   // Call/SMS native-event and peer-message handling live in their own
   // classes (see call_event_handler.dart / sms_event_handler.dart) so this
@@ -149,8 +152,11 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      _socketManager?.setBackgroundMode(false);
       refresh();
       _scheduleReconnect();
+    } else if (state == AppLifecycleState.paused) {
+      _socketManager?.setBackgroundMode(true);
     }
   }
 
@@ -281,14 +287,19 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
       onConnected: () {
         state = true;
         _disconnectedSince = null;
+        _reconnectAttempts = 0;
         _ref.read(connectionStatusProvider.notifier).clearError();
         _logger.i('Socket connected and authenticated!');
         _flushQueue();
+        _broadcaster.setThrottle(true);
+        _listener.setThrottle(true);
       },
       onDisconnected: () {
         state = false;
         _disconnectedSince ??= DateTime.now();
         _logger.w('Socket disconnected. Will auto-reconnect when peer is reachable.');
+        _broadcaster.setThrottle(false);
+        _listener.setThrottle(false);
         _scheduleReconnect();
       },
     );
@@ -309,13 +320,20 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
     );
   }
 
-  /// Schedules an immediate reconnect attempt (used after an unexpected
-  /// disconnect). If the peer is still unreachable, the periodic retry timer
-  /// will keep trying until success.
+  /// Schedules a reconnect attempt with exponential backoff: 2s, 4s, 8s,
+  /// 16s, 30s (capped). The delay doubles after each failed attempt and
+  /// resets to 2s once a connection succeeds (see _createSocketManager's
+  /// onConnected). This replaces the old single-shot 2s retry, which gave
+  /// up after one try and then waited up to 10s for the health timer --
+  /// making the app feel unresponsive when the screen was turned back on
+  /// after a disconnect.
   void _scheduleReconnect() {
     if (_peer == null || _key == null) return;
     if (state || _connecting) return;
-    Future.delayed(const Duration(seconds: 2), () {
+    final delay = _reconnectInitialDelay * (1 << _reconnectAttempts);
+    final clampedDelay = delay > _reconnectMaxDelay ? _reconnectMaxDelay : delay;
+    _logger.i('Scheduling reconnect in ${clampedDelay.inSeconds}s (attempt ${_reconnectAttempts + 1}).');
+    Future.delayed(clampedDelay, () {
       if (!state && !_connecting) {
         _tryConnectToStoredPeer();
       }
@@ -350,6 +368,10 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
       _ref.read(connectionStatusProvider.notifier).recordConnectAttempt(
             ok ? null : 'Bağlantı başarısız: $ip:$port (sunucu kapalı veya ulaşılamıyor)',
           );
+      if (!ok) {
+        _reconnectAttempts++;
+        _scheduleReconnect();
+      }
       return ok;
     } finally {
       _connecting = false;
