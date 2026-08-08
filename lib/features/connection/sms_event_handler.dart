@@ -2,7 +2,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logger/logger.dart';
 import 'package:mirrorline/core/data/models/sms_message.dart';
 import 'package:mirrorline/core/network/message_protocol.dart' show MessageTypes, MirrorMessage;
-import 'package:mirrorline/core/network/socket_manager.dart';
 import 'package:mirrorline/core/services/notification_service.dart';
 import 'package:mirrorline/core/telephony/telephony_channel.dart';
 import 'package:mirrorline/features/connection/call_event_handler.dart' show SendOrQueue, ShowNotification;
@@ -18,11 +17,6 @@ class SmsEventHandler {
   final bool Function() _isSource;
   final SendOrQueue _sendOrQueue;
   final ShowNotification _notify;
-  // sms_outgoing needs to reply with sms_status over the live socket
-  // directly (not queued) -- ConnectionNotifier owns the SocketManager, so
-  // this reads it fresh each time rather than the handler holding a
-  // possibly-stale reference.
-  final SocketManager? Function() _socketManager;
 
   SmsEventHandler({
     required this._ref,
@@ -30,7 +24,6 @@ class SmsEventHandler {
     required this._isSource,
     required this._sendOrQueue,
     required this._notify,
-    required this._socketManager,
   });
 
   // -----------------------------------------------------------------------
@@ -135,7 +128,13 @@ class SmsEventHandler {
                     payload['timestamp'] as int? ?? now.millisecondsSinceEpoch),
                 createdAt: now,
               ));
-          await _socketManager()?.sendMessage(MessageTypes.smsStatus, {
+          // Queued (not fire-and-forget): if the connection drops between
+          // sending the SMS and acking it, a direct socket write would be
+          // silently lost, leaving the Main device's copy stuck on
+          // 'pending' ("Gönderiliyor") forever with nothing left to ever
+          // correct it. Queuing lets this retry once the connection is
+          // back, same as every other outgoing message type.
+          await _sendOrQueue(MessageTypes.smsStatus, {
             'id': id,
             'status': status,
           });

@@ -34,6 +34,22 @@ class SmsListNotifier extends StateNotifier<List<SmsMessage>> {
     state = state.map((m) => m.id == id ? m.copyWith(status: status) : m).toList();
   }
 
+  /// Marks any outgoing SMS still stuck on 'pending' as 'failed' once
+  /// older than [threshold] -- its sms_status ack was lost mid-flight, or
+  /// the peer never reconnected long enough for the queued ack to retry.
+  /// Independent of the offline queue's own retry count, which only
+  /// advances when the connection actually comes back up: without this,
+  /// a message could otherwise show "Gönderiliyor" forever.
+  Future<void> failStalePending(Duration threshold) async {
+    final cutoff = DateTime.now().subtract(threshold);
+    final stale = state.where(
+      (m) => m.status == 'pending' && m.direction == 'outgoing' && m.timestamp.isBefore(cutoff),
+    );
+    for (final m in stale) {
+      await updateStatus(m.id, 'failed');
+    }
+  }
+
   Future<void> remove(String id) async {
     await _dao.delete(id);
     state = state.where((m) => m.id != id).toList();
