@@ -1,6 +1,9 @@
 name: Android Release
 
 on:
+  push:
+    tags:
+      - "v*"
   workflow_dispatch:
     inputs:
       version:
@@ -20,13 +23,19 @@ jobs:
       contents: write
 
     steps:
-      - name: Checkout
+      - name: Checkout (full history for tag context)
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Normalize version
+      - name: Resolve version
         id: ver
         run: |
-          RAW="${{ inputs.version }}"
+          if [ "${{ github.event_name }}" = "push" ]; then
+            RAW="${GITHUB_REF##*/}"
+          else
+            RAW="${{ inputs.version }}"
+          fi
           V="${RAW#v}"
           if ! echo "$V" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
             echo "::error::Geçersiz sürüm: $RAW (beklenen: x.y.z)"
@@ -34,6 +43,16 @@ jobs:
           fi
           echo "version=$V" >> $GITHUB_OUTPUT
           echo "tag=v$V" >> $GITHUB_OUTPUT
+
+      - name: Resolve prerelease flag
+        id: pre
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            # Tag push: pre-release yok, sabit release
+            echo "flag=false" >> $GITHUB_OUTPUT
+          else
+            echo "flag=${{ inputs.prerelease }}" >> $GITHUB_OUTPUT
+          fi
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -60,7 +79,8 @@ jobs:
              mirrorline-${{ steps.ver.outputs.tag }}.apk
           ls -lh mirrorline-*.apk
 
-      - name: Tag & commit pubspec bump
+      - name: Commit pubspec bump (dispatch only)
+        if: github.event_name == 'workflow_dispatch'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -74,6 +94,6 @@ jobs:
         with:
           tag_name: ${{ steps.ver.outputs.tag }}
           name: ${{ steps.ver.outputs.tag }}
-          prerelease: ${{ inputs.prerelease }}
+          prerelease: ${{ steps.pre.outputs.flag }}
           generate_release_notes: true
           files: mirrorline-${{ steps.ver.outputs.tag }}.apk
