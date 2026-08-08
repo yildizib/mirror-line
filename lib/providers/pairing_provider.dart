@@ -155,19 +155,21 @@ class PairingNotifier extends StateNotifier<PairingState> {
       );
 
       if (accepted) {
-        // Save scanned device as our peer.
-        final myScannedRole =
-            myRole == 'main' ? 'source' : 'main'; // opposite of scanned
+        // Scanner side: save the scanned device's info as our peer record.
+        // The Peer record represents the *other* device: id/ip/port/name are
+        // the scanned device's.  But `role` is THIS device's own role
+        // (so ConnectionNotifier knows whether to start as source or main).
+        // `key` is the shared AES key from the QR.  `publicKey` is the
+        // scanned device's Ed25519 public key for auth.
         await _ref.read(peerProvider.notifier).createPeerFromQr(
               id: scannedId,
               ip: scannedIp,
               port: scannedPort,
               keyBase64: scannedKeyBase64,
-              role: myScannedRole,
+              role: myRole,
               deviceName: scannedDeviceName,
               publicKey: scannedPublicKey,
             );
-        await _ref.read(peerProvider.notifier).refreshLocalIp();
       } else {
         state = state.copyWith(
           isWaitingForAccept: false,
@@ -260,24 +262,11 @@ class PairingNotifier extends StateNotifier<PairingState> {
       'publicKey': myPublicKey,
     });
 
-    // Save the scanner as our peer.
-    final scannerId = scannerInfo['peerId'] as String? ?? '';
-    final scannerName = scannerInfo['deviceName'] as String? ?? 'Bilinmeyen';
-    final scannerRole = scannerInfo['role'] as String? ?? 'main';
+    // The scanner's public key is saved as the peer's public key.
+    // This device's own identity (id, role, ip, key) is preserved.
     final scannerPublicKey = scannerInfo['publicKey'] as String? ?? '';
-    final myRole = scannerRole == 'main' ? 'source' : 'main';
-
-    if (myPeer != null) {
-      final keyBase64 = myPeer.key;
-      await _ref.read(peerProvider.notifier).createPeerFromQr(
-            id: scannerId,
-            ip: '', // will be discovered via beacon
-            port: 45678,
-            keyBase64: keyBase64,
-            role: myRole,
-            deviceName: scannerName,
-            publicKey: scannerPublicKey,
-          );
+    if (scannerPublicKey.isNotEmpty) {
+      await _ref.read(peerProvider.notifier).updatePeerPublicKey(scannerPublicKey);
     }
 
     state = const PairingState();

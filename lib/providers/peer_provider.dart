@@ -62,8 +62,10 @@ class PeerNotifier extends StateNotifier<Peer?> {
     final ip = await PeerDiscovery().getLocalIp() ?? 'unknown';
     final deviceName = await _getDeviceName();
 
-    // Ensure this device has an Ed25519 identity keypair.
-    final myPublicKey = await KeyStore.ensureDeviceKeyPair();
+    // Ensure this device has an Ed25519 identity keypair (stored in KeyStore).
+    // The peer's publicKey field holds the *other* device's public key and
+    // is left empty until pairing completes.
+    await KeyStore.ensureDeviceKeyPair();
 
     final peer = Peer(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
@@ -72,7 +74,7 @@ class PeerNotifier extends StateNotifier<Peer?> {
       ip: ip,
       port: 45678,
       key: keyBase64,
-      publicKey: myPublicKey,
+      publicKey: '',
       createdAt: DateTime.now(),
     );
 
@@ -124,6 +126,16 @@ class PeerNotifier extends StateNotifier<Peer?> {
   /// Returns this device's Ed25519 public key (generating if needed).
   Future<String> getMyPublicKey() async {
     return KeyStore.ensureDeviceKeyPair();
+  }
+
+  /// Updates only the peer's public key (received during pairing handshake).
+  /// Preserves this device's own identity (id, role, deviceName, ip, port, key).
+  Future<void> updatePeerPublicKey(String publicKey) async {
+    final current = state;
+    if (current == null) return;
+    final updated = current.copyWith(publicKey: publicKey);
+    await _dao.update(updated);
+    state = updated;
   }
 
   /// Applies an updated peer record (e.g. newly discovered IP address).

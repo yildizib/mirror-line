@@ -21,13 +21,14 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
   bool _isScanning = false;
   bool _isProcessing = false;
   Peer? _cachedPeerForQr;
+  String? _myPublicKey;
 
   @override
   void initState() {
     super.initState();
-    // Ensure device keypair exists before showing QR.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      KeyStore.ensureDeviceKeyPair();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final pub = await KeyStore.ensureDeviceKeyPair();
+      if (mounted) setState(() => _myPublicKey = pub);
     });
   }
 
@@ -91,8 +92,11 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
     }
 
     // QR format: id|ip|port|key|deviceName|role|publicKey
+    // publicKey here is THIS device's Ed25519 public key (from KeyStore),
+    // NOT the peer's publicKey field (which is the other device's key).
+    final myPub = _myPublicKey ?? '';
     final qrData =
-        '${peer.id}|${peer.ip}|${peer.port}|${peer.key}|${peer.deviceName}|${peer.role}|${peer.publicKey}';
+        '${peer.id}|${peer.ip}|${peer.port}|${peer.key}|${peer.deviceName}|${peer.role}|$myPub';
 
     return Center(
       child: Column(
@@ -401,7 +405,7 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
     final myRole = myPeer.role; // 'main' or 'source'
 
     final verificationCode =
-        (scannedKey.hashCode.abs() % 1000000).toString().padLeft(6, '0');
+        PeerNotifier.generateVerificationCode(scannedKey, scannedId);
 
     if (!mounted) return;
     final confirmed = await showDialog<bool>(
