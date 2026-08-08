@@ -125,6 +125,7 @@ class SmsEventHandler {
                 id: id,
                 threadId: payload['thread_id'] as String? ?? '',
                 address: address,
+                contactName: payload['contact_name'] as String? ?? '',
                 body: body,
                 encrypted: message.payload,
                 direction: 'outgoing',
@@ -167,12 +168,14 @@ class SmsEventHandler {
     });
   }
 
-  Future<bool> sendReplySms(String address, String body, {String? id}) {
+  Future<bool> sendReplySms(String address, String body, {String? id, String? contactName, String? threadId}) {
     final smsId = id ?? '${DateTime.now().millisecondsSinceEpoch}';
     return _sendOrQueue(MessageTypes.smsOutgoing, {
       'id': smsId,
       'address': address,
       'body': body,
+      if (contactName != null && contactName.isNotEmpty) 'contact_name': contactName,
+      if (threadId != null && threadId.isNotEmpty) 'thread_id': threadId,
       'timestamp': DateTime.now().millisecondsSinceEpoch,
     });
   }

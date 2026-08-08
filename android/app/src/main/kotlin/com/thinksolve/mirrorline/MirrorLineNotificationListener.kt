@@ -21,6 +21,12 @@ class MirrorLineNotificationListener : NotificationListenerService() {
         val packageName = sbn.packageName ?: "unknown"
         if (packageName == this.packageName) return
 
+        // The default Phone/Dialer and SMS/Messages apps' own notifications
+        // describe the exact same call/SMS events MirrorLineService already
+        // reports through its dedicated, contact-resolved telephony bridge.
+        // Mirroring them too would show every call and text twice.
+        if (DefaultAppResolver.isDefaultDialerOrSms(this, packageName)) return
+
         // Grouped notifications (most messaging apps) post both a "summary"
         // (e.g. generic "3 new messages") and separate notifications for
         // each actual message. Mirroring both doubles up for what the user
@@ -77,6 +83,22 @@ object AppLabelResolver {
             pm.getApplicationLabel(appInfo).toString()
         } catch (_: Exception) {
             packageName
+        }
+    }
+}
+
+/** Identifies the device's current default dialer/SMS apps, so their
+ *  notifications can be excluded from generic mirroring (queried fresh each
+ *  time rather than cached, since the user can change either default). */
+object DefaultAppResolver {
+    fun isDefaultDialerOrSms(context: android.content.Context, packageName: String): Boolean {
+        return try {
+            val telecomManager = context.getSystemService(android.telecom.TelecomManager::class.java)
+            val defaultDialer = telecomManager?.defaultDialerPackage
+            val defaultSms = android.provider.Telephony.Sms.getDefaultSmsPackage(context)
+            packageName == defaultDialer || packageName == defaultSms
+        } catch (_: Exception) {
+            false
         }
     }
 }

@@ -113,6 +113,25 @@ class CallEventHandler {
     // transition would otherwise relabel it "missed".
     if (current == null || current.status == 'rejected') return;
 
+    // MISSED/ENDED can arrive with caller info the live broadcast never
+    // resolved (see MirrorLineService.enrichFromCallLogThenNotify) --
+    // CallEvent.copyWith only ever improves on what's already known, so
+    // applying this unconditionally is safe even when it's empty/unchanged.
+    final number = data['number'] as String?;
+    final contactName = data['contactName'] as String?;
+    if (number != null || contactName != null) {
+      await _ref.read(callListProvider.notifier).updateCallerInfo(
+            callId,
+            number: number,
+            contactName: contactName,
+          );
+      await _sendOrQueue(MessageTypes.callInfo, {
+        'id': callId,
+        'number': ?number,
+        'contact_name': ?contactName,
+      });
+    }
+
     await _ref.read(callListProvider.notifier).updateStatus(callId, newStatus);
     await _sendOrQueue(MessageTypes.callStatus, {'id': callId, 'status': newStatus});
     if (callState != 'ANSWERED') {

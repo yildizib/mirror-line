@@ -586,8 +586,8 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
   Future<bool> sendSmsNotification(String address, String body, {String? id}) =>
       _smsHandler.sendSmsNotification(address, body, id: id);
 
-  Future<bool> sendReplySms(String address, String body, {String? id}) =>
-      _smsHandler.sendReplySms(address, body, id: id);
+  Future<bool> sendReplySms(String address, String body, {String? id, String? contactName, String? threadId}) =>
+      _smsHandler.sendReplySms(address, body, id: id, contactName: contactName, threadId: threadId);
 
   Future<void> _flushQueue() async {
     final items = await _queue.pendingItems();

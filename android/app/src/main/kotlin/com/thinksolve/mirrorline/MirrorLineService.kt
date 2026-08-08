@@ -18,6 +18,7 @@ import android.os.PowerManager
 import android.telephony.SmsMessage
 import android.telephony.TelephonyManager
 import androidx.core.app.NotificationCompat
+import com.thinksolve.mirrorline.MirrorLineService.Companion.SMS_DEBOUNCE_MS
 
 class MirrorLineService : Service() {
 
@@ -136,6 +137,33 @@ class MirrorLineService : Service() {
         }
     }
 
+    /**
+     * The call-log entry for a just-finished call isn't guaranteed to be
+     * written the instant IDLE fires, so this queries slightly delayed and
+     * off the main thread, then reports the (MISSED/ENDED) state change
+     * together with whatever caller info CallLogResolver could add. Dart's
+     * CallEvent merge (see CallEvent.copyWith) only ever improves on what it
+     * already has -- an empty/"unknown" result here is simply a no-op.
+     */
+    private fun enrichFromCallLogThenNotify(context: Context, state: String) {
+        val mainHandler = Handler(Looper.getMainLooper())
+        Thread {
+            try {
+                Thread.sleep(CALL_LOG_QUERY_DELAY_MS)
+            } catch (_: InterruptedException) {
+            }
+            val info = CallLogResolver.latestEntry(context)
+            mainHandler.post {
+                val args = mutableMapOf<String, Any>("state" to state)
+                if (info != null) {
+                    args["number"] = info.number
+                    if (info.name.isNotEmpty()) args["contactName"] = info.name
+                }
+                invokeFlutter("onCall", args)
+            }
+        }.start()
+    }
+
     private fun registerReceivers() {
         if (phoneStateReceiver == null) {
             phoneStateReceiver = object : BroadcastReceiver() {
@@ -178,9 +206,9 @@ class MirrorLineService : Service() {
                         TelephonyManager.EXTRA_STATE_IDLE -> {
                             when (previous) {
                                 TelephonyManager.EXTRA_STATE_RINGING ->
-                                    invokeFlutter("onCall", mapOf("state" to "MISSED"))
+                                    enrichFromCallLogThenNotify(context, "MISSED")
                                 TelephonyManager.EXTRA_STATE_OFFHOOK ->
-                                    invokeFlutter("onCall", mapOf("state" to "ENDED"))
+                                    enrichFromCallLogThenNotify(context, "ENDED")
                             }
                         }
                     }
@@ -311,5 +339,6 @@ class MirrorLineService : Service() {
         const val CHANNEL_ID = "mirrorline_service"
         const val NOTIFICATION_ID = 10001
         const val SMS_DEBOUNCE_MS = 700L
+        const val CALL_LOG_QUERY_DELAY_MS = 400L
     }
 }
