@@ -34,6 +34,21 @@ class MirrorLineService : Service() {
     private var phoneStateListener: PhoneStateListener? = null
     private var lastListenerNumber: String? = null
 
+    // Debounce window for the initial RINGING of a new call. The very
+    // first ACTION_PHONE_STATE_CHANGED broadcast often arrives with an
+    // empty EXTRA_INCOMING_NUMBER (carrier timing, OEM call screening),
+    // which used to fire call_incoming to the Main device with no number
+    // and surface as "Bilinmeyen numara". Instead of reporting it
+    // immediately, we hold the first RINGING for up to RINGING_DEBOUNCE_MS;
+    // if a repeated broadcast or PhoneStateListener resolves the number
+    // within that window, we report it with the number. If it doesn't,
+    // we report it as-is (empty) and let the later callInfo/call-log
+    // enrichment path backfill it -- same fallback as before.
+    private val callHandler = Handler(Looper.getMainLooper())
+    private var pendingRinging: Runnable? = null
+    private var pendingRingingNumber: String = ""
+    private var pendingRingingContact: String = ""
+
     // Tracks the previous EXTRA_STATE so transitions can be classified
     // (e.g. RINGING -> IDLE means missed, OFFHOOK -> IDLE means the
     // answered call ended). Dart correlates these with the currently
@@ -180,6 +195,91 @@ class MirrorLineService : Service() {
         }.start()
     }
 
+    /**
+     * Holds the first RINGING of a new call for [RINGING_DEBOUNCE_MS] before
+     * reporting it, so a late-arriving incoming number (from a repeated
+     * RINGING broadcast or PhoneStateListener) can be folded in and the
+     * Main device's notification shows the actual number instead of
+     * "Bilinmeyen numara". If no number arrives within the window, the
+     * call is reported as-is and the existing callInfo/call-log
+     * enrichment path still backfills it later.
+     */
+    private fun startRingingDebounce(number: String, contactName: String) {
+        cancelRingingDebounce()
+        pendingRingingNumber = number
+        pendingRingingContact = contactName
+        val r = Runnable {
+            pendingRinging = null
+            invokeFlutter(
+                "onCall",
+                mapOf(
+                    "number" to pendingRingingNumber,
+                    "contactName" to pendingRingingContact,
+                    "state" to "RINGING"
+                )
+            )
+        }
+        pendingRinging = r
+        callHandler.postDelayed(r, RINGING_DEBOUNCE_MS)
+    }
+
+    /**
+     * A later source (repeated RINGING broadcast or PhoneStateListener)
+     * resolved the number for the call currently being held. If we
+     * haven't reported yet, fold it into the pending report so it goes
+     * out with it; if we already reported, emit a RINGING_UPDATE so Dart
+     * merges it into the tracked call as before.
+     */
+    private fun feedRingingUpdate(number: String, contactName: String) {
+        val empty = number.isBlank()
+        if (empty && contactName.isBlank()) return
+        val pending = pendingRinging
+        if (pending != null) {
+            if (number.isNotBlank()) pendingRingingNumber = number
+            if (contactName.isNotBlank()) pendingRingingContact = contactName
+            return
+        }
+        // Already reported -- behave like the old RINGING_UPDATE path.
+        invokeFlutter(
+            "onCall",
+            mapOf(
+                "number" to number,
+                "contactName" to contactName,
+                "state" to "RINGING_UPDATE"
+            )
+        )
+    }
+
+    private fun cancelRingingDebounce() {
+        pendingRinging?.let { callHandler.removeCallbacks(it) }
+        pendingRinging = null
+        pendingRingingNumber = ""
+        pendingRingingContact = ""
+    }
+
+    /**
+     * If the initial RINGING is still pending (debounce window not yet
+     * elapsed), report it immediately and clear the pending state. Used
+     * when a state transition (OFFHOOK/IDLE) arrives before the debounce
+     * fired, so Dart has a ringing call to apply the transition to. No-op
+     * if RINGING already went out.
+     */
+    private fun flushPendingRinging() {
+        val r = pendingRinging ?: return
+        callHandler.removeCallbacks(r)
+        pendingRinging = null
+        invokeFlutter(
+            "onCall",
+            mapOf(
+                "number" to pendingRingingNumber,
+                "contactName" to pendingRingingContact,
+                "state" to "RINGING"
+            )
+        )
+        pendingRingingNumber = ""
+        pendingRingingContact = ""
+    }
+
     private fun registerReceivers() {
         if (phoneStateReceiver == null) {
             phoneStateReceiver = object : BroadcastReceiver() {
@@ -201,14 +301,17 @@ class MirrorLineService : Service() {
                             // an info update (e.g. the number finally
                             // resolved) for the call already being tracked.
                             val isNewCall = previous != TelephonyManager.EXTRA_STATE_RINGING
-                            invokeFlutter(
-                                "onCall",
-                                mapOf(
-                                    "number" to number,
-                                    "contactName" to contactName,
-                                    "state" to if (isNewCall) "RINGING" else "RINGING_UPDATE"
-                                )
-                            )
+                            if (isNewCall) {
+                                startRingingDebounce(number, contactName)
+                            } else {
+                                // A repeat RINGING for the already-tracked
+                                // call. If this one carries a number and we
+                                // haven't reported yet, fold it into the
+                                // pending report so it goes out with it; if
+                                // we already reported, treat it as the
+                                // usual RINGING_UPDATE info merge.
+                                feedRingingUpdate(number, contactName)
+                            }
                         }
                         TelephonyManager.EXTRA_STATE_OFFHOOK -> {
                             // A ringing call was just answered. (If we were
@@ -216,13 +319,24 @@ class MirrorLineService : Service() {
                             // is a no-op event Dart ignores -- it only acts
                             // on this when it has a "ringing" call pending.)
                             if (previous == TelephonyManager.EXTRA_STATE_RINGING) {
+                                // If the initial RINGING was still being
+                                // debounced, flush it now so Dart has a
+                                // ringing call to mark answered; otherwise
+                                // the ANSWERED transition would be dropped.
+                                flushPendingRinging()
                                 invokeFlutter("onCall", mapOf("state" to "ANSWERED"))
                             }
                         }
                         TelephonyManager.EXTRA_STATE_IDLE -> {
+                            // Same race as OFFHOOK: a missed call can go
+                            // RINGING -> IDLE faster than the debounce
+                            // window, so make sure Dart has seen RINGING
+                            // before reporting the MISSED transition.
                             when (previous) {
-                                TelephonyManager.EXTRA_STATE_RINGING ->
+                                TelephonyManager.EXTRA_STATE_RINGING -> {
+                                    flushPendingRinging()
                                     enrichFromCallLogThenNotify(context, "MISSED")
+                                }
                                 TelephonyManager.EXTRA_STATE_OFFHOOK ->
                                     enrichFromCallLogThenNotify(context, "ENDED")
                             }
@@ -292,14 +406,7 @@ class MirrorLineService : Service() {
                     if (phoneNumber.isNullOrEmpty() || phoneNumber == lastListenerNumber) return
                     lastListenerNumber = phoneNumber
                     val contactName = ContactResolver.resolveName(this@MirrorLineService, phoneNumber) ?: ""
-                    invokeFlutter(
-                        "onCall",
-                        mapOf(
-                            "number" to phoneNumber,
-                            "contactName" to contactName,
-                            "state" to "RINGING_UPDATE"
-                        )
-                    )
+                    feedRingingUpdate(phoneNumber, contactName)
                 }
             }
             phoneStateListener = listener
@@ -386,6 +493,12 @@ class MirrorLineService : Service() {
 
         unregisterCallStateListener()
 
+        // Cancel any held RINGING so it doesn't fire after teardown. We
+        // don't flush it -- if the call is still ringing at shutdown, the
+        // next process restart (START_STICKY) will re-register and the
+        // ongoing call's later transitions will be reported then.
+        cancelRingingDebounce()
+
         // Flush anything still buffered rather than silently dropping it,
         // then cancel so nothing fires after teardown.
         pendingSms.values.toList().forEach { smsHandler.removeCallbacks(it.flush) }
@@ -420,6 +533,13 @@ class MirrorLineService : Service() {
         const val CHANNEL_ID = "mirrorline_service"
         const val NOTIFICATION_ID = 10001
         const val SMS_DEBOUNCE_MS = 700L
+        // How long to wait for the incoming number to resolve on the
+        // first RINGING broadcast before giving up and reporting the call
+        // with whatever (possibly empty) number we have. ~500ms is enough
+        // to catch the second RINGING broadcast / a PhoneStateListener
+        // callback on most ROMs without making the Main device's call
+        // notification feel delayed.
+        const val RINGING_DEBOUNCE_MS = 500L
         // Cumulative ~2s across up to 3 attempts -- enough slack for a ROM's
         // own caller-ID/spam lookup to finish writing the call-log entry.
         val CALL_LOG_RETRY_DELAYS_MS = longArrayOf(400L, 600L, 1000L)
