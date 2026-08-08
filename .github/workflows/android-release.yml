@@ -1,0 +1,79 @@
+name: Android Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Sürüm (örn: 0.1.1) - v0.1.1 veya 0.1.1"
+        required: true
+        type: string
+      prerelease:
+        description: "Pre-release olarak işaretle"
+        required: false
+        default: true
+        type: boolean
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Normalize version
+        id: ver
+        run: |
+          RAW="${{ inputs.version }}"
+          V="${RAW#v}"
+          if ! echo "$V" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::Geçersiz sürüm: $RAW (beklenen: x.y.z)"
+            exit 1
+          fi
+          echo "version=$V" >> $GITHUB_OUTPUT
+          echo "tag=v$V" >> $GITHUB_OUTPUT
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Flutter doctor
+        run: flutter doctor -v
+
+      - name: Pub get
+        run: flutter pub get
+
+      - name: Bump pubspec.yaml
+        run: |
+          sed -i "s/^version: .*/version: ${{ steps.ver.outputs.version }}+1/" pubspec.yaml
+          grep '^version:' pubspec.yaml
+
+      - name: Build release APK
+        run: flutter build apk --release
+
+      - name: Rename APK
+        run: |
+          cp build/app/outputs/flutter-apk/app-release.apk \
+             mirrorline-${{ steps.ver.outputs.tag }}.apk
+          ls -lh mirrorline-*.apk
+
+      - name: Tag & commit pubspec bump
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add pubspec.yaml
+          git commit -m "chore(release): ${{ steps.ver.outputs.tag }}" || true
+          git tag ${{ steps.ver.outputs.tag }}
+          git push origin HEAD:main --tags
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          name: ${{ steps.ver.outputs.tag }}
+          prerelease: ${{ inputs.prerelease }}
+          generate_release_notes: true
+          files: mirrorline-${{ steps.ver.outputs.tag }}.apk
