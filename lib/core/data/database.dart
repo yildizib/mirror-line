@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
@@ -5,6 +6,7 @@ import 'package:sqflite/sqflite.dart';
 class AppDatabase {
   static final AppDatabase instance = AppDatabase._internal();
   static Database? _database;
+  static const int schemaVersion = 4;
 
   AppDatabase._internal();
 
@@ -19,13 +21,17 @@ class AppDatabase {
 
     return openDatabase(
       path,
-      version: 4,
-      onCreate: _createTables,
-      onUpgrade: _upgradeTables,
+      version: schemaVersion,
+      onCreate: createTables,
+      onUpgrade: upgradeTables,
     );
   }
 
-  Future<void> _upgradeTables(Database db, int oldVersion, int newVersion) async {
+  /// Exposed (not private) so migration tests can exercise the exact same
+  /// upgrade path a real device would go through -- see
+  /// test/database_migration_test.dart.
+  @visibleForTesting
+  Future<void> upgradeTables(Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 2) {
       await db.execute('ALTER TABLE peer ADD COLUMN device_name TEXT NOT NULL DEFAULT "";');
     }
@@ -38,7 +44,10 @@ class AppDatabase {
     }
   }
 
-  Future<void> _createTables(Database db, int version) async {
+  /// Exposed (not private) so tests can create a fresh-install schema
+  /// directly -- see test/database_migration_test.dart.
+  @visibleForTesting
+  Future<void> createTables(Database db, int version) async {
     await db.execute('''
       CREATE TABLE peer (
         id TEXT PRIMARY KEY,

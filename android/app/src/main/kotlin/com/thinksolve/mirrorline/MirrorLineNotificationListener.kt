@@ -20,6 +20,14 @@ class MirrorLineNotificationListener : NotificationListenerService() {
         if (sbn == null) return
         val packageName = sbn.packageName ?: "unknown"
         if (packageName == this.packageName) return
+
+        // Grouped notifications (most messaging apps) post both a "summary"
+        // (e.g. generic "3 new messages") and separate notifications for
+        // each actual message. Mirroring both doubles up for what the user
+        // perceives as one event; the summary carries no information the
+        // individual notifications don't already have, so skip it.
+        if (sbn.notification.flags and Notification.FLAG_GROUP_SUMMARY != 0) return
+
         val extras = sbn.notification.extras
 
         val title = extras.getString(Notification.EXTRA_TITLE, "") ?: ""

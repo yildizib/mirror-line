@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:mirrorline/core/services/permission_service.dart';
 import 'package:mirrorline/core/theme/theme.dart';
 import 'package:mirrorline/features/connection/connection_provider.dart';
 import 'package:mirrorline/features/pairing/peer_provider.dart';
@@ -52,11 +53,57 @@ class RoleSelectionScreen extends ConsumerWidget {
   Future<void> _selectRole(BuildContext context, WidgetRef ref, String role) async {
     await ref.read(peerProvider.notifier).createPeer(role);
     await ref.read(connectionProvider.notifier).refresh();
+    if (!context.mounted) return;
+
+    // The Source device (the one holding the SIM) is the one that must
+    // keep running reliably in the background -- ask for the battery
+    // optimization exemption right now, while we have the user's
+    // attention, instead of leaving it as an easy-to-miss Settings toggle.
+    if (role == 'source') {
+      await _offerBatteryExemption(context);
+    }
+
     if (context.mounted) {
       Navigator.pop(context);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(role == 'main' ? 'Asıl Telefon seçildi' : 'Diğer Telefon seçildi')),
       );
+    }
+  }
+
+  Future<void> _offerBatteryExemption(BuildContext context) async {
+    if (await PermissionService.isBatteryOptimizationIgnored()) return;
+    if (!context.mounted) return;
+
+    final proceed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        icon: const Icon(Icons.battery_charging_full_rounded),
+        title: const Text('Arka planda güvenilir çalışma'),
+        content: const Text(
+          'Bu cihaz "Diğer Telefon" olduğu için arama/SMS eventlerini yakalayabilmesi '
+          'adına ekran kapalıyken de sürekli çalışmalı. Bunun için Android\'in pil '
+          'optimizasyonundan bu uygulamayı hariç tutmanız gerekiyor.\n\n'
+          'Not: bu, normalden biraz daha fazla pil tüketimi anlamına gelir -- '
+          'bağlantıyı canlı tutmanın bilinçli bir bedeli. İstemezseniz daha sonra '
+          'Ayarlar\'dan da açabilirsiniz.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Daha Sonra'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Şimdi Ayarla'),
+          ),
+        ],
+      ),
+    );
+
+    if (proceed == true) {
+      await PermissionService.requestIgnoreBatteryOptimizations();
     }
   }
 }

@@ -6,13 +6,13 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logger/logger.dart';
 import 'package:mirrorline/core/data/daos/peer_dao.dart';
-import 'package:mirrorline/core/data/models/call_event.dart';
 import 'package:mirrorline/core/data/models/peer.dart';
-import 'package:mirrorline/core/data/models/sms_message.dart';
+import 'package:mirrorline/core/data/models/queue_item.dart';
 import 'package:mirrorline/core/network/lan_beacon.dart';
 import 'package:mirrorline/core/network/message_protocol.dart';
 import 'package:mirrorline/core/network/peer_discovery.dart';
 import 'package:mirrorline/core/network/socket_manager.dart';
+import 'package:mirrorline/core/network/subnet_scanner.dart';
 import 'package:mirrorline/core/security/crypto_manager.dart';
 import 'package:mirrorline/core/security/key_store.dart';
 import 'package:mirrorline/core/services/connectivity_service.dart';
@@ -20,7 +20,9 @@ import 'package:mirrorline/core/services/notification_service.dart';
 import 'package:mirrorline/core/services/queue_service.dart';
 import 'package:mirrorline/core/telephony/telephony_channel.dart';
 import 'package:mirrorline/features/calls/call_list_provider.dart';
+import 'package:mirrorline/features/connection/call_event_handler.dart';
 import 'package:mirrorline/features/connection/connection_status_provider.dart';
+import 'package:mirrorline/features/connection/sms_event_handler.dart';
 import 'package:mirrorline/features/pairing/pairing_provider.dart';
 import 'package:mirrorline/features/pairing/peer_provider.dart';
 import 'package:mirrorline/features/sms/sms_list_provider.dart';
@@ -35,6 +37,13 @@ final connectionConnectingProvider = Provider<bool>((ref) {
 
 class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver {
   static const Duration _retryInterval = Duration(seconds: 10);
+  // Fallback active network scan (see SubnetScanner): only kicks in after
+  // being disconnected this long (beacon/direct-IP get a fair chance
+  // first), and won't run again more often than this -- scanning ~254
+  // hosts has a real battery/radio cost, so it must stay a rare fallback,
+  // not a routine poll.
+  static const Duration _scanGraceDuration = Duration(seconds: 25);
+  static const Duration _scanBackoff = Duration(seconds: 60);
 
   final Logger _logger = Logger();
   final Ref _ref;
@@ -43,6 +52,7 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
   final QueueService _queue = QueueService();
   final BeaconBroadcaster _broadcaster = BeaconBroadcaster();
   final BeaconListener _listener = BeaconListener();
+  final SubnetScanner _scanner = SubnetScanner();
 
   SocketManager? _socketManager;
   Peer? _peer;
@@ -50,15 +60,37 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
   Timer? _healthTimer;
   bool _connecting = false;
   bool _refreshing = false;
+  bool _scanning = false;
   bool _telephonyHandlerRegistered = false;
   String? _lastDiscoveredIp;
-  // The Dart-generated id of the call currently ringing (or, once
-  // answered, still ongoing) on this Source device. Native reports state
-  // *transitions* without an id, so this is how they get matched back to
-  // the right CallEvent.
-  String? _activeCallId;
+  DateTime? _disconnectedSince;
+  DateTime? _lastScanAt;
+
+  // Call/SMS native-event and peer-message handling live in their own
+  // classes (see call_event_handler.dart / sms_event_handler.dart) so this
+  // notifier's own job -- owning the socket and the connection lifecycle
+  // -- stays readable on its own. Constructed here (not as field
+  // initializers) because their callbacks are tear-offs of this instance's
+  // own methods, which need `this` to be fully alive first.
+  late final CallEventHandler _callHandler;
+  late final SmsEventHandler _smsHandler;
 
   ConnectionNotifier(this._ref) : super(false) {
+    _callHandler = CallEventHandler(
+      ref: _ref,
+      logger: _logger,
+      isSource: () => isSource,
+      sendOrQueue: _sendOrQueue,
+      notify: _notify,
+    );
+    _smsHandler = SmsEventHandler(
+      ref: _ref,
+      logger: _logger,
+      isSource: () => isSource,
+      sendOrQueue: _sendOrQueue,
+      notify: _notify,
+      socketManager: () => _socketManager,
+    );
     _init();
   }
 
@@ -79,6 +111,7 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
       } else {
         _logger.i('Network offline. Dropping stale connection, pausing attempts.');
         state = false;
+        _disconnectedSince ??= DateTime.now();
         // Actually tear down the client-side connection, not just the UI
         // flag. Some network transitions (e.g. Wi-Fi AP roam) never deliver
         // a socket error, so SocketManager's internal _isConnected can stay
@@ -109,6 +142,7 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
     _healthTimer ??= Timer.periodic(_retryInterval, (_) {
       if (_connecting || state) return;
       refresh();
+      _maybeRunFallbackScan();
     });
   }
 
@@ -246,12 +280,14 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
       onMessage: _handleIncomingMessage,
       onConnected: () {
         state = true;
+        _disconnectedSince = null;
         _ref.read(connectionStatusProvider.notifier).clearError();
         _logger.i('Socket connected and authenticated!');
         _flushQueue();
       },
       onDisconnected: () {
         state = false;
+        _disconnectedSince ??= DateTime.now();
         _logger.w('Socket disconnected. Will auto-reconnect when peer is reachable.');
         _scheduleReconnect();
       },
@@ -320,6 +356,42 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
     }
   }
 
+  /// Fallback discovery: if the beacon and last-known-IP haven't gotten us
+  /// connected for a while, actively scan the local subnet for the peer's
+  /// TCP port. Covers routers that restrict broadcast/multicast between
+  /// devices even without classic AP isolation. Deliberately rare (grace
+  /// period + backoff, see the constants above) since scanning ~254 hosts
+  /// has a real, if brief, battery/radio cost -- this is a fallback, not a
+  /// routine poll.
+  Future<void> _maybeRunFallbackScan() async {
+    if (isSource) return; // only Main ever dials out
+    if (state || _connecting || _scanning) return;
+
+    final disconnectedSince = _disconnectedSince;
+    if (disconnectedSince == null) return;
+    if (DateTime.now().difference(disconnectedSince) < _scanGraceDuration) return;
+
+    final lastScan = _lastScanAt;
+    if (lastScan != null && DateTime.now().difference(lastScan) < _scanBackoff) return;
+
+    final peer = _peer;
+    final localIp = _ref.read(connectionStatusProvider).localIp;
+    if (peer == null || localIp == null) return;
+
+    _scanning = true;
+    _lastScanAt = DateTime.now();
+    try {
+      final found = await _scanner.findHostWithOpenPort(localIp: localIp, port: peer.port);
+      if (found != null && !state && !_connecting) {
+        _logger.i('Fallback scan located peer at $found; attempting connection.');
+        _lastDiscoveredIp = found;
+        await _connectTo(found, peer.port);
+      }
+    } finally {
+      _scanning = false;
+    }
+  }
+
   void _onBeacon(BeaconInfo info) {
     final peer = _peer;
     if (peer == null) return;
@@ -375,78 +447,9 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
       final id = '${now.millisecondsSinceEpoch}';
 
       if (type == 'onCall') {
-        final callState = (data['state'] as String?) ?? 'RINGING';
-        if (callState == 'RINGING') {
-          final number = (data['number'] as String?) ?? 'unknown';
-          final event = CallEvent(
-            id: id,
-            direction: 'incoming',
-            number: number,
-            timestamp: now,
-            encrypted: '',
-            status: 'ringing',
-            createdAt: now,
-          );
-          _activeCallId = id;
-          await _ref.read(callListProvider.notifier).add(event);
-          await sendCallNotification(number, id: id);
-        } else {
-          // ANSWERED / MISSED / ENDED: a state change for whichever call
-          // is currently active, not a new call.
-          final callId = _activeCallId;
-          if (callId == null) return;
-          final newStatus = switch (callState) {
-            'ANSWERED' => 'answered',
-            'MISSED' => 'missed',
-            'ENDED' => 'ended',
-            _ => null,
-          };
-          if (newStatus == null) return;
-
-          CallEvent? current;
-          for (final c in _ref.read(callListProvider)) {
-            if (c.id == callId) {
-              current = c;
-              break;
-            }
-          }
-          // Don't override a status we already know locally -- e.g. we
-          // just rejected this call ourselves, and the resulting
-          // RINGING->IDLE transition would otherwise relabel it "missed".
-          if (current == null || current.status == 'rejected') return;
-
-          await _ref.read(callListProvider.notifier).updateStatus(callId, newStatus);
-          await _sendOrQueue(MessageTypes.callStatus, {'id': callId, 'status': newStatus});
-          if (callState != 'ANSWERED') {
-            _activeCallId = null;
-          }
-        }
+        await _callHandler.handleNativeEvent(data, id: id, now: now);
       } else if (type == 'onSms') {
-        final address = (data['address'] as String?) ?? 'unknown';
-        final contactName = (data['contactName'] as String?) ?? '';
-        final body = (data['body'] as String?) ?? '';
-        final threadId = (data['threadId'] as String?) ?? '';
-        final message = SmsMessage(
-          id: id,
-          threadId: threadId,
-          address: address,
-          contactName: contactName,
-          body: body,
-          encrypted: '',
-          direction: 'incoming',
-          status: 'received',
-          timestamp: now,
-          createdAt: now,
-        );
-        await _ref.read(smsListProvider.notifier).add(message);
-        await _sendOrQueue(MessageTypes.smsIncoming, {
-          'id': id,
-          'address': address,
-          'contact_name': contactName,
-          'body': body,
-          'thread_id': threadId,
-          'timestamp': now.millisecondsSinceEpoch,
-        });
+        await _smsHandler.handleNativeEvent(data, id: id, now: now);
       } else if (type == 'onNotification') {
         final packageName = (data['packageName'] as String?) ?? 'unknown';
         final appName = (data['appName'] as String?) ?? packageName;
@@ -490,134 +493,16 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
 
     switch (message.type) {
       case MessageTypes.callIncoming:
-        final number = payload['number'] as String? ?? 'unknown';
-        final contactName = payload['contact_name'] as String? ?? '';
-        final id = payload['id'] as String? ?? message.id;
-        final event = CallEvent(
-          id: id,
-          direction: 'incoming',
-          number: number,
-          contactName: contactName,
-          timestamp: DateTime.fromMillisecondsSinceEpoch(
-              payload['timestamp'] as int? ?? now.millisecondsSinceEpoch),
-          encrypted: message.payload,
-          status: 'ringing',
-          createdAt: now,
-        );
-        await _ref.read(callListProvider.notifier).add(event);
-        await _notify(
-          id: int.tryParse(id) ?? 1,
-          title: event.displayName,
-          body: event.statusLabel,
-          payload: message.id,
-        );
-        break;
-
       case MessageTypes.callRejected:
-        final id = payload['id'] as String?;
-        // Only actually end the call if it's still the one ringing --
-        // guards against a reject command arriving after the call was
-        // already answered/missed/ended, which would otherwise hang up
-        // an unrelated live call instead of rejecting a ringing one.
-        if (isSource && id != null && id == _activeCallId) {
-          await TelephonyChannel.rejectCall();
-          _activeCallId = null;
-        }
-        if (id != null) {
-          await _ref.read(callListProvider.notifier).updateStatus(id, 'rejected');
-        }
-        break;
-
       case MessageTypes.callStatus:
-        final id = payload['id'] as String?;
-        final status = payload['status'] as String? ?? 'ended';
-        if (id != null) {
-          await _ref.read(callListProvider.notifier).updateStatus(id, status);
-          // Update the existing call notification in place (same id) so it
-          // reflects the live status (Cevaplandı/Cevapsız/Sonlandı) instead
-          // of just sitting there saying "Çalıyor" forever.
-          CallEvent? updated;
-          for (final c in _ref.read(callListProvider)) {
-            if (c.id == id) {
-              updated = c;
-              break;
-            }
-          }
-          if (updated != null) {
-            await _notify(
-              id: int.tryParse(id) ?? 1,
-              title: updated.displayName,
-              body: updated.statusLabel,
-              payload: message.id,
-            );
-          }
-        }
+      case MessageTypes.callInfo:
+        await _callHandler.handleIncomingMessage(message.type, payload, message, now);
         break;
 
       case MessageTypes.smsIncoming:
-        final address = payload['address'] as String? ?? 'unknown';
-        final contactName = payload['contact_name'] as String? ?? '';
-        final body = payload['body'] as String? ?? '';
-        final id = payload['id'] as String? ?? message.id;
-        final smsEvent = SmsMessage(
-          id: id,
-          threadId: payload['thread_id'] as String? ?? '',
-          address: address,
-          contactName: contactName,
-          body: body,
-          encrypted: message.payload,
-          direction: 'incoming',
-          status: 'received',
-          timestamp: DateTime.fromMillisecondsSinceEpoch(
-              payload['timestamp'] as int? ?? now.millisecondsSinceEpoch),
-          createdAt: now,
-        );
-        await _ref.read(smsListProvider.notifier).add(smsEvent);
-        await _notify(
-          id: int.tryParse(id) ?? 2,
-          title: smsEvent.displayName,
-          body: body,
-          payload: message.id,
-        );
-        break;
-
       case MessageTypes.smsOutgoing:
-        if (isSource) {
-          final address = payload['address'] as String? ?? '';
-          final body = payload['body'] as String? ?? '';
-          final id = payload['id'] as String? ?? message.id;
-          var status = 'sent';
-          try {
-            await TelephonyChannel.sendSms(address, body);
-          } catch (e) {
-            _logger.e('SMS send failed: $e');
-            status = 'failed';
-          }
-          await _ref.read(smsListProvider.notifier).add(SmsMessage(
-                id: id,
-                threadId: payload['thread_id'] as String? ?? '',
-                address: address,
-                body: body,
-                encrypted: message.payload,
-                direction: 'outgoing',
-                status: status,
-                timestamp: DateTime.fromMillisecondsSinceEpoch(
-                    payload['timestamp'] as int? ?? now.millisecondsSinceEpoch),
-                createdAt: now,
-              ));
-          await _socketManager?.sendMessage(MessageTypes.smsStatus, {
-            'id': id,
-            'status': status,
-          });
-        }
-        break;
-
       case MessageTypes.smsStatus:
-        final id = payload['id'] as String?;
-        final status = payload['status'] as String? ?? 'sent';
-        if (id != null) {
-          await _ref.read(smsListProvider.notifier).updateStatus(id, status);
-        }
+        await _smsHandler.handleIncomingMessage(message.type, payload, message, now);
         break;
 
       case MessageTypes.ack:
@@ -693,41 +578,16 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
     return sent;
   }
 
-  Future<bool> sendCallNotification(String number, {String? id}) {
-    final callId = id ?? '${DateTime.now().millisecondsSinceEpoch}';
-    return _sendOrQueue(MessageTypes.callIncoming, {
-      'id': callId,
-      'number': number,
-      'timestamp': DateTime.now().millisecondsSinceEpoch,
-    });
-  }
+  Future<bool> sendCallNotification(String number, {String? id, String? contactName}) =>
+      _callHandler.sendCallNotification(number, id: id, contactName: contactName);
 
-  Future<bool> sendCallRejected(String callId) {
-    return _sendOrQueue(MessageTypes.callRejected, {
-      'id': callId,
-      'timestamp': DateTime.now().millisecondsSinceEpoch,
-    });
-  }
+  Future<bool> sendCallRejected(String callId) => _callHandler.sendCallRejected(callId);
 
-  Future<bool> sendSmsNotification(String address, String body, {String? id}) {
-    final smsId = id ?? '${DateTime.now().millisecondsSinceEpoch}';
-    return _sendOrQueue(MessageTypes.smsIncoming, {
-      'id': smsId,
-      'address': address,
-      'body': body,
-      'timestamp': DateTime.now().millisecondsSinceEpoch,
-    });
-  }
+  Future<bool> sendSmsNotification(String address, String body, {String? id}) =>
+      _smsHandler.sendSmsNotification(address, body, id: id);
 
-  Future<bool> sendReplySms(String address, String body, {String? id}) {
-    final smsId = id ?? '${DateTime.now().millisecondsSinceEpoch}';
-    return _sendOrQueue(MessageTypes.smsOutgoing, {
-      'id': smsId,
-      'address': address,
-      'body': body,
-      'timestamp': DateTime.now().millisecondsSinceEpoch,
-    });
-  }
+  Future<bool> sendReplySms(String address, String body, {String? id}) =>
+      _smsHandler.sendReplySms(address, body, id: id);
 
   Future<void> _flushQueue() async {
     final items = await _queue.pendingItems();
@@ -740,13 +600,44 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
         if (sent) {
           if (item.id != null) await _queue.markSent(item.id!);
         } else {
-          if (item.id != null) await _queue.markFailed(item.id!, item.retryCount);
+          if (item.id != null) await _onQueueItemFailed(item, payload);
           break;
         }
       } catch (e) {
         _logger.e('Failed to flush queue item ${item.id}: $e');
-        if (item.id != null) await _queue.markFailed(item.id!, item.retryCount);
+        if (item.id != null) await _onQueueItemFailed(item, null);
       }
+    }
+  }
+
+  /// Records a failed send attempt; if that was the last retry (item
+  /// permanently dropped), reflects it back onto the originating SMS/call
+  /// entry as 'failed' instead of the item just silently vanishing --
+  /// otherwise the sender has no way to know their message never arrived.
+  Future<void> _onQueueItemFailed(QueueItem item, Map<String, dynamic>? payload) async {
+    final dropped = await _queue.markFailed(item.id!, item.retryCount);
+    if (!dropped) return;
+
+    final decodedPayload = payload ?? _tryDecode(item.payload);
+    final entryId = decodedPayload?['id'] as String?;
+    if (entryId == null) return;
+
+    switch (item.type) {
+      case MessageTypes.smsIncoming:
+      case MessageTypes.smsOutgoing:
+        await _ref.read(smsListProvider.notifier).updateStatus(entryId, 'failed');
+        break;
+      case MessageTypes.callIncoming:
+        await _ref.read(callListProvider.notifier).updateStatus(entryId, 'failed');
+        break;
+    }
+  }
+
+  Map<String, dynamic>? _tryDecode(String payload) {
+    try {
+      return jsonDecode(payload) as Map<String, dynamic>;
+    } catch (_) {
+      return null;
     }
   }
 

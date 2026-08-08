@@ -43,11 +43,11 @@ class CallEvent {
         createdAt: DateTime.fromMillisecondsSinceEpoch(json['created_at'] as int),
       );
 
-  CallEvent copyWith({String? status}) => CallEvent(
+  CallEvent copyWith({String? status, String? number, String? contactName}) => CallEvent(
         id: id,
         direction: direction,
-        number: number,
-        contactName: contactName,
+        number: (number != null && number.isNotEmpty && number != 'unknown') ? number : this.number,
+        contactName: (contactName != null && contactName.isNotEmpty) ? contactName : this.contactName,
         timestamp: timestamp,
         encrypted: encrypted,
         status: status ?? this.status,
@@ -65,6 +65,7 @@ class CallEvent {
         'missed' => 'Cevapsız',
         'rejected' => 'Reddedildi',
         'ended' => 'Sonlandı',
+        'failed' => 'Gönderilemedi',
         _ => status,
       };
 }

@@ -125,13 +125,6 @@ class PeerNotifier extends StateNotifier<Peer?> {
     state = peer;
   }
 
-  Future<void> savePeer(Peer peer, SecretKey key) async {
-    await _dao.insert(peer);
-    await KeyStore.setPeerId(peer.id);
-    await KeyStore.setPeerKey(key);
-    state = peer;
-  }
-
   /// Returns this device's Ed25519 public key (generating if needed).
   Future<String> getMyPublicKey() async {
     return KeyStore.ensureDeviceKeyPair();

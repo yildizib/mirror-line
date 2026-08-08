@@ -92,6 +92,15 @@ object MirrorLineChannel {
                     openNotificationListenerSettings(appContext)
                     result.success(null)
                 }
+                "hasKnownAutoStartSettings" -> result.success(OemAutoStart.hasKnownScreen())
+                "openAutoStartSettings" -> {
+                    OemAutoStart.open(appContext)
+                    result.success(null)
+                }
+                "resolveContactName" -> {
+                    val number = call.argument<String>("number") ?: ""
+                    result.success(ContactResolver.resolveName(appContext, number))
+                }
                 else -> result.notImplemented()
             }
         }

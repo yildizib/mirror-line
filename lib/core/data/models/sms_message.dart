@@ -65,4 +65,14 @@ class SmsMessage {
   /// Display name for UI/notifications: contact name if resolved, else the
   /// raw phone number/address.
   String get displayName => contactName.isNotEmpty ? contactName : address;
+
+  /// Turkish status label for the SMS list UI.
+  String get statusLabel => switch (status) {
+        'received' => 'Alındı',
+        'sent' => 'Gönderildi',
+        'delivered' => 'İletildi',
+        'pending' => 'Gönderiliyor',
+        'failed' => 'Gönderilemedi',
+        _ => status,
+      };
 }

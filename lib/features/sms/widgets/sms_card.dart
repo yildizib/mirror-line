@@ -52,10 +52,13 @@ class SmsCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    '${_formatTime(message.timestamp)} · ${message.status}',
+                    '${_formatTime(message.timestamp)} · ${message.statusLabel}',
                     style: TextStyle(
                       fontSize: 12,
-                      color: colorScheme.onSurfaceVariant.withValues(alpha: 0.8),
+                      fontWeight: message.status == 'failed' ? FontWeight.w700 : null,
+                      color: message.status == 'failed'
+                          ? theme.colorScheme.error
+                          : colorScheme.onSurfaceVariant.withValues(alpha: 0.8),
                     ),
                   ),
                 ],

@@ -18,12 +18,16 @@ class QueueService {
     await _dao.delete(id);
   }
 
-  Future<void> markFailed(int id, int retryCount) async {
+  /// Returns true if this was the final attempt and the item was dropped
+  /// (never silently -- the caller is expected to reflect that back to the
+  /// user, e.g. by marking the originating SMS/call entry as 'failed').
+  Future<bool> markFailed(int id, int retryCount) async {
     if (retryCount >= 5) {
       await _dao.delete(id);
-    } else {
-      await _dao.updateRetryCount(id, retryCount + 1);
+      return true;
     }
+    await _dao.updateRetryCount(id, retryCount + 1);
+    return false;
   }
 
   Future<void> clear() => _dao.deleteAll();

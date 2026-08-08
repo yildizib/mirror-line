@@ -17,9 +17,16 @@ class SmsListNotifier extends StateNotifier<List<SmsMessage>> {
     state = await _dao.getAll();
   }
 
+  /// Upsert: replaces the existing entry if [message.id] is already
+  /// present instead of appending a duplicate (see CallListNotifier.add
+  /// for why this matters -- native events can repeat for what is
+  /// logically the same message).
   Future<void> add(SmsMessage message) async {
     await _dao.insert(message);
-    state = [message, ...state];
+    final exists = state.any((m) => m.id == message.id);
+    state = exists
+        ? state.map((m) => m.id == message.id ? message : m).toList()
+        : [message, ...state];
   }
 
   Future<void> updateStatus(String id, String status) async {

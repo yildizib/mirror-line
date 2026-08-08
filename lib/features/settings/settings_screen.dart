@@ -25,11 +25,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   String? _selfDeviceName;
   String? _selfPublicKey;
+  bool _hasKnownAutoStartScreen = false;
 
   @override
   void initState() {
     super.initState();
     _loadSelfIdentity();
+    _loadAutoStartAvailability();
   }
 
   Future<void> _loadSelfIdentity() async {
@@ -40,6 +42,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       _selfDeviceName = name;
       _selfPublicKey = pubKey;
     });
+  }
+
+  Future<void> _loadAutoStartAvailability() async {
+    final known = await TelephonyChannel.hasKnownAutoStartSettings();
+    if (!mounted) return;
+    setState(() => _hasKnownAutoStartScreen = known);
   }
 
   @override
@@ -319,6 +327,21 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 trailing: const Icon(Icons.chevron_right_rounded),
                 onTap: () async {
                   await PermissionService.openAppInfoSettings();
+                },
+              ),
+              const Divider(height: 1, indent: 16, endIndent: 16),
+              ListTile(
+                leading: const Icon(Icons.rocket_launch_rounded),
+                title: const Text('Arka planda otomatik başlatma izni'),
+                subtitle: Text(
+                  _hasKnownAutoStartScreen
+                      ? 'Bu cihazın üreticisi (Xiaomi/Huawei/OPPO/Vivo/Samsung vb.) kendi ek arka '
+                          'plan kısıtlamasını uygulayabilir — uygulamayı buradan izinli listesine ekleyin'
+                      : 'Üretici ayarları bulunamadıysa Uygulama Bilgisi açılır',
+                ),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap: () async {
+                  await TelephonyChannel.openAutoStartSettings();
                 },
               ),
               const Divider(height: 1, indent: 16, endIndent: 16),

@@ -11,7 +11,9 @@ import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.net.wifi.WifiManager
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.os.PowerManager
 import android.telephony.SmsMessage
 import android.telephony.TelephonyManager
@@ -29,6 +31,15 @@ class MirrorLineService : Service() {
     // answered call ended). Dart correlates these with the currently
     // "ringing" CallEvent itself -- native only reports the transition.
     private var lastCallState: String? = null
+
+    // SMS parts for one logical (possibly multi-part) message can arrive
+    // as several separate broadcasts in quick succession. Buffered per
+    // sender and flushed as one notification after a short quiet period,
+    // instead of each broadcast becoming its own mirrored message.
+    private val smsHandler = Handler(Looper.getMainLooper())
+    private val pendingSms = HashMap<String, PendingSms>()
+
+    private data class PendingSms(var body: String, var contactName: String, val flush: Runnable)
 
     override fun onCreate() {
         super.onCreate()
@@ -138,9 +149,21 @@ class MirrorLineService : Service() {
                             val number = intent.getStringExtra(TelephonyManager.EXTRA_INCOMING_NUMBER)
                                 ?: "unknown"
                             val contactName = ContactResolver.resolveName(context, number) ?: ""
+                            // Android commonly re-broadcasts RINGING for the
+                            // *same* call (often once without the number,
+                            // then again with it a moment later). Only a
+                            // transition INTO ringing is a genuinely new
+                            // call; a repeat while already ringing is just
+                            // an info update (e.g. the number finally
+                            // resolved) for the call already being tracked.
+                            val isNewCall = previous != TelephonyManager.EXTRA_STATE_RINGING
                             invokeFlutter(
                                 "onCall",
-                                mapOf("number" to number, "contactName" to contactName, "state" to "RINGING")
+                                mapOf(
+                                    "number" to number,
+                                    "contactName" to contactName,
+                                    "state" to if (isNewCall) "RINGING" else "RINGING_UPDATE"
+                                )
                             )
                         }
                         TelephonyManager.EXTRA_STATE_OFFHOOK -> {
@@ -182,16 +205,7 @@ class MirrorLineService : Service() {
                         .groupBy { it.displayOriginatingAddress ?: it.originatingAddress ?: "unknown" }
                         .forEach { (address, group) ->
                             val body = group.joinToString("") { it.messageBody ?: "" }
-                            val contactName = ContactResolver.resolveName(context, address) ?: ""
-                            invokeFlutter(
-                                "onSms",
-                                mapOf(
-                                    "address" to address,
-                                    "contactName" to contactName,
-                                    "body" to body,
-                                    "threadId" to ""
-                                )
-                            )
+                            bufferSms(context, address, body)
                         }
                 }
             }
@@ -199,6 +213,40 @@ class MirrorLineService : Service() {
             filter.priority = 999
             registerExported(smsReceiver!!, filter)
         }
+    }
+
+    /**
+     * Multi-part (long) SMS, or a burst of quick separate texts from the
+     * same sender, can arrive as several distinct broadcasts a few hundred
+     * milliseconds apart. Coalesce same-sender broadcasts that land within
+     * [SMS_DEBOUNCE_MS] of each other into a single mirrored message
+     * instead of one per broadcast.
+     */
+    private fun bufferSms(context: Context, address: String, bodyPart: String) {
+        val existing = pendingSms[address]
+        if (existing != null) {
+            smsHandler.removeCallbacks(existing.flush)
+            existing.body += bodyPart
+            smsHandler.postDelayed(existing.flush, SMS_DEBOUNCE_MS)
+            return
+        }
+
+        lateinit var pending: PendingSms
+        val flush = Runnable {
+            pendingSms.remove(address)
+            invokeFlutter(
+                "onSms",
+                mapOf(
+                    "address" to address,
+                    "contactName" to pending.contactName,
+                    "body" to pending.body,
+                    "threadId" to ""
+                )
+            )
+        }
+        pending = PendingSms(bodyPart, ContactResolver.resolveName(context, address) ?: "", flush)
+        pendingSms[address] = pending
+        smsHandler.postDelayed(flush, SMS_DEBOUNCE_MS)
     }
 
     private fun registerExported(receiver: BroadcastReceiver, filter: IntentFilter) {
@@ -228,6 +276,11 @@ class MirrorLineService : Service() {
             }
         }
         smsReceiver = null
+
+        // Flush anything still buffered rather than silently dropping it,
+        // then cancel so nothing fires after teardown.
+        pendingSms.values.toList().forEach { smsHandler.removeCallbacks(it.flush) }
+        pendingSms.values.toList().forEach { it.flush.run() }
     }
 
     private fun ensureChannel() {
@@ -257,5 +310,6 @@ class MirrorLineService : Service() {
     companion object {
         const val CHANNEL_ID = "mirrorline_service"
         const val NOTIFICATION_ID = 10001
+        const val SMS_DEBOUNCE_MS = 700L
     }
 }

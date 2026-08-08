@@ -25,8 +25,11 @@ class PermissionService {
     return true;
   }
 
+  static Future<bool> isBatteryOptimizationIgnored() =>
+      Permission.ignoreBatteryOptimizations.isGranted;
+
   static Future<bool> requestIgnoreBatteryOptimizations() async {
-    if (await Permission.ignoreBatteryOptimizations.isGranted) return true;
+    if (await isBatteryOptimizationIgnored()) return true;
     return await Permission.ignoreBatteryOptimizations.request().isGranted;
   }
 

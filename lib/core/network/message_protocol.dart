@@ -38,6 +38,10 @@ abstract class MessageTypes {
   // Source -> Main: the call's live state changed (answered/missed/ended)
   // so Main can stop offering to reject a call that's no longer ringing.
   static const String callStatus = 'call_status';
+  // Source -> Main: enriches an already-announced call (e.g. the number
+  // only resolved on a later RINGING broadcast) -- patches the existing
+  // entry, never creates a new one.
+  static const String callInfo = 'call_info';
   static const String smsIncoming = 'sms_incoming';
   static const String smsOutgoing = 'sms_outgoing';
   static const String smsStatus = 'sms_status';

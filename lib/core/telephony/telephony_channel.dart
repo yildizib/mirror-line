@@ -87,6 +87,47 @@ class TelephonyChannel {
     }
   }
 
+  /// Whether this device's manufacturer has a known OEM autostart /
+  /// background-activity management screen (Xiaomi, Huawei, OPPO, Vivo,
+  /// Samsung, OnePlus...). Used to decide whether to show OEM-specific
+  /// wording in Settings, versus a generic "App info" fallback.
+  static Future<bool> hasKnownAutoStartSettings() async {
+    try {
+      return await _channel.invokeMethod<bool>('hasKnownAutoStartSettings') ?? false;
+    } on MissingPluginException {
+      return false;
+    } on PlatformException {
+      return false;
+    }
+  }
+
+  /// Opens the OEM's autostart/background-activity manager if known for
+  /// this device, else falls back to the app's own "App info" screen.
+  static Future<void> openAutoStartSettings() async {
+    try {
+      await _channel.invokeMethod('openAutoStartSettings');
+    } on MissingPluginException {
+      // ignore
+    } on PlatformException {
+      // ignore
+    }
+  }
+
+  /// Best-effort local contact lookup on *this* device. Used as a fallback
+  /// when the Source device's contact resolution came up empty -- the two
+  /// phones' address books aren't guaranteed to be identical, so trying
+  /// both sides gives a name a better chance of being found. Returns null
+  /// if READ_CONTACTS isn't granted here or nothing matches.
+  static Future<String?> resolveContactName(String number) async {
+    try {
+      return await _channel.invokeMethod<String>('resolveContactName', {'number': number});
+    } on MissingPluginException {
+      return null;
+    } on PlatformException {
+      return null;
+    }
+  }
+
   /// Returns the active network's IPv4 address from the native side.
   /// Returns null when unavailable (e.g. non-Android platforms).
   static Future<String?> getLocalIp() async {
