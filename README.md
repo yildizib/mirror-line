@@ -52,10 +52,10 @@ sunucu yok.
 - **Eşleştirme öncesi:** Her iki cihaz da (rol fark etmeksizin) kendi portunda dinler,
   böylece QR eşleştirme kim tarafından başlatılırsa başlatılsın çalışır. Eşleşme
   tamamlanınca sadece Source kalıcı sunucu olarak çalışmaya devam eder.
-- **Bağlantı sağlığı:** 15 sn'de bir heartbeat (karşılıklı ack ile), 45 sn veri
-  gelmezse veya bir yazma başarısız olursa bağlantı düşürülür; ardından periyodik
-  (10 sn) bir öz-iyileştirme döngüsü tam bir yeniden başlatma (`refresh()`) dener —
-  bu döngü hem Main hem Source rolünde çalışır.
+- **Bağlantı sağlığı:** 30 sn'de bir heartbeat (uygulama arka plandayken 60 sn),
+  90 sn veri gelmezse veya bir yazma başarısız olursa bağlantı düşürülür; ardından
+  periyodik (30 sn) bir öz-iyileştirme döngüsü tam bir yeniden başlatma (`refresh()`)
+  dener — bu döngü hem Main hem Source rolünde çalışır.
 - **Android arka plan çalışması:** Uygulama süreci boyunca yaşayan paylaşımlı bir
   `FlutterEngine` (Activity yaşam döngüsünden bağımsız) + foreground service +
   wake lock/WiFi lock kombinasyonu, ekran kilitlense veya Activity öldürülse bile
@@ -226,10 +226,10 @@ no cloud, no account, no third-party server.
 - **Before pairing:** both devices listen on their own port regardless of role, so
   QR pairing works no matter who initiates the scan. Once paired, only the Source
   device keeps running a persistent server.
-- **Connection health:** a heartbeat every 15s (with a mutual ack), a 45s
-  receive-timeout, or a failed write all bring the connection down; a periodic
-  (10s) self-healing loop then retries a full reinitialization (`refresh()`) —
-  this runs for both the Main and Source roles.
+- **Connection health:** a heartbeat every 30s (60s while the app is backgrounded),
+  a 90s receive-timeout, or a failed write all bring the connection down; a
+  periodic (30s) self-healing loop then retries a full reinitialization
+  (`refresh()`) — this runs for both the Main and Source roles.
 - **Android background execution:** a single `FlutterEngine` shared for the whole
   app process lifetime (independent of the Activity lifecycle), combined with a
   foreground service and a wake lock/Wi-Fi lock, keeps the connection alive even
