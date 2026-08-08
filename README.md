@@ -8,6 +8,8 @@ doğrudan birbirine bağlanır.
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
+**Diller:** Türkçe (bu bölüm) · [English](#english)
+
 ## Neden?
 
 Birden fazla aktif hattı olan (ör. iş + kişisel) kullanıcılar, ikinci telefonu sürekli
@@ -164,3 +166,180 @@ komutlarının temiz geçtiğinden emin olun.
 ---
 
 *Bu proje geliştirilirken Ollama Cloud, OpenCode ve Claude Code kullanılmıştır.*
+
+<br>
+
+---
+
+<a id="english"></a>
+
+# MirrorLine (English)
+
+**Languages:** [Türkçe](#mirrorline) · English (this section)
+
+Serverless, end-to-end encrypted call and SMS mirroring between two Android phones.
+Data never passes through a third-party server — the two phones connect to each
+other directly over the local network.
+
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+
+## Why?
+
+People who carry two active lines (e.g. work + personal) either have to keep
+checking a second phone constantly, or they miss important calls and texts.
+MirrorLine mirrors the phone that holds the SIM (the "Source" phone) to the one
+you actually use day to day (the "Main" phone) over LAN, end-to-end encrypted —
+no cloud, no account, no third-party server.
+
+## Features
+
+- **QR-code pairing** — works no matter which device scans which; only the order
+  of *who shows the QR* is irrelevant once both roles are chosen.
+- **Mutual authentication** — Ed25519 challenge-response prevents a third device
+  from joining the connection (3-way handshake: challenge → response → ack).
+- **Automatic discovery via UDP beacon** — devices find each other again even if
+  an IP address changes (DHCP renewal, network switch).
+- **Self-healing connection** — if the connection silently drops (Wi-Fi power
+  saving, network hiccup, etc.), the app periodically recovers on its own without
+  needing to be killed and reopened.
+- **Incoming call notification + remote reject** — call state (ringing/answered/
+  missed/rejected/ended) is synced live between both devices.
+- **Two-way SMS mirroring** — incoming texts are mirrored; replies typed on the
+  Main phone are sent out through the Source phone.
+- **Contact name resolution** — notifications show the address-book name instead
+  of a bare number when available (permission is optional; falls back to the
+  number if declined).
+- **Notification mirroring** (optional) — mirrors notifications from apps you
+  choose, shown with the app's name and message, without duplicating reposts.
+- **Offline queue** — events that occur while disconnected are queued locally and
+  delivered automatically once the connection returns.
+- **AES-256-GCM end-to-end encryption** — every message is encrypted with its own
+  nonce; the key is exchanged only via the physical QR code, never over a server.
+
+## Architecture
+
+- **Source (the SIM phone):** opens a TCP server (port 45678) and periodically
+  broadcasts a UDP beacon (port 45679) on the LAN. Captures incoming call/SMS/
+  notification events natively (Kotlin) and forwards them encrypted to the peer.
+- **Main (the phone you use):** listens for beacons, discovers the Source device,
+  and connects over TCP. Shows notifications, can reject calls, can reply to SMS.
+- **Before pairing:** both devices listen on their own port regardless of role, so
+  QR pairing works no matter who initiates the scan. Once paired, only the Source
+  device keeps running a persistent server.
+- **Connection health:** a heartbeat every 15s (with a mutual ack), a 45s
+  receive-timeout, or a failed write all bring the connection down; a periodic
+  (10s) self-healing loop then retries a full reinitialization (`refresh()`) —
+  this runs for both the Main and Source roles.
+- **Android background execution:** a single `FlutterEngine` shared for the whole
+  app process lifetime (independent of the Activity lifecycle), combined with a
+  foreground service and a wake lock/Wi-Fi lock, keeps the connection alive even
+  when the screen is locked or the Activity is destroyed.
+
+## Tech Stack
+
+- **Flutter / Dart** — UI, state management ([Riverpod](https://riverpod.dev)), networking, data layer
+- **sqflite** — local SQLite database (peer, call_event, sms_message, offline_queue)
+- **cryptography** — AES-256-GCM + Ed25519
+- **flutter_secure_storage** — secure key storage (backed by the Android Keystore)
+- **mobile_scanner / qr_flutter** — QR pairing
+- **flutter_local_notifications** — local notifications
+- **Kotlin (native)** — phone state/SMS/notification listeners, contacts lookup,
+  foreground service, shared `FlutterEngine` management (a minimal `MethodChannel`
+  bridge is used instead of the `telephony` package, due to an AGP namespace
+  incompatibility)
+
+The codebase is organized **feature-first**: `lib/core/` holds layer-agnostic
+infrastructure (network, security, data, services, telephony, theme); `lib/features/`
+(connection, pairing, calls, sms, settings, home) keeps each feature's providers
+and screens together.
+
+## Getting Started
+
+```bash
+flutter pub get
+flutter run
+```
+
+The required Android permissions (phone state, SMS, calls, notifications,
+optional contacts) are requested on first use; see the `docs/` folder for details.
+
+## Two-Device Test Procedure
+
+1. **Setup:** connect both phones to the same Wi-Fi network. (AP/client isolation
+   must be off on the router; devices on a guest network may not see each other.)
+2. **Source device:** open the app → Settings → Select Role → **Other Phone**.
+   Grant all permissions when prompted.
+3. **Main device:** open the app → Settings → Select Role → **Main Phone**.
+4. **Pairing:** it doesn't matter which device shows the QR and which scans it.
+   On one device: Settings → **Pair Device** → "Show QR" tab; on the other, scan
+   it from the "Scan QR" tab of the same screen.
+5. **Verify:** within a few seconds the banner at the top should disappear and
+   Settings should show "Connected". If not, try Settings → "Retry", or connect
+   manually by IP (the Source device's IP is shown on its own Settings screen).
+6. **Test SMS:** send an SMS to the Source device from another phone. The Main
+   device should show a notification with the contact's name (if known) and the
+   message should appear in the SMS tab. A reply typed on Main is sent via Source.
+7. **Test calls:** call the Source device from another phone. Main should show a
+   notification and an entry in the Calls tab; the reject button only appears
+   while the call is ringing and ends the call on Source when pressed. Once the
+   call is answered or ends, its status (Answered/Missed/Ended) updates
+   automatically on both devices.
+8. **Background:** on the Source device, use Settings → "Remove battery
+   optimization" and "Remove permissions if unused"; the app keeps running in the
+   background and with the screen off thanks to the foreground service + wake lock.
+
+## Troubleshooting
+
+Check the **Connection Diagnostics** card under Settings:
+
+| Row | Meaning |
+|---|---|
+| This device's IP | The device's real Wi-Fi IP. **"undetermined"** means Wi-Fi is off |
+| Peer IP | The paired device's IP. **"unknown"** means the QR carried no IP |
+| Server | Should say **"running"** on the Source device (port 45678) |
+| Last beacon | Shows the Source's beacon once received (IP + time). Staying **"none yet"** means discovery isn't working |
+| Attempt count / error | Connection attempts and the last error message |
+
+Common cases:
+- **"This device's IP: undetermined"** → check the Wi-Fi connection.
+- **"Last beacon: none yet"** → check whether the Source device says "Server:
+  running"; if it does, the router may have **AP/client isolation** enabled
+  (avoid guest networks).
+- **"Connection failed: IP:port (server down...)"** → check that the Source app
+  is open, then tap "Retry". The connection should also recover on its own within
+  a few seconds (see Architecture → Connection health).
+- You can always fall back to a **manual IP** connection from Settings (read the
+  IP from the Source device's "This Device" section).
+
+## Security Model
+
+- The shared symmetric key (AES-256-GCM) is exchanged only via the physical QR
+  code; it never travels over any network.
+- Each device has its own Ed25519 identity key pair; public keys are exchanged
+  during pairing, and every subsequent connection is verified with a
+  challenge-response handshake (see `core/network/socket_manager.dart`).
+- Keys are stored with `flutter_secure_storage` (backed by the Android Keystore
+  where available).
+- Every message body is encrypted with AES-256-GCM, with a fresh nonce per message.
+- Local data (call/SMS history, the offline queue) lives only in on-device
+  SQLite; there is no cloud sync.
+
+If you find a security vulnerability, please reach out directly before opening
+a public issue.
+
+## Contributing
+
+Issues and PRs are welcome. Before submitting a change, make sure these pass cleanly:
+
+```bash
+flutter analyze
+flutter test
+```
+
+## License
+
+[Apache License 2.0](LICENSE).
+
+---
+
+*This project was built with the help of Ollama Cloud, OpenCode, and Claude Code.*
