@@ -24,6 +24,12 @@ class MirrorLineService : Service() {
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
 
+    // Tracks the previous EXTRA_STATE so transitions can be classified
+    // (e.g. RINGING -> IDLE means missed, OFFHOOK -> IDLE means the
+    // answered call ended). Dart correlates these with the currently
+    // "ringing" CallEvent itself -- native only reports the transition.
+    private var lastCallState: String? = null
+
     override fun onCreate() {
         super.onCreate()
         // Guarantee the shared Dart engine exists even if this service is
@@ -124,13 +130,36 @@ class MirrorLineService : Service() {
             phoneStateReceiver = object : BroadcastReceiver() {
                 override fun onReceive(context: Context, intent: Intent) {
                     val state = intent.getStringExtra(TelephonyManager.EXTRA_STATE) ?: return
-                    if (state == TelephonyManager.EXTRA_STATE_RINGING) {
-                        val number = intent.getStringExtra(TelephonyManager.EXTRA_INCOMING_NUMBER)
-                            ?: "unknown"
-                        invokeFlutter(
-                            "onCall",
-                            mapOf("number" to number, "state" to "RINGING")
-                        )
+                    val previous = lastCallState
+                    lastCallState = state
+
+                    when (state) {
+                        TelephonyManager.EXTRA_STATE_RINGING -> {
+                            val number = intent.getStringExtra(TelephonyManager.EXTRA_INCOMING_NUMBER)
+                                ?: "unknown"
+                            val contactName = ContactResolver.resolveName(context, number) ?: ""
+                            invokeFlutter(
+                                "onCall",
+                                mapOf("number" to number, "contactName" to contactName, "state" to "RINGING")
+                            )
+                        }
+                        TelephonyManager.EXTRA_STATE_OFFHOOK -> {
+                            // A ringing call was just answered. (If we were
+                            // already OFFHOOK, e.g. an outgoing call, this
+                            // is a no-op event Dart ignores -- it only acts
+                            // on this when it has a "ringing" call pending.)
+                            if (previous == TelephonyManager.EXTRA_STATE_RINGING) {
+                                invokeFlutter("onCall", mapOf("state" to "ANSWERED"))
+                            }
+                        }
+                        TelephonyManager.EXTRA_STATE_IDLE -> {
+                            when (previous) {
+                                TelephonyManager.EXTRA_STATE_RINGING ->
+                                    invokeFlutter("onCall", mapOf("state" to "MISSED"))
+                                TelephonyManager.EXTRA_STATE_OFFHOOK ->
+                                    invokeFlutter("onCall", mapOf("state" to "ENDED"))
+                            }
+                        }
                     }
                 }
             }
@@ -153,10 +182,12 @@ class MirrorLineService : Service() {
                         .groupBy { it.displayOriginatingAddress ?: it.originatingAddress ?: "unknown" }
                         .forEach { (address, group) ->
                             val body = group.joinToString("") { it.messageBody ?: "" }
+                            val contactName = ContactResolver.resolveName(context, address) ?: ""
                             invokeFlutter(
                                 "onSms",
                                 mapOf(
                                     "address" to address,
+                                    "contactName" to contactName,
                                     "body" to body,
                                     "threadId" to ""
                                 )

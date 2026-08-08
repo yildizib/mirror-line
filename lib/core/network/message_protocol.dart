@@ -35,6 +35,9 @@ class MirrorMessage {
 abstract class MessageTypes {
   static const String callIncoming = 'call_incoming';
   static const String callRejected = 'call_rejected';
+  // Source -> Main: the call's live state changed (answered/missed/ended)
+  // so Main can stop offering to reject a call that's no longer ringing.
+  static const String callStatus = 'call_status';
   static const String smsIncoming = 'sms_incoming';
   static const String smsOutgoing = 'sms_outgoing';
   static const String smsStatus = 'sms_status';

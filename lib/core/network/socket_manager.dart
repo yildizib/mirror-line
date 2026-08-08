@@ -290,6 +290,13 @@ class SocketManager {
       return true;
     } catch (e) {
       _logger.e('Failed to send $type: $e');
+      // A write failure means the socket is dead -- don't wait for the
+      // 45s receive-timeout watchdog to notice. Without this, a heartbeat
+      // ping that fails to send (broken pipe, silently dropped Wi-Fi
+      // connection) was logged and ignored, leaving `state` stuck at
+      // "connected" and reconnection never triggered until the app was
+      // killed and restarted.
+      _handleClosed();
       return false;
     }
   }

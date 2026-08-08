@@ -19,7 +19,7 @@ class AppDatabase {
 
     return openDatabase(
       path,
-      version: 3,
+      version: 4,
       onCreate: _createTables,
       onUpgrade: _upgradeTables,
     );
@@ -31,6 +31,10 @@ class AppDatabase {
     }
     if (oldVersion < 3) {
       await db.execute('ALTER TABLE peer ADD COLUMN public_key TEXT NOT NULL DEFAULT "";');
+    }
+    if (oldVersion < 4) {
+      await db.execute('ALTER TABLE call_event ADD COLUMN contact_name TEXT NOT NULL DEFAULT "";');
+      await db.execute('ALTER TABLE sms_message ADD COLUMN contact_name TEXT NOT NULL DEFAULT "";');
     }
   }
 
@@ -53,6 +57,7 @@ class AppDatabase {
         id TEXT PRIMARY KEY,
         direction TEXT NOT NULL,
         number TEXT NOT NULL,
+        contact_name TEXT NOT NULL DEFAULT "",
         timestamp INTEGER NOT NULL,
         encrypted TEXT NOT NULL,
         status TEXT NOT NULL,
@@ -65,6 +70,7 @@ class AppDatabase {
         id TEXT PRIMARY KEY,
         thread_id TEXT NOT NULL,
         address TEXT NOT NULL,
+        contact_name TEXT NOT NULL DEFAULT "",
         body TEXT NOT NULL,
         encrypted TEXT NOT NULL,
         direction TEXT NOT NULL,

@@ -1,44 +1,74 @@
 package com.thinksolve.mirrorline
 
 import android.app.Notification
+import android.content.pm.PackageManager
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 
 class MirrorLineNotificationListener : NotificationListenerService() {
 
+    // Android reposts the *same* logical notification repeatedly (preview
+    // text tweaks, summary + child updates, etc.), each time with a fresh
+    // postTime. Keying purely off postTime (the old behaviour) meant every
+    // repost became a brand-new mirrored notification on the other phone.
+    // sbn.key stays stable for the life of one logical notification, and
+    // remembering the last content sent per key lets identical reposts be
+    // skipped instead of duplicated.
+    private val lastContentByKey = HashMap<String, String>()
+
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
-        val n = sbn?.notification ?: return
+        if (sbn == null) return
         val packageName = sbn.packageName ?: "unknown"
         if (packageName == this.packageName) return
-        val extras = n.extras
+        val extras = sbn.notification.extras
 
         val title = extras.getString(Notification.EXTRA_TITLE, "") ?: ""
         val text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString() ?: ""
         val bigText = extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString() ?: ""
-        val timestamp = sbn.postTime
+        val body = if (bigText.isNotEmpty()) bigText else text
+        if (title.isEmpty() && body.isEmpty()) return
+
+        val contentFingerprint = "$title|$body"
+        if (lastContentByKey[sbn.key] == contentFingerprint) return
+        lastContentByKey[sbn.key] = contentFingerprint
 
         val payload = mapOf(
             "packageName" to packageName,
+            "appName" to AppLabelResolver.resolveLabel(this, packageName),
             "title" to title,
-            "text" to if (bigText.isNotEmpty()) bigText else text,
-            "timestamp" to timestamp,
-            "id" to "${timestamp}_$packageName"
+            "text" to body,
+            "timestamp" to sbn.postTime,
+            "id" to sbn.key
         )
 
         MirrorLineChannel.channel?.invokeMethod("onNotification", payload)
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification?) {
-        val n = sbn?.notification ?: return
+        if (sbn == null) return
         val packageName = sbn.packageName ?: "unknown"
         if (packageName == this.packageName) return
-        val timestamp = sbn.postTime
+        lastContentByKey.remove(sbn.key)
 
         val payload = mapOf(
             "packageName" to packageName,
-            "id" to "${timestamp}_$packageName"
+            "id" to sbn.key
         )
 
         MirrorLineChannel.channel?.invokeMethod("onNotificationRemoved", payload)
+    }
+}
+
+/** Resolves a package name to the app's user-facing label, e.g. "WhatsApp"
+ *  instead of "com.whatsapp", so mirrored notifications read naturally. */
+object AppLabelResolver {
+    fun resolveLabel(context: android.content.Context, packageName: String): String {
+        return try {
+            val pm = context.packageManager
+            val appInfo = pm.getApplicationInfo(packageName, PackageManager.GET_META_DATA)
+            pm.getApplicationLabel(appInfo).toString()
+        } catch (_: Exception) {
+            packageName
+        }
     }
 }

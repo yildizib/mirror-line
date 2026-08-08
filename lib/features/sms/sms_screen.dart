@@ -41,7 +41,7 @@ class SmsScreen extends ConsumerWidget {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text(message.address),
+        title: Text(message.displayName),
         content: TextField(
           controller: controller,
           maxLines: 4,

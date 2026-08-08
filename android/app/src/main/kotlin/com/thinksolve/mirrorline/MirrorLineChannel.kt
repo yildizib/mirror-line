@@ -49,6 +49,12 @@ object MirrorLineChannel {
         }
     }.toTypedArray()
 
+    // Requested alongside the required ones (one combined system dialog),
+    // but never gates hasAllPermissions()/startMirrorService(): contact
+    // name resolution (see ContactResolver) is a nice-to-have, not
+    // required for call/SMS mirroring to work.
+    private val optionalPermissions = arrayOf(Manifest.permission.READ_CONTACTS)
+
     fun setActivity(activity: MainActivity?) {
         activityRef = if (activity != null) WeakReference(activity) else null
     }
@@ -125,7 +131,7 @@ object MirrorLineChannel {
     }
 
     private fun requestTelephonyPermissions(activity: MainActivity) {
-        val missing = requiredPermissions.filter {
+        val missing = (requiredPermissions.toList() + optionalPermissions.toList()).filter {
             ContextCompat.checkSelfPermission(activity, it) != PackageManager.PERMISSION_GRANTED
         }
         if (missing.isNotEmpty()) {

@@ -47,10 +47,16 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
   SocketManager? _socketManager;
   Peer? _peer;
   SecretKey? _key;
-  Timer? _retryTimer;
+  Timer? _healthTimer;
   bool _connecting = false;
+  bool _refreshing = false;
   bool _telephonyHandlerRegistered = false;
   String? _lastDiscoveredIp;
+  // The Dart-generated id of the call currently ringing (or, once
+  // answered, still ongoing) on this Source device. Native reports state
+  // *transitions* without an id, so this is how they get matched back to
+  // the right CallEvent.
+  String? _activeCallId;
 
   ConnectionNotifier(this._ref) : super(false) {
     _init();
@@ -92,6 +98,18 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
     } catch (e) {
       _logger.e('Connection init failed: $e');
     }
+
+    // Self-healing safety net for BOTH roles (not just 'main'): if the
+    // connection ever goes quietly stale -- silently dropped Wi-Fi, a dead
+    // beacon broadcaster/listener, anything that isn't caught by the
+    // socket's own error/heartbeat handling -- this periodically redoes
+    // the same full (re)initialization that happens on a fresh app start,
+    // so devices recover on their own instead of requiring the app to be
+    // killed and reopened.
+    _healthTimer ??= Timer.periodic(_retryInterval, (_) {
+      if (_connecting || state) return;
+      refresh();
+    });
   }
 
   @override
@@ -103,35 +121,42 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
   }
 
   /// Reloads peer info and (re)starts role-specific networking machinery.
-  /// Call after pairing, role changes or resets.
+  /// Call after pairing, role changes or resets, and also called
+  /// periodically by _healthTimer as a self-healing check.
   Future<void> refresh() async {
+    if (_refreshing) return;
+    _refreshing = true;
     try {
-      _peer = await _peerDao.getPeer();
-      _key = await KeyStore.getPeerKey();
-    } catch (e) {
-      _logger.e('Failed to load peer info: $e');
-      return;
-    }
-
-    final statusNotifier = _ref.read(connectionStatusProvider.notifier);
-    final localIp = await PeerDiscovery().getLocalIp();
-    statusNotifier.setLocalIp(localIp);
-    statusNotifier.setPeerIp(_peer?.ip);
-
-    if (_peer == null || _key == null) {
-      _logger.w('No peer info or key found. Waiting for pairing.');
-      await _stopMachinery();
-      return;
-    }
-
-    try {
-      if (isSource) {
-        await _startAsSource();
-      } else {
-        await _startAsMain();
+      try {
+        _peer = await _peerDao.getPeer();
+        _key = await KeyStore.getPeerKey();
+      } catch (e) {
+        _logger.e('Failed to load peer info: $e');
+        return;
       }
-    } catch (e) {
-      _logger.e('Failed to start networking: $e');
+
+      final statusNotifier = _ref.read(connectionStatusProvider.notifier);
+      final localIp = await PeerDiscovery().getLocalIp();
+      statusNotifier.setLocalIp(localIp);
+      statusNotifier.setPeerIp(_peer?.ip);
+
+      if (_peer == null || _key == null) {
+        _logger.w('No peer info or key found. Waiting for pairing.');
+        await _stopMachinery();
+        return;
+      }
+
+      try {
+        if (isSource) {
+          await _startAsSource();
+        } else {
+          await _startAsMain();
+        }
+      } catch (e) {
+        _logger.e('Failed to start networking: $e');
+      }
+    } finally {
+      _refreshing = false;
     }
   }
 
@@ -155,13 +180,18 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
     // Broadcast this device's OWN identity, not `peer` (which represents
     // the *other* device once paired -- see applyPairedPeer). Fall back to
     // the peer record for pre-fix installs that never persisted a self id.
-    final selfId = await KeyStore.getSelfId() ?? peer.id;
-    final selfName = await KeyStore.getSelfDeviceName() ?? peer.deviceName;
-    await _broadcaster.start(
-      peerId: selfId,
-      tcpPort: peer.port,
-      deviceName: selfName,
-    );
+    // Guarded so the periodic self-healing refresh() (see _healthTimer)
+    // doesn't tear down and rebind a perfectly healthy UDP broadcaster
+    // every 10 seconds.
+    if (!_broadcaster.isBroadcasting) {
+      final selfId = await KeyStore.getSelfId() ?? peer.id;
+      final selfName = await KeyStore.getSelfDeviceName() ?? peer.deviceName;
+      await _broadcaster.start(
+        peerId: selfId,
+        tcpPort: peer.port,
+        deviceName: selfName,
+      );
+    }
 
     _registerTelephonyHandler();
     try {
@@ -205,11 +235,9 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
       await _listener.start(onBeacon: _onBeacon);
     }
 
-    _retryTimer ??= Timer.periodic(_retryInterval, (_) {
-      if (state || _connecting) return;
-      _tryConnectToStoredPeer();
-    });
-
+    // Periodic retries now come from the role-agnostic _healthTimer (see
+    // _init()), which calls refresh() -- this immediate attempt just
+    // avoids waiting a full interval before the first try.
     await _tryConnectToStoredPeer();
   }
 
@@ -347,26 +375,62 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
       final id = '${now.millisecondsSinceEpoch}';
 
       if (type == 'onCall') {
-        final number = (data['number'] as String?) ?? 'unknown';
-        final event = CallEvent(
-          id: id,
-          direction: 'incoming',
-          number: number,
-          timestamp: now,
-          encrypted: '',
-          status: 'delivered',
-          createdAt: now,
-        );
-        await _ref.read(callListProvider.notifier).add(event);
-        await sendCallNotification(number, id: id);
+        final callState = (data['state'] as String?) ?? 'RINGING';
+        if (callState == 'RINGING') {
+          final number = (data['number'] as String?) ?? 'unknown';
+          final event = CallEvent(
+            id: id,
+            direction: 'incoming',
+            number: number,
+            timestamp: now,
+            encrypted: '',
+            status: 'ringing',
+            createdAt: now,
+          );
+          _activeCallId = id;
+          await _ref.read(callListProvider.notifier).add(event);
+          await sendCallNotification(number, id: id);
+        } else {
+          // ANSWERED / MISSED / ENDED: a state change for whichever call
+          // is currently active, not a new call.
+          final callId = _activeCallId;
+          if (callId == null) return;
+          final newStatus = switch (callState) {
+            'ANSWERED' => 'answered',
+            'MISSED' => 'missed',
+            'ENDED' => 'ended',
+            _ => null,
+          };
+          if (newStatus == null) return;
+
+          CallEvent? current;
+          for (final c in _ref.read(callListProvider)) {
+            if (c.id == callId) {
+              current = c;
+              break;
+            }
+          }
+          // Don't override a status we already know locally -- e.g. we
+          // just rejected this call ourselves, and the resulting
+          // RINGING->IDLE transition would otherwise relabel it "missed".
+          if (current == null || current.status == 'rejected') return;
+
+          await _ref.read(callListProvider.notifier).updateStatus(callId, newStatus);
+          await _sendOrQueue(MessageTypes.callStatus, {'id': callId, 'status': newStatus});
+          if (callState != 'ANSWERED') {
+            _activeCallId = null;
+          }
+        }
       } else if (type == 'onSms') {
         final address = (data['address'] as String?) ?? 'unknown';
+        final contactName = (data['contactName'] as String?) ?? '';
         final body = (data['body'] as String?) ?? '';
         final threadId = (data['threadId'] as String?) ?? '';
         final message = SmsMessage(
           id: id,
           threadId: threadId,
           address: address,
+          contactName: contactName,
           body: body,
           encrypted: '',
           direction: 'incoming',
@@ -378,18 +442,27 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
         await _sendOrQueue(MessageTypes.smsIncoming, {
           'id': id,
           'address': address,
+          'contact_name': contactName,
           'body': body,
           'thread_id': threadId,
           'timestamp': now.millisecondsSinceEpoch,
         });
       } else if (type == 'onNotification') {
         final packageName = (data['packageName'] as String?) ?? 'unknown';
+        final appName = (data['appName'] as String?) ?? packageName;
         final title = (data['title'] as String?) ?? '';
         final text = (data['text'] as String?) ?? '';
         final timestamp = (data['timestamp'] as int?) ?? now.millisecondsSinceEpoch;
+        // Native's own stable per-notification key (see
+        // MirrorLineNotificationListener), not the generated message id --
+        // this is what lets Main replace a reposted notification instead
+        // of duplicating it.
+        final nativeId = (data['id'] as String?) ?? id;
         if (packageName == 'com.thinksolve.mirrorline') return;
         await _sendOrQueue(MessageTypes.notificationMirrored, {
+          'nativeId': nativeId,
           'packageName': packageName,
+          'appName': appName,
           'title': title,
           'text': text,
           'timestamp': timestamp,
@@ -418,54 +491,91 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
     switch (message.type) {
       case MessageTypes.callIncoming:
         final number = payload['number'] as String? ?? 'unknown';
+        final contactName = payload['contact_name'] as String? ?? '';
         final id = payload['id'] as String? ?? message.id;
-        await _ref.read(callListProvider.notifier).add(CallEvent(
-              id: id,
-              direction: 'incoming',
-              number: number,
-              timestamp: DateTime.fromMillisecondsSinceEpoch(
-                  payload['timestamp'] as int? ?? now.millisecondsSinceEpoch),
-              encrypted: message.payload,
-              status: 'delivered',
-              createdAt: now,
-            ));
+        final event = CallEvent(
+          id: id,
+          direction: 'incoming',
+          number: number,
+          contactName: contactName,
+          timestamp: DateTime.fromMillisecondsSinceEpoch(
+              payload['timestamp'] as int? ?? now.millisecondsSinceEpoch),
+          encrypted: message.payload,
+          status: 'ringing',
+          createdAt: now,
+        );
+        await _ref.read(callListProvider.notifier).add(event);
         await _notify(
           id: int.tryParse(id) ?? 1,
-          title: 'Gelen Arama',
-          body: number,
+          title: event.displayName,
+          body: event.statusLabel,
           payload: message.id,
         );
         break;
 
       case MessageTypes.callRejected:
-        if (isSource) {
-          await TelephonyChannel.rejectCall();
-        }
         final id = payload['id'] as String?;
+        // Only actually end the call if it's still the one ringing --
+        // guards against a reject command arriving after the call was
+        // already answered/missed/ended, which would otherwise hang up
+        // an unrelated live call instead of rejecting a ringing one.
+        if (isSource && id != null && id == _activeCallId) {
+          await TelephonyChannel.rejectCall();
+          _activeCallId = null;
+        }
         if (id != null) {
           await _ref.read(callListProvider.notifier).updateStatus(id, 'rejected');
         }
         break;
 
+      case MessageTypes.callStatus:
+        final id = payload['id'] as String?;
+        final status = payload['status'] as String? ?? 'ended';
+        if (id != null) {
+          await _ref.read(callListProvider.notifier).updateStatus(id, status);
+          // Update the existing call notification in place (same id) so it
+          // reflects the live status (Cevaplandı/Cevapsız/Sonlandı) instead
+          // of just sitting there saying "Çalıyor" forever.
+          CallEvent? updated;
+          for (final c in _ref.read(callListProvider)) {
+            if (c.id == id) {
+              updated = c;
+              break;
+            }
+          }
+          if (updated != null) {
+            await _notify(
+              id: int.tryParse(id) ?? 1,
+              title: updated.displayName,
+              body: updated.statusLabel,
+              payload: message.id,
+            );
+          }
+        }
+        break;
+
       case MessageTypes.smsIncoming:
         final address = payload['address'] as String? ?? 'unknown';
+        final contactName = payload['contact_name'] as String? ?? '';
         final body = payload['body'] as String? ?? '';
         final id = payload['id'] as String? ?? message.id;
-        await _ref.read(smsListProvider.notifier).add(SmsMessage(
-              id: id,
-              threadId: payload['thread_id'] as String? ?? '',
-              address: address,
-              body: body,
-              encrypted: message.payload,
-              direction: 'incoming',
-              status: 'received',
-              timestamp: DateTime.fromMillisecondsSinceEpoch(
-                  payload['timestamp'] as int? ?? now.millisecondsSinceEpoch),
-              createdAt: now,
-            ));
+        final smsEvent = SmsMessage(
+          id: id,
+          threadId: payload['thread_id'] as String? ?? '',
+          address: address,
+          contactName: contactName,
+          body: body,
+          encrypted: message.payload,
+          direction: 'incoming',
+          status: 'received',
+          timestamp: DateTime.fromMillisecondsSinceEpoch(
+              payload['timestamp'] as int? ?? now.millisecondsSinceEpoch),
+          createdAt: now,
+        );
+        await _ref.read(smsListProvider.notifier).add(smsEvent);
         await _notify(
           id: int.tryParse(id) ?? 2,
-          title: 'SMS: $address',
+          title: smsEvent.displayName,
           body: body,
           payload: message.id,
         );
@@ -516,13 +626,21 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
 
       case MessageTypes.notificationMirrored:
         final packageName = payload['packageName'] as String? ?? 'unknown';
+        final appName = payload['appName'] as String? ?? packageName;
         final title = payload['title'] as String? ?? '';
         final text = payload['text'] as String? ?? '';
-        final timestamp = payload['timestamp'] as int? ?? now.millisecondsSinceEpoch;
+        // Native's stable per-notification key (see
+        // MirrorLineNotificationListener), not a timestamp -- so a
+        // reposted/updated notification replaces the previous one here
+        // instead of stacking up as a duplicate.
+        final nativeId = payload['nativeId'] as String? ?? message.id;
         await NotificationService.showMirrored(
-          id: timestamp % 1000000,
-          title: title.isNotEmpty ? title : packageName,
-          body: text,
+          id: nativeId.hashCode & 0x7fffffff,
+          title: appName,
+          // The original notification's own title is usually "who it's
+          // from" (e.g. a WhatsApp sender name); keep it as context ahead
+          // of the message body when it says more than the app name does.
+          body: (title.isNotEmpty && title != appName) ? '$title: $text' : text,
           packageName: packageName,
         );
         break;
@@ -637,8 +755,12 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
   // ---------------------------------------------------------------------
 
   Future<void> _stopMachinery() async {
-    _retryTimer?.cancel();
-    _retryTimer = null;
+    // _healthTimer deliberately keeps running (not cancelled here) -- it's
+    // a session-long self-healing loop, not tied to pairing state. If a
+    // user pairs again later, its next tick picks the new peer straight
+    // back up; cancelling it here would permanently disable self-healing
+    // for the rest of the app session (it's only ever created once, in
+    // _init()).
     await _broadcaster.stop();
     await _listener.stop();
     await _socketManager?.disconnect();
@@ -663,7 +785,7 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _connectivity.stopListening();
-    _retryTimer?.cancel();
+    _healthTimer?.cancel();
     _broadcaster.stop();
     _listener.stop();
     _socketManager?.disconnect();
