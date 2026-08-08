@@ -89,6 +89,8 @@ class MirrorLineService : Service() {
         }
         registerReceivers()
         acquireLocks()
+
+        Watchdog.schedule(this)
         return START_STICKY
     }
 
