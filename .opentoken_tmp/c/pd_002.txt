@@ -1,6 +1,0 @@
-  51|      final second = int.tryParse(ip.split('.')[1]) ?? 0;
-  52|      if (second >= 16 && second <= 31) return true;
-  53|    }
-  54|    return false;
-  55|  }
-  56|}
