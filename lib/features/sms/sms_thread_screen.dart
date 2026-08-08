@@ -48,6 +48,7 @@ class _SmsThreadScreenState extends ConsumerState<SmsThreadScreen> {
   }
 
   void _send(SmsMessage lastMessage) {
+    if (!ref.read(connectionProvider)) return;
     final text = _controller.text.trim();
     if (text.isEmpty) return;
 
@@ -78,6 +79,7 @@ class _SmsThreadScreenState extends ConsumerState<SmsThreadScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final connected = ref.watch(connectionProvider);
     final messages = ref.watch(smsListProvider).where((m) => m.address == widget.address).toList()
       ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
 
@@ -106,7 +108,7 @@ class _SmsThreadScreenState extends ConsumerState<SmsThreadScreen> {
               itemBuilder: (context, index) => SmsBubble(message: messages[index]),
             ),
           ),
-          _ComposeBar(controller: _controller, onSend: () => _send(messages.last)),
+          _ComposeBar(controller: _controller, onSend: () => _send(messages.last), enabled: connected),
         ],
       ),
     );
@@ -116,8 +118,9 @@ class _SmsThreadScreenState extends ConsumerState<SmsThreadScreen> {
 class _ComposeBar extends StatelessWidget {
   final TextEditingController controller;
   final VoidCallback onSend;
+  final bool enabled;
 
-  const _ComposeBar({required this.controller, required this.onSend});
+  const _ComposeBar({required this.controller, required this.onSend, required this.enabled});
 
   @override
   Widget build(BuildContext context) {
@@ -137,17 +140,21 @@ class _ComposeBar extends StatelessWidget {
             Expanded(
               child: TextField(
                 controller: controller,
+                enabled: enabled,
                 minLines: 1,
                 maxLines: 4,
                 textInputAction: TextInputAction.send,
-                onSubmitted: (_) => onSend(),
-                decoration: InputDecoration(hintText: l.smsReplyHint),
+                onSubmitted: enabled ? (_) => onSend() : null,
+                decoration: InputDecoration(
+                  hintText: enabled ? l.smsReplyHint : l.connStatusDisconnected,
+                ),
               ),
             ),
             const SizedBox(width: AppSpacing.sm),
             IconButton.filled(
               icon: const Icon(Icons.send_rounded),
-              onPressed: onSend,
+              onPressed: enabled ? onSend : null,
+              tooltip: enabled ? null : l.connStatusDisconnected,
             ),
           ],
         ),

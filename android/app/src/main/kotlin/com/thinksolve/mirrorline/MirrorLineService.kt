@@ -19,6 +19,7 @@ import android.telephony.PhoneStateListener
 import android.telephony.SmsMessage
 import android.telephony.TelephonyManager
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import com.thinksolve.mirrorline.MirrorLineService.Companion.RINGING_DEBOUNCE_MS
 import com.thinksolve.mirrorline.MirrorLineService.Companion.SMS_DEBOUNCE_MS
 
@@ -88,6 +89,8 @@ class MirrorLineService : Service() {
         }
         registerReceivers()
         acquireLocks()
+
+        Watchdog.schedule(this)
         return START_STICKY
     }
 
@@ -97,6 +100,30 @@ class MirrorLineService : Service() {
         unregisterReceivers()
         releaseLocks()
         super.onDestroy()
+    }
+
+    /**
+     * android:stopWithTask="false" (manifest) already tells the framework
+     * not to stop this service when the task is swiped away from recents,
+     * but some OEM ROMs (observed pattern on HyperOS/MIUI) don't fully
+     * honor that and tear the process down anyway. As a fallback, restart
+     * it immediately and synchronously -- not deferred through AlarmManager,
+     * because by the time a delayed alarm fires the app is unambiguously
+     * "in the background" and Android 12+ can refuse a startForegroundService
+     * call at that point (ForegroundServiceStartNotAllowedException). Calling
+     * it right here, while this service instance is still alive and already
+     * running in the foreground, falls under Android's "app already has a
+     * running foreground service" exemption, so it isn't subject to that
+     * restriction. One-shot, triggered only when the task is actually
+     * removed -- no recurring work, no extra battery cost.
+     */
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        try {
+            val restartIntent = Intent(applicationContext, MirrorLineService::class.java)
+            ContextCompat.startForegroundService(applicationContext, restartIntent)
+        } catch (_: Exception) {
+        }
     }
 
     /**

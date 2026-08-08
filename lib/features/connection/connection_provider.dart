@@ -37,6 +37,13 @@ final connectionConnectingProvider = Provider<bool>((ref) {
 
 class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver {
   static const Duration _retryInterval = Duration(seconds: 30);
+  // How long an outgoing SMS may sit on 'pending' before it's given up on
+  // and shown as 'failed'. The queue's own 5-attempt retry only advances
+  // when the connection actually comes back up (see _flushQueue), so if
+  // the peer never reconnects a queued sms_status ack would otherwise
+  // never get marked either way -- this is a connection-state-independent
+  // backstop so "Gönderiliyor" doesn't linger forever.
+  static const Duration _pendingSmsTimeout = Duration(minutes: 2);
   static const Duration _reconnectInitialDelay = Duration(seconds: 2);
   static const Duration _reconnectMaxDelay = Duration(seconds: 30);
   // Fallback active network scan (see SubnetScanner): only kicks in after
@@ -68,6 +75,15 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
   DateTime? _disconnectedSince;
   DateTime? _lastScanAt;
   int _reconnectAttempts = 0;
+  // Guards against an active on-path attacker (e.g. ARP spoofing into an
+  // already-authenticated TCP session) replaying a previously captured,
+  // genuinely valid encrypted message to make the app act on it a second
+  // time -- GCM's auth tag proves *who* encrypted a message but not that
+  // it's fresh. Reset per connection (see onConnected below); a brand new
+  // connection already requires a fresh signed challenge-response, so an
+  // attacker without the identity key can't replay their way into a new
+  // session -- this only needs to cover replay within one live session.
+  int? _lastAcceptedMessageTimestamp;
 
   // Call/SMS native-event and peer-message handling live in their own
   // classes (see call_event_handler.dart / sms_event_handler.dart) so this
@@ -92,7 +108,6 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
       isSource: () => isSource,
       sendOrQueue: _sendOrQueue,
       notify: _notify,
-      socketManager: () => _socketManager,
     );
     _init();
   }
@@ -143,6 +158,7 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
     // so devices recover on their own instead of requiring the app to be
     // killed and reopened.
     _healthTimer ??= Timer.periodic(_retryInterval, (_) {
+      _ref.read(smsListProvider.notifier).failStalePending(_pendingSmsTimeout);
       if (_connecting || state) return;
       refresh();
       _maybeRunFallbackScan();
@@ -288,6 +304,7 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
         state = true;
         _disconnectedSince = null;
         _reconnectAttempts = 0;
+        _lastAcceptedMessageTimestamp = null;
         _ref.read(connectionStatusProvider.notifier).clearError();
         _logger.i('Socket connected and authenticated!');
         _flushQueue();
@@ -510,6 +527,20 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
       return;
     }
 
+    // Reject a message with a timestamp at or before the last one we
+    // accepted on this connection -- a genuinely valid (correctly
+    // decrypted) message can still be a replayed copy of a real one an
+    // on-path attacker captured earlier. Strictly-less-than (not <=) so a
+    // legitimate burst of messages constructed within the same
+    // millisecond -- e.g. _flushQueue draining several queued items --
+    // is never mistaken for a replay.
+    final lastAccepted = _lastAcceptedMessageTimestamp;
+    if (lastAccepted != null && message.timestamp < lastAccepted) {
+      _logger.w('Rejected likely-replayed message: ${message.id} (type=${message.type})');
+      return;
+    }
+    _lastAcceptedMessageTimestamp = message.timestamp;
+
     final payload = jsonDecode(decrypted) as Map<String, dynamic>;
     final now = DateTime.now();
 
@@ -647,6 +678,7 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
     switch (item.type) {
       case MessageTypes.smsIncoming:
       case MessageTypes.smsOutgoing:
+      case MessageTypes.smsStatus:
         await _ref.read(smsListProvider.notifier).updateStatus(entryId, 'failed');
         break;
       case MessageTypes.callIncoming:
