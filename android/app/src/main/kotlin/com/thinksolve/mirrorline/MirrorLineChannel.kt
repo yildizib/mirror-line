@@ -97,6 +97,11 @@ object MirrorLineChannel {
                     OemAutoStart.open(appContext)
                     result.success(null)
                 }
+                "hasKnownBatterySaverSettings" -> result.success(OemAutoStart.hasKnownBatterySaverScreen())
+                "openBatterySaverSettings" -> {
+                    OemAutoStart.openBatterySaver(appContext)
+                    result.success(null)
+                }
                 "resolveContactName" -> {
                     val number = call.argument<String>("number") ?: ""
                     result.success(ContactResolver.resolveName(appContext, number))

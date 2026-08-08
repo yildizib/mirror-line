@@ -70,6 +70,19 @@ object OemAutoStart {
         ),
     )
 
+    // MIUI/HyperOS layers a *separate* per-app "battery saver" restriction
+    // on top of both stock Android's Doze whitelist (ignoring battery
+    // optimizations, requested elsewhere via
+    // REQUEST_IGNORE_BATTERY_OPTIMIZATIONS) and its own autostart manager
+    // above -- neither of those two reliably covers it. Without steering
+    // the user here too, HyperOS can still throttle the WifiLock/service
+    // while the screen is off even with autostart and Doze both granted.
+    private val batterySaverTargetsByManufacturer: Map<String, List<Target>> = mapOf(
+        "xiaomi" to listOf(
+            Target("com.miui.powerkeeper", "com.miui.powerkeeper.ui.HiddenAppsConfigActivity"),
+        ),
+    )
+
     private fun candidatesForThisDevice(): List<Target> {
         val manufacturer = Build.MANUFACTURER.lowercase()
         return targetsByManufacturer.entries
@@ -78,8 +91,19 @@ object OemAutoStart {
             ?: emptyList()
     }
 
+    private fun batterySaverCandidatesForThisDevice(): List<Target> {
+        val manufacturer = Build.MANUFACTURER.lowercase()
+        return batterySaverTargetsByManufacturer.entries
+            .firstOrNull { (key, _) -> manufacturer.contains(key) }
+            ?.value
+            ?: emptyList()
+    }
+
     /** Whether we know of an OEM-specific screen for this device's manufacturer. */
     fun hasKnownScreen(): Boolean = candidatesForThisDevice().isNotEmpty()
+
+    /** Whether we know of an OEM-specific battery-saver screen (currently MIUI/HyperOS only). */
+    fun hasKnownBatterySaverScreen(): Boolean = batterySaverCandidatesForThisDevice().isNotEmpty()
 
     /**
      * Opens the OEM's autostart/background-activity manager if we have a
@@ -89,6 +113,14 @@ object OemAutoStart {
      */
     fun open(context: Context) {
         for (target in candidatesForThisDevice()) {
+            if (tryLaunch(context, target)) return
+        }
+        openAppDetails(context)
+    }
+
+    /** Opens the OEM's separate battery-saver screen, same fallback pattern as [open]. */
+    fun openBatterySaver(context: Context) {
+        for (target in batterySaverCandidatesForThisDevice()) {
             if (tryLaunch(context, target)) return
         }
         openAppDetails(context)

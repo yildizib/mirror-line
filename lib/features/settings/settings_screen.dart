@@ -26,12 +26,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   String? _selfDeviceName;
   String? _selfPublicKey;
   bool _hasKnownAutoStartScreen = false;
+  bool _hasKnownBatterySaverScreen = false;
 
   @override
   void initState() {
     super.initState();
     _loadSelfIdentity();
     _loadAutoStartAvailability();
+    _loadBatterySaverAvailability();
   }
 
   Future<void> _loadSelfIdentity() async {
@@ -48,6 +50,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final known = await TelephonyChannel.hasKnownAutoStartSettings();
     if (!mounted) return;
     setState(() => _hasKnownAutoStartScreen = known);
+  }
+
+  Future<void> _loadBatterySaverAvailability() async {
+    final known = await TelephonyChannel.hasKnownBatterySaverSettings();
+    if (!mounted) return;
+    setState(() => _hasKnownBatterySaverScreen = known);
   }
 
   @override
@@ -344,6 +352,22 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   await TelephonyChannel.openAutoStartSettings();
                 },
               ),
+              if (_hasKnownBatterySaverScreen) ...[
+                const Divider(height: 1, indent: 16, endIndent: 16),
+                ListTile(
+                  leading: const Icon(Icons.battery_saver_rounded),
+                  title: const Text('Pil tasarrufu istisnası'),
+                  subtitle: const Text(
+                    'Bu cihazın üreticisi (HyperOS/MIUI) ayrı bir pil tasarrufu listesi '
+                    'kullanır — bağlantının ekran kapalıyken kopmaması için burada da '
+                    '"Kısıtlama yok" seçin',
+                  ),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () async {
+                    await TelephonyChannel.openBatterySaverSettings();
+                  },
+                ),
+              ],
               const Divider(height: 1, indent: 16, endIndent: 16),
               ListTile(
                 leading: Icon(Icons.delete_forever_rounded, color: theme.colorScheme.error),

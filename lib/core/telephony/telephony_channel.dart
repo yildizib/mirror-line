@@ -113,6 +113,32 @@ class TelephonyChannel {
     }
   }
 
+  /// Whether this device's manufacturer has a *separate* known battery-saver
+  /// restriction screen on top of stock Android's Doze whitelist and the
+  /// OEM autostart manager above (currently MIUI/HyperOS's per-app
+  /// "battery saver" list -- not covered by either of those).
+  static Future<bool> hasKnownBatterySaverSettings() async {
+    try {
+      return await _channel.invokeMethod<bool>('hasKnownBatterySaverSettings') ?? false;
+    } on MissingPluginException {
+      return false;
+    } on PlatformException {
+      return false;
+    }
+  }
+
+  /// Opens the OEM's separate battery-saver screen if known for this
+  /// device, else falls back to the app's own "App info" screen.
+  static Future<void> openBatterySaverSettings() async {
+    try {
+      await _channel.invokeMethod('openBatterySaverSettings');
+    } on MissingPluginException {
+      // ignore
+    } on PlatformException {
+      // ignore
+    }
+  }
+
   /// Best-effort local contact lookup on *this* device. Used as a fallback
   /// when the Source device's contact resolution came up empty -- the two
   /// phones' address books aren't guaranteed to be identical, so trying
