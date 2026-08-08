@@ -45,3 +45,8 @@ app.*.map.json
 /android/app/release
 .opentoken_tmp/
 
+# Local tooling artifacts
+.rtk/
+.claude/
+.remember/
+
