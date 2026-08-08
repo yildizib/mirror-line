@@ -1,0 +1,25 @@
+ 376|          payload: message.id,
+ 377|        );
+ 378|        break;
+ 379|
+ 380|      case MessageTypes.callRejected:
+ 381|        if (isSource) {
+ 382|          await TelephonyChannel.rejectCall();
+ 383|        }
+ 384|        final id = payload['id'] as String?;
+ 385|        if (id != null) {
+ 386|          await _ref.read(callListProvider.notifier).updateStatus(id, 'rejected');
+ 387|        }
+ 388|        break;
+ 389|
+ 390|      case MessageTypes.smsIncoming:
+ 391|        final address = payload['address'] as String? ?? 'unknown';
+ 392|        final body = payload['body'] as String? ?? '';
+ 393|        final id = payload['id'] as String? ?? message.id;
+ 394|        await _ref.read(smsListProvider.notifier).add(SmsMessage(
+ 395|              id: id,
+ 396|              threadId: payload['thread_id'] as String? ?? '',
+ 397|              address: address,
+ 398|              body: body,
+ 399|              encrypted: message.payload,
+ 400|              direction: 'incoming',

@@ -1,0 +1,25 @@
+ 351|      _logger.e('Decryption failed for message: ${message.id}');
+ 352|      return;
+ 353|    }
+ 354|
+ 355|    final payload = jsonDecode(decrypted) as Map<String, dynamic>;
+ 356|    final now = DateTime.now();
+ 357|
+ 358|    switch (message.type) {
+ 359|      case MessageTypes.callIncoming:
+ 360|        final number = payload['number'] as String? ?? 'unknown';
+ 361|        final id = payload['id'] as String? ?? message.id;
+ 362|        await _ref.read(callListProvider.notifier).add(CallEvent(
+ 363|              id: id,
+ 364|              direction: 'incoming',
+ 365|              number: number,
+ 366|              timestamp: DateTime.fromMillisecondsSinceEpoch(
+ 367|                  payload['timestamp'] as int? ?? now.millisecondsSinceEpoch),
+ 368|              encrypted: message.payload,
+ 369|              status: 'delivered',
+ 370|              createdAt: now,
+ 371|            ));
+ 372|        await _notify(
+ 373|          id: int.tryParse(id) ?? 1,
+ 374|          title: 'Gelen Arama',
+ 375|          body: number,

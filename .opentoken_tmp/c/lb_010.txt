@@ -1,0 +1,6 @@
+ 251|    _broadcastTimer = null;
+ 252|    _socket?.close();
+ 253|    _socket = null;
+ 254|    _onBeacon = null;
+ 255|  }
+ 256|}

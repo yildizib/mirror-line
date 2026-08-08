@@ -1,0 +1,25 @@
+ 101|    );
+ 102|  }
+ 103|
+ 104|  void _handleClosed() {
+ 105|    if (!_isConnected && _client == null) return;
+ 106|    _isConnected = false;
+ 107|    _stopHeartbeat();
+ 108|    _client?.destroy();
+ 109|    _client = null;
+ 110|    _buffer.clear();
+ 111|    if (!_disposed) onDisconnected?.call();
+ 112|  }
+ 113|
+ 114|  void _startHeartbeat() {
+ 115|    _stopHeartbeat();
+ 116|    _heartbeatTimer = Timer.periodic(_heartbeatInterval, (_) async {
+ 117|      if (!_isConnected) return;
+ 118|      if (DateTime.now().difference(_lastDataAt) > _receiveTimeout) {
+ 119|        _logger.w('Peer unresponsive (no data for ${_receiveTimeout.inSeconds}s). Closing.');
+ 120|        _handleClosed();
+ 121|        return;
+ 122|      }
+ 123|      await sendMessage(MessageTypes.ping, {});
+ 124|    });
+ 125|  }

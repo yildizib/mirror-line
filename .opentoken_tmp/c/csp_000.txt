@@ -1,0 +1,25 @@
+   1|import 'package:flutter_riverpod/flutter_riverpod.dart';
+   2|
+   3|class ConnectionStatus {
+   4|  final String? localIp;
+   5|  final String? peerIp;
+   6|  final String? lastBeaconIp;
+   7|  final DateTime? lastBeaconAt;
+   8|  final String? lastError;
+   9|  final int connectAttempts;
+  10|  final bool serverRunning;
+  11|  final int serverPort;
+  12|
+  13|  const ConnectionStatus({
+  14|    this.localIp,
+  15|    this.peerIp,
+  16|    this.lastBeaconIp,
+  17|    this.lastBeaconAt,
+  18|    this.lastError,
+  19|    this.connectAttempts = 0,
+  20|    this.serverRunning = false,
+  21|    this.serverPort = 0,
+  22|  });
+  23|
+  24|  ConnectionStatus copyWith({
+  25|    String? localIp,

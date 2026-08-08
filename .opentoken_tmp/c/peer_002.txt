@@ -1,0 +1,14 @@
+  51|    deviceName: deviceName ?? this.deviceName,
+  52|    role: role ?? this.role,
+  53|    ip: ip ?? this.ip,
+  54|    port: port ?? this.port,
+  55|    key: key ?? this.key,
+  56|    createdAt: createdAt ?? this.createdAt,
+  57|  );
+  58|
+  59|  String get verificationCode {
+  60|    final combined = '$key|$id';
+  61|    final hash = combined.hashCode.abs();
+  62|    return (hash % 1000000).toString().padLeft(6, '0');
+  63|  }
+  64|}

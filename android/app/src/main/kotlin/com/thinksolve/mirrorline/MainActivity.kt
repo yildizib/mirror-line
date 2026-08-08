@@ -71,6 +71,13 @@ class MainActivity : FlutterActivity() {
                 "getLocalIp" -> {
                     result.success(getLocalIp())
                 }
+                "isNotificationListenerEnabled" -> {
+                    result.success(isNotificationListenerEnabled())
+                }
+                "openNotificationListenerSettings" -> {
+                    openNotificationListenerSettings()
+                    result.success(null)
+                }
                 else -> result.notImplemented()
             }
         }
@@ -205,9 +212,25 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    private fun stopMirrorService() {
-        stopService(Intent(this, MirrorLineService::class.java))
-    }
+ private fun stopMirrorService() {
+ stopService(Intent(this, MirrorLineService::class.java))
+ }
+
+ private fun isNotificationListenerEnabled(): Boolean {
+ val flat = android.provider.Settings.Secure.getString(
+ contentResolver,
+ "enabled_notification_listeners"
+ ) ?: return false
+ val componentName = android.content.ComponentName(this, MirrorLineNotificationListener::class.java)
+ val expected = componentName.flattenToString()
+ return flat.split(":").any { it == expected }
+ }
+
+ private fun openNotificationListenerSettings() {
+ val intent = Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+ intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+ startActivity(intent)
+ }
 
  private fun hasAllPermissions(): Boolean = requiredPermissions.all {
  ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED

@@ -1,0 +1,25 @@
+ 101|              }
+ 102|            },
+ 103|          ),
+ 104|          // Overlay with scan area indicator
+ 105|          ColorFiltered(
+ 106|            colorFilter: ColorFilter.mode(
+ 107|              Colors.black.withValues(alpha: 0.4),
+ 108|              BlendMode.srcOut,
+ 109|            ),
+ 110|            child: Stack(
+ 111|              children: [
+ 112|                Container(
+ 113|                  decoration: const BoxDecoration(
+ 114|                    color: Colors.transparent,
+ 115|                  ),
+ 116|                ),
+ 117|                Center(
+ 118|                  child: Container(
+ 119|                    height: 250,
+ 120|                    width: 250,
+ 121|                    color: Colors.red, // This will be "cut out"
+ 122|                  ),
+ 123|                ),
+ 124|              ],
+ 125|            ),

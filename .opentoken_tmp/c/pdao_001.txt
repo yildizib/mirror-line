@@ -1,0 +1,20 @@
+  26|    final db = await _database;
+  27|    final maps = await db.query('peer', orderBy: 'created_at DESC');
+  28|    return maps.map(Peer.fromJson).toList();
+  29|  }
+  30|
+  31|  Future<void> update(Peer peer) async {
+  32|    final db = await _database;
+  33|    await db.update('peer', peer.toJson(), where: 'id = ?', whereArgs: [peer.id]);
+  34|  }
+  35|
+  36|  Future<void> delete(String id) async {
+  37|    final db = await _database;
+  38|    await db.delete('peer', where: 'id = ?', whereArgs: [id]);
+  39|  }
+  40|
+  41|  Future<void> deleteAll() async {
+  42|    final db = await _database;
+  43|    await db.delete('peer');
+  44|  }
+  45|}

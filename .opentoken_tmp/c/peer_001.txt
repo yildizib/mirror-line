@@ -1,0 +1,25 @@
+  26|        'key': key,
+  27|        'created_at': createdAt.millisecondsSinceEpoch,
+  28|      };
+  29|
+  30|  factory Peer.fromJson(Map<String, dynamic> json) => Peer(
+  31|        id: json['id'] as String,
+  32|        deviceName: json['device_name'] as String? ?? 'Bilinmeyen Cihaz',
+  33|        role: json['role'] as String,
+  34|        ip: json['ip'] as String,
+  35|        port: json['port'] as int,
+  36|        key: json['key'] as String,
+  37|        createdAt: DateTime.fromMillisecondsSinceEpoch(json['created_at'] as int),
+  38|      );
+  39|
+  40|  Peer copyWith({
+  41|    String? id,
+  42|    String? deviceName,
+  43|    String? role,
+  44|    String? ip,
+  45|    int? port,
+  46|    String? key,
+  47|    DateTime? createdAt,
+  48|  }) =>
+  49|  Peer(
+  50|    id: id ?? this.id,

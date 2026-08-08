@@ -63,7 +63,27 @@ class TelephonyChannel {
     } on MissingPluginException {
       // ignore
     } on PlatformException catch (e) {
-      throw Exception('Failed to stop service: ${e.message}');
+      throw Exception('Failed to stop telephony listener: ${e.message}');
+    }
+  }
+
+  static Future<bool> isNotificationListenerEnabled() async {
+    try {
+      return await _channel.invokeMethod<bool>('isNotificationListenerEnabled') ?? false;
+    } on MissingPluginException {
+      return false;
+    } on PlatformException {
+      return false;
+    }
+  }
+
+  static Future<void> openNotificationListenerSettings() async {
+    try {
+      await _channel.invokeMethod('openNotificationListenerSettings');
+    } on MissingPluginException {
+      // ignore
+    } on PlatformException {
+      // ignore
     }
   }
 
@@ -84,6 +104,8 @@ class TelephonyChannel {
       switch (call.method) {
         case 'onCall':
         case 'onSms':
+        case 'onNotification':
+        case 'onNotificationRemoved':
           handler(call.method, (call.arguments as Map? ?? {}));
           return null;
         default:

@@ -1,0 +1,25 @@
+ 251|      _logger.i('Peer discovered at new address ${info.ip}:${info.tcpPort}');
+ 252|      final updated = peer.copyWith(ip: info.ip, port: info.tcpPort);
+ 253|      _peer = updated;
+ 254|      _peerDao.update(updated);
+ 255|      _ref.read(peerProvider.notifier).applyUpdate(updated);
+ 256|      _ref.read(connectionStatusProvider.notifier).setPeerIp(info.ip);
+ 257|    }
+ 258|
+ 259|    if (!state && !_connecting) {
+ 260|      final verificationCode = (peer.key.hashCode.abs() % 1000000).toString().padLeft(6, '0');
+ 261|      _pairingRequestController.add(PairingRequest(
+ 262|        peerId: peer.id,
+ 263|        deviceName: info.deviceName,
+ 264|        ip: info.ip,
+ 265|        port: info.tcpPort,
+ 266|        verificationCode: verificationCode,
+ 267|      ));
+ 268|      _connectTo(info.ip, info.tcpPort);
+ 269|    }
+ 270|  }
+ 271|
+ 272|  /// Manual connection fallback from the settings screen.
+ 273|  Future<bool> connectManually(String ip, int port) async {
+ 274|    final peer = _peer;
+ 275|    final key = _key;

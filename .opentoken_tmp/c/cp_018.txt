@@ -1,0 +1,25 @@
+ 451|        break;
+ 452|
+ 453|      case MessageTypes.ack:
+ 454|        _logger.i('ACK received: ${message.id}');
+ 455|        break;
+ 456|
+ 457|      default:
+ 458|        _logger.i('Unknown message type: ${message.type}');
+ 459|    }
+ 460|  }
+ 461|
+ 462|  Future<void> _notify({
+ 463|    required int id,
+ 464|    required String title,
+ 465|    required String body,
+ 466|    String? payload,
+ 467|  }) async {
+ 468|    try {
+ 469|      // Android notification ids must fit in a 32-bit int.
+ 470|      final safeId = id & 0x7fffffff;
+ 471|      await NotificationService.show(
+ 472|        id: safeId,
+ 473|        title: title,
+ 474|        body: body,
+ 475|        payload: payload,

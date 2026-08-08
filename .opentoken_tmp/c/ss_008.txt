@@ -1,0 +1,25 @@
+ 201|            ),
+ 202|          ),
+ 203|        ),
+ 204|        const SizedBox(height: 12),
+ 205|        FilledButton.icon(
+ 206|          onPressed: () => Navigator.push(
+ 207|            context,
+ 208|            MaterialPageRoute(builder: (_) => const PairingScreen()),
+ 209|          ),
+ 210|          icon: const Icon(Icons.qr_code_scanner),
+ 211|          label: const Text('Cihaz Eşleştir'),
+ 212|        ),
+ 213|        const SizedBox(height: 12),
+ 214|        OutlinedButton.icon(
+ 215|          onPressed: peer == null
+ 216|              ? null
+ 217|              : () => Navigator.push(
+ 218|                  context,
+ 219|                  MaterialPageRoute(builder: (_) => const RoleSelectionScreen()),
+ 220|                ),
+ 221|          icon: const Icon(Icons.swap_horiz),
+ 222|          label: const Text('Rol Değiştir'),
+ 223|        ),
+ 224|
+ 225|        // System

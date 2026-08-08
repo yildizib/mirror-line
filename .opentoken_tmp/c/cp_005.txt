@@ -1,0 +1,25 @@
+ 126|    statusNotifier.setLocalIp(localIp);
+ 127|    statusNotifier.setPeerIp(_peer?.ip);
+ 128|
+ 129|    if (_peer == null || _key == null) {
+ 130|      _logger.w('No peer info or key found. Waiting for pairing.');
+ 131|      await _stopMachinery();
+ 132|      return;
+ 133|    }
+ 134|
+ 135|    try {
+ 136|      if (isSource) {
+ 137|        await _startAsSource();
+ 138|      } else {
+ 139|        await _startAsMain();
+ 140|      }
+ 141|    } catch (e) {
+ 142|      _logger.e('Failed to start networking: $e');
+ 143|    }
+ 144|  }
+ 145|
+ 146|  Future<void> _startAsSource() async {
+ 147|    final peer = _peer!;
+ 148|    final key = _key!;
+ 149|
+ 150|    _socketManager ??= _createSocketManager();

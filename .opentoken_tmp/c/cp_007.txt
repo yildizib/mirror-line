@@ -1,0 +1,25 @@
+ 176|
+ 177|  Future<void> _startAsMain() async {
+ 178|    if (!_listener.isListening) {
+ 179|      await _listener.start(onBeacon: _onBeacon);
+ 180|    }
+ 181|
+ 182|    _retryTimer ??= Timer.periodic(_retryInterval, (_) {
+ 183|      if (state || _connecting) return;
+ 184|      _tryConnectToStoredPeer();
+ 185|    });
+ 186|
+ 187|    await _tryConnectToStoredPeer();
+ 188|  }
+ 189|
+ 190|  SocketManager _createSocketManager() {
+ 191|    return SocketManager(
+ 192|      onMessage: _handleIncomingMessage,
+ 193|      onConnected: () {
+ 194|        state = true;
+ 195|        _ref.read(connectionStatusProvider.notifier).clearError();
+ 196|        _logger.i('Socket connected!');
+ 197|        _flushQueue();
+ 198|      },
+ 199|      onDisconnected: () {
+ 200|        state = false;

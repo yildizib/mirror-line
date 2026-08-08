@@ -1,0 +1,60 @@
+
+  // ---------------------------------------------------------------------
+  // Outgoing messages (with offline queue)
+  // ---------------------------------------------------------------------
+
+  Future<bool> _sendOrQueue(String type, Map<String, dynamic> payload) async {
+    final sent = await _socketManager?.sendMessage(type, payload) ?? false;
+    if (!sent) {
+      await _queue.enqueue(type, jsonEncode(payload));
+      _logger.w('$type queued for later delivery.');
+    }
+    return sent;
+  }
+
+  Future<bool> sendCallNotification(String number, {String? id}) {
+    final callId = id ?? '${DateTime.now().millisecondsSinceEpoch}';
+    return _sendOrQueue(MessageTypes.callIncoming, {
+      'id': callId,
+      'number': number,
+      'timestamp': DateTime.now().millisecondsSinceEpoch,
+    });
+  }
+
+  Future<bool> sendCallRejected(String callId) {
+    return _sendOrQueue(MessageTypes.callRejected, {
+      'id': callId,
+      'timestamp': DateTime.now().millisecondsSinceEpoch,
+    });
+  }
+
+  Future<bool> sendSmsNotification(String address, String body, {String? id}) {
+    final smsId = id ?? '${DateTime.now().millisecondsSinceEpoch}';
+    return _sendOrQueue(MessageTypes.smsIncoming, {
+      'id': smsId,
+      'address': address,
+      'body': body,
+      'timestamp': DateTime.now().millisecondsSinceEpoch,
+    });
+  }
+
+  Future<bool> sendReplySms(String address, String body, {String? id}) {
+    final smsId = id ?? '${DateTime.now().millisecondsSinceEpoch}';
+    return _sendOrQueue(MessageTypes.smsOutgoing, {
+      'id': smsId,
+      'address': address,
+      'body': body,
+      'timestamp': DateTime.now().millisecondsSinceEpoch,
+    });
+  }
+
+  Future<void> _flushQueue() async {
+    final items = await _queue.pendingItems();
+    if (items.isEmpty) return;
+    _logger.i('Flushing ${items.length} queued message(s).');
+    for (final item in items) {
+      try {
+        final payload = jsonDecode(item.payload) as Map<String, dynamic>;
+        final sent = await _socketManager?.sendMessage(item.type, payload) ?? false;
+        if (sent) {
+          if (item.id != null) await _queue.markSent(item.id!);

@@ -1,0 +1,25 @@
+ 126|          ),
+ 127|          // Scan frame border
+ 128|          Center(
+ 129|            child: Container(
+ 130|              height: 250,
+ 131|              width: 250,
+ 132|              decoration: BoxDecoration(
+ 133|                border: Border.all(
+ 134|                  color: Theme.of(context).colorScheme.primary,
+ 135|                  width: 3,
+ 136|                ),
+ 137|                borderRadius: BorderRadius.circular(12),
+ 138|              ),
+ 139|            ),
+ 140|          ),
+ 141|          // Cancel button
+ 142|          Positioned(
+ 143|            bottom: 32,
+ 144|            left: 0,
+ 145|            right: 0,
+ 146|            child: Center(
+ 147|              child: FilledButton.tonal(
+ 148|                onPressed: () => setState(() => _isScanning = false),
+ 149|                child: const Text('İptal'),
+ 150|              ),

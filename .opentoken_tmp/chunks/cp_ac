@@ -1,0 +1,60 @@
+      return;
+    }
+
+    final statusNotifier = _ref.read(connectionStatusProvider.notifier);
+    final localIp = await PeerDiscovery().getLocalIp();
+    statusNotifier.setLocalIp(localIp);
+    statusNotifier.setPeerIp(_peer?.ip);
+
+    if (_peer == null || _key == null) {
+      _logger.w('No peer info or key found. Waiting for pairing.');
+      await _stopMachinery();
+      return;
+    }
+
+    try {
+      if (isSource) {
+        await _startAsSource();
+      } else {
+        await _startAsMain();
+      }
+    } catch (e) {
+      _logger.e('Failed to start networking: $e');
+    }
+  }
+
+  Future<void> _startAsSource() async {
+    final peer = _peer!;
+    final key = _key!;
+
+    _socketManager ??= _createSocketManager();
+    if (_socketManager!.isConnected == false) {
+      try {
+        await _socketManager!.startServer(peer.port, key);
+        _ref.read(connectionStatusProvider.notifier).setServer(peer.port, true);
+      } catch (e) {
+        _logger.e('Server start failed: $e');
+        _ref.read(connectionStatusProvider.notifier)
+            .recordConnectAttempt('Server başlatılamadı: $e');
+      }
+    }
+
+    await _broadcaster.start(
+      peerId: peer.id,
+      tcpPort: peer.port,
+      deviceName: peer.deviceName,
+    );
+
+    _registerTelephonyHandler();
+    try {
+      await TelephonyChannel.startListening();
+    } catch (e) {
+      _logger.e('Telephony startListening failed: $e');
+    }
+    _logger.i('Source mode active: server on ${peer.port}, beacon broadcasting.');
+  }
+
+  Future<void> _startAsMain() async {
+    if (!_listener.isListening) {
+      await _listener.start(onBeacon: _onBeacon);
+    }

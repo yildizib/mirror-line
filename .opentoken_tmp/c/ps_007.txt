@@ -1,0 +1,25 @@
+ 176|      ),
+ 177|    );
+ 178|  }
+ 179|
+ 180|  void _handleScannedData(String data) async {
+ 181|    if (_isProcessing) return;
+ 182|
+ 183|    setState(() => _isProcessing = true);
+ 184|
+ 185|    final parts = data.split('|');
+ 186|    if (parts.length < 4) {
+ 187|      setState(() {
+ 188|        _isProcessing = false;
+ 189|        _isScanning = false;
+ 190|      });
+ 191|      ScaffoldMessenger.of(context).showSnackBar(
+ 192|        const SnackBar(content: Text('Geçersiz QR kod formatı')),
+ 193|      );
+ 194|      return;
+ 195|    }
+ 196|
+ 197|    final scannedId = parts[0];
+ 198|    final scannedIp = parts[1];
+ 199|    final scannedPort = int.tryParse(parts[2]) ?? 45678;
+ 200|    final scannedKey = parts[3];

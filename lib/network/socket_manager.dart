@@ -11,16 +11,38 @@ import 'message_protocol.dart';
 class SocketManager {
   static const Duration _heartbeatInterval = Duration(seconds: 15);
   static const Duration _receiveTimeout = Duration(seconds: 45);
+  static const Duration _authTimeout = Duration(seconds: 10);
 
   final Logger _logger = Logger();
   final void Function(MirrorMessage) onMessage;
   final void Function()? onConnected;
   final void Function()? onDisconnected;
 
+  /// When this device is the *server*, this callback is invoked with the
+  /// incoming socket's remote address so the caller can decide whether to
+  /// accept the connection.  Return false to reject.
+  final Future<bool> Function(String remoteAddress)? onAcceptConnection;
+
+  /// Public key (base64) of the paired peer — used for challenge-response
+  /// authentication after the TCP connection is established.
+  String? _peerPublicKeyBase64;
+
+  /// This device's Ed25519 keypair, used to sign challenges when acting as
+  /// the *client*.  Set via [setAuthIdentity].
+  SimpleKeyPair? _localKeyPair;
+
+  /// Whether this socket is acting as server (accepts incoming) or client
+  /// (initiates connection).
+  bool _isServer = false;
+
+  /// Completer for the client-side auth challenge.
+  Completer<void>? _authCompleter;
+
   ServerSocket? _server;
   Socket? _client;
   SecretKey? _key;
   bool _isConnected = false;
+  bool _authed = false;
   bool _disposed = false;
   final List<int> _buffer = [];
   Timer? _heartbeatTimer;
@@ -30,12 +52,28 @@ class SocketManager {
     required this.onMessage,
     this.onConnected,
     this.onDisconnected,
+    this.onAcceptConnection,
   });
 
   bool get isConnected => _isConnected;
+  bool get isAuthed => _authed;
+
+  /// Configure the authentication identity for this socket.
+  /// [peerPublicKeyBase64] is the other device's public key (for verifying
+  /// their signatures when we are the server).
+  /// [localKeyPair] is our Ed25519 keypair (for signing challenges when we
+  /// are the client).
+  void setAuthIdentity({
+    required String peerPublicKeyBase64,
+    required SimpleKeyPair localKeyPair,
+  }) {
+    _peerPublicKeyBase64 = peerPublicKeyBase64;
+    _localKeyPair = localKeyPair;
+  }
 
   Future<void> startServer(int port, SecretKey key) async {
     _key = key;
+    _isServer = true;
     if (_server != null) return;
     try {
       _server = await ServerSocket.bind(InternetAddress.anyIPv4, port);
@@ -59,11 +97,21 @@ class SocketManager {
     if (_isConnected) return true;
     if (ip.isEmpty || ip == 'unknown') return false;
     _key = key;
+    _isServer = false;
     try {
       final socket = await Socket.connect(ip, port, timeout: const Duration(seconds: 5));
       _accept(socket);
-      _logger.i('Connected to peer $ip:$port');
-      return true;
+      _logger.i('Connected to peer $ip:$port, awaiting auth...');
+
+      // Wait for auth to complete (or fail/timeout).
+      try {
+        await _authCompleter?.future.timeout(_authTimeout);
+        return true;
+      } catch (e) {
+        _logger.w('Auth failed during connect: $e');
+        _handleClosed();
+        return false;
+      }
     } catch (e) {
       _logger.w('Failed to connect to peer $ip:$port: $e');
       return false;
@@ -73,13 +121,30 @@ class SocketManager {
   void _accept(Socket socket) {
     _client = socket;
     _isConnected = true;
+    _authed = false;
     _disposed = false;
     _buffer.clear();
     _lastDataAt = DateTime.now();
     socket.setOption(SocketOption.tcpNoDelay, true);
-    onConnected?.call();
     _listen(socket);
-    _startHeartbeat();
+
+    // Start challenge-response authentication before announcing connection.
+    // Skip auth if no peer public key is configured (pairing mode).
+    if (_isServer) {
+      if (_peerPublicKeyBase64 != null && _peerPublicKeyBase64!.isNotEmpty) {
+        _startServerAuth(socket);
+      } else {
+        _logger.i('Server: no peer public key set — pairing mode, skipping auth.');
+        _onAuthSuccess();
+      }
+    } else {
+      if (_localKeyPair != null) {
+        _startClientAuth();
+      } else {
+        _logger.i('Client: no local key pair set — pairing mode, skipping auth.');
+        _onAuthSuccess();
+      }
+    }
   }
 
   void _listen(Socket socket) {
@@ -104,6 +169,7 @@ class SocketManager {
   void _handleClosed() {
     if (!_isConnected && _client == null) return;
     _isConnected = false;
+    _authed = false;
     _stopHeartbeat();
     _client?.destroy();
     _client = null;
@@ -142,11 +208,35 @@ class SocketManager {
         final raw = utf8.decode(rawMessage);
         final message = MirrorMessage.decode(raw);
 
+        // ---- Intercept auth messages before heartbeat / onMessage ----
         if (message.type == MessageTypes.ping) {
           sendMessage(MessageTypes.pong, {});
           continue;
         }
         if (message.type == MessageTypes.pong) {
+          continue;
+        }
+
+        if (message.type == MessageTypes.authChallenge) {
+          _handleAuthChallenge(message);
+          continue;
+        }
+        if (message.type == MessageTypes.authResponse) {
+          _handleAuthResponse(message);
+          continue;
+        }
+        if (message.type == MessageTypes.authOk) {
+          _onAuthSuccess();
+          continue;
+        }
+        if (message.type == MessageTypes.authFail) {
+          _onAuthFail();
+          continue;
+        }
+
+        // ---- Past auth: normal messages ----
+        if (!_authed) {
+          _logger.w('Received non-auth message before auth completed: ${message.type}');
           continue;
         }
 
@@ -186,8 +276,123 @@ class SocketManager {
     }
   }
 
+  // --------------------------------------------------------------------
+  // Challenge-response authentication
+  // --------------------------------------------------------------------
+
+  /// Server side: send a random nonce to the client.
+  void _startServerAuth(Socket socket) {
+    final nonce = CryptoManager.generateNonce();
+    _logger.i('Server sending auth challenge.');
+    sendMessage(MessageTypes.authChallenge, {'nonce': nonce});
+  }
+
+  /// Client side: wait for the server's challenge, sign it, and respond.
+  void _startClientAuth() {
+    _authCompleter = Completer<void>();
+    // Start heartbeat only after auth completes (in _onAuthSuccess).
+    // Timeout: if server never challenges us, drop the connection.
+    Future.delayed(_authTimeout, () {
+      if (_authCompleter != null && !_authCompleter!.isCompleted) {
+        _logger.w('Auth timeout (no challenge from server).');
+        _authCompleter!.completeError('timeout');
+        _handleClosed();
+      }
+    });
+  }
+
+  /// Client side: received a challenge from the server, sign it.
+  void _handleAuthChallenge(MirrorMessage message) async {
+    final key = _key;
+    final localKeyPair = _localKeyPair;
+    if (key == null || localKeyPair == null) {
+      _logger.e('Auth challenge received but no local key pair set.');
+      _handleClosed();
+      return;
+    }
+
+    final decrypted = await CryptoManager.decrypt(key, message.payload);
+    if (decrypted == null) {
+      _logger.e('Could not decrypt auth challenge.');
+      _handleClosed();
+      return;
+    }
+    final payload = jsonDecode(decrypted) as Map<String, dynamic>;
+    final nonce = payload['nonce'] as String? ?? '';
+    if (nonce.isEmpty) {
+      _logger.e('Empty nonce in auth challenge.');
+      _handleClosed();
+      return;
+    }
+
+    final signature = await CryptoManager.sign(localKeyPair, nonce);
+    _logger.i('Client sending auth response (signed nonce).');
+    await sendMessage(MessageTypes.authResponse, {
+      'nonce': nonce,
+      'signature': signature,
+    });
+  }
+
+  /// Server side: received the client's signed nonce, verify it.
+  void _handleAuthResponse(MirrorMessage message) async {
+    final key = _key;
+    final peerPubKey = _peerPublicKeyBase64;
+    if (key == null || peerPubKey == null) {
+      _logger.e('Auth response received but no peer public key set.');
+      _onAuthFail();
+      return;
+    }
+
+    final decrypted = await CryptoManager.decrypt(key, message.payload);
+    if (decrypted == null) {
+      _logger.e('Could not decrypt auth response.');
+      _onAuthFail();
+      return;
+    }
+    final payload = jsonDecode(decrypted) as Map<String, dynamic>;
+    final nonce = payload['nonce'] as String? ?? '';
+    final signature = payload['signature'] as String? ?? '';
+
+    // Verify the signature against the nonce using the peer's public key.
+    final ok = await CryptoManager.verifySignature(
+      signatureBase64: signature,
+      message: nonce,
+      publicKeyBase64: peerPubKey,
+    );
+
+    if (ok) {
+      _logger.i('Client authenticated successfully.');
+      await sendMessage(MessageTypes.authOk, {});
+      _onAuthSuccess();
+    } else {
+      _logger.w('Client authentication failed (invalid signature).');
+      await sendMessage(MessageTypes.authFail, {});
+      _onAuthFail();
+    }
+  }
+
+  void _onAuthSuccess() {
+    if (_authed) return;
+    _authed = true;
+    _logger.i('Auth complete. Connection fully established.');
+    if (_authCompleter != null && !_authCompleter!.isCompleted) {
+      _authCompleter!.complete();
+    }
+    onConnected?.call();
+    _startHeartbeat();
+  }
+
+  void _onAuthFail() {
+    _logger.w('Authentication failed. Closing connection.');
+    if (_authCompleter != null && !_authCompleter!.isCompleted) {
+      _authCompleter!.completeError('auth failed');
+    }
+    _handleClosed();
+  }
+
   Future<void> disconnect() async {
     _disposed = true;
+    _authed = false;
     _stopHeartbeat();
     try {
       _client?.destroy();
@@ -203,6 +408,7 @@ class SocketManager {
 
   /// Closes only the active client connection; keeps the server listening.
   Future<void> disconnectClient() async {
+    _authed = false;
     _stopHeartbeat();
     try {
       _client?.destroy();

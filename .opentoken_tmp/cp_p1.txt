@@ -1,0 +1,120 @@
+CP     1	import 'dart:async';
+CP     2	import 'dart:convert';
+CP     3	
+CP     4	import 'package:cryptography/cryptography.dart';
+CP     5	import 'package:flutter/widgets.dart';
+CP     6	import 'package:flutter_riverpod/flutter_riverpod.dart';
+CP     7	import 'package:logger/logger.dart';
+CP     8	
+CP     9	import '../data/daos/peer_dao.dart';
+CP    10	import '../data/models/call_event.dart';
+CP    11	import '../data/models/peer.dart';
+CP    12	import '../data/models/sms_message.dart';
+CP    13	import '../network/lan_beacon.dart';
+CP    14	import '../network/message_protocol.dart';
+CP    15	import '../network/peer_discovery.dart';
+CP    16	import '../network/socket_manager.dart';
+CP    17	import '../providers/call_list_provider.dart';
+CP    18	import '../providers/connection_status_provider.dart';
+CP    19	import '../providers/peer_provider.dart';
+CP    20	import '../providers/sms_list_provider.dart';
+CP    21	import '../security/crypto_manager.dart';
+CP    22	import '../security/key_store.dart';
+CP    23	import '../services/connectivity_service.dart';
+CP    24	import '../services/notification_service.dart';
+CP    25	import '../services/queue_service.dart';
+CP    26	import '../telephony/telephony_channel.dart';
+CP    27	
+CP    28	final connectionProvider = StateNotifierProvider<ConnectionNotifier, bool>((ref) {
+CP    29	  return ConnectionNotifier(ref);
+CP    30	});
+CP    31	
+CP    32	final connectionConnectingProvider = Provider<bool>((ref) {
+CP    33	  return ref.watch(connectionProvider.notifier).isConnecting;
+CP    34	});
+CP    35	
+CP    36	class PairingRequest {
+CP    37	  final String peerId;
+CP    38	  final String deviceName;
+CP    39	  final String ip;
+CP    40	  final int port;
+CP    41	  final String verificationCode;
+CP    42	
+CP    43	  PairingRequest({
+CP    44	    required this.peerId,
+CP    45	    required this.deviceName,
+CP    46	    required this.ip,
+CP    47	    required this.port,
+CP    48	    required this.verificationCode,
+CP    49	  });
+CP    50	}
+CP    51	
+CP    52	final pairingRequestProvider = StreamProvider<PairingRequest?>((ref) {
+CP    53	  return ref.watch(connectionProvider.notifier).pairingRequestStream;
+CP    54	});
+CP    55	
+CP    56	class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver {
+CP    57	  static const Duration _retryInterval = Duration(seconds: 10);
+CP    58	
+CP    59	  final Logger _logger = Logger();
+CP    60	  final Ref _ref;
+CP    61	  final ConnectivityService _connectivity = ConnectivityService();
+CP    62	  final PeerDao _peerDao = PeerDao();
+CP    63	  final QueueService _queue = QueueService();
+CP    64	  final BeaconBroadcaster _broadcaster = BeaconBroadcaster();
+CP    65	  final BeaconListener _listener = BeaconListener();
+CP    66	
+CP    67	  SocketManager? _socketManager;
+CP    68	  Peer? _peer;
+CP    69	  SecretKey? _key;
+CP    70	  Timer? _retryTimer;
+CP    71	  bool _connecting = false;
+CP    72	  bool _telephonyHandlerRegistered = false;
+CP    73	  String? _lastDiscoveredIp;
+CP    74	  final _pairingRequestController = StreamController<PairingRequest?>.broadcast();
+CP    75	
+CP    76	  ConnectionNotifier(this._ref) : super(false) {
+CP    77	    _init();
+CP    78	  }
+CP    79	
+CP    80	  bool get isSource => _peer?.role == 'source';
+CP    81	  bool get isConnecting => _connecting;
+CP    82	  Stream<PairingRequest?> get pairingRequestStream => _pairingRequestController.stream;
+CP    83	
+CP    84	  void _init() async {
+CP    85	    WidgetsBinding.instance.addObserver(this);
+CP    86	
+CP    87	    _connectivity.onChanged = (isOnline) {
+CP    88	      if (isOnline) {
+CP    89	        refresh();
+CP    90	      } else {
+CP    91	        state = false;
+CP    92	      }
+CP    93	    };
+CP    94	    _connectivity.startListening();
+CP    95	
+CP    96	    try {
+CP    97	      final isOnline = await _connectivity.isOnline();
+CP    98	      if (isOnline) {
+CP    99	        await refresh();
+CP   100	      }
+CP   101	    } catch (e) {
+CP   102	      _logger.e('Connection init failed: $e');
+CP   103	    }
+CP   104	  }
+CP   105	
+CP   106	  @override
+CP   107	  void didChangeAppLifecycleState(AppLifecycleState state) {
+CP   108	    if (state == AppLifecycleState.resumed) {
+CP   109	      refresh();
+CP   110	    }
+CP   111	  }
+CP   112	
+CP   113	  /// Reloads peer info and (re)starts role-specific networking machinery.
+CP   114	  /// Call after pairing, role changes or resets.
+CP   115	  Future<void> refresh() async {
+CP   116	    try {
+CP   117	      _peer = await _peerDao.getPeer();
+CP   118	      _key = await KeyStore.getPeerKey();
+CP   119	    } catch (e) {
+CP   120	      _logger.e('Failed to load peer info: $e');

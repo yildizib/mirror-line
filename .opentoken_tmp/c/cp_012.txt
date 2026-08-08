@@ -1,0 +1,25 @@
+ 301|      if (type == 'onCall') {
+ 302|        final number = (data['number'] as String?) ?? 'unknown';
+ 303|        final event = CallEvent(
+ 304|          id: id,
+ 305|          direction: 'incoming',
+ 306|          number: number,
+ 307|          timestamp: now,
+ 308|          encrypted: '',
+ 309|          status: 'delivered',
+ 310|          createdAt: now,
+ 311|        );
+ 312|        await _ref.read(callListProvider.notifier).add(event);
+ 313|        await sendCallNotification(number, id: id);
+ 314|      } else if (type == 'onSms') {
+ 315|        final address = (data['address'] as String?) ?? 'unknown';
+ 316|        final body = (data['body'] as String?) ?? '';
+ 317|        final threadId = (data['threadId'] as String?) ?? '';
+ 318|        final message = SmsMessage(
+ 319|          id: id,
+ 320|          threadId: threadId,
+ 321|          address: address,
+ 322|          body: body,
+ 323|          encrypted: '',
+ 324|          direction: 'incoming',
+ 325|          status: 'received',

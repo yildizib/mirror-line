@@ -1,0 +1,25 @@
+  26|    String? peerIp,
+  27|    String? lastBeaconIp,
+  28|    DateTime? lastBeaconAt,
+  29|    String? lastError,
+  30|    int? connectAttempts,
+  31|    bool? serverRunning,
+  32|    int? serverPort,
+  33|  }) =>
+  34|      ConnectionStatus(
+  35|        localIp: localIp ?? this.localIp,
+  36|        peerIp: peerIp ?? this.peerIp,
+  37|        lastBeaconIp: lastBeaconIp ?? this.lastBeaconIp,
+  38|        lastBeaconAt: lastBeaconAt ?? this.lastBeaconAt,
+  39|        lastError: lastError ?? this.lastError,
+  40|        connectAttempts: connectAttempts ?? this.connectAttempts,
+  41|        serverRunning: serverRunning ?? this.serverRunning,
+  42|        serverPort: serverPort ?? this.serverPort,
+  43|      );
+  44|}
+  45|
+  46|final connectionStatusProvider =
+  47|    StateNotifierProvider<ConnectionStatusNotifier, ConnectionStatus>((ref) {
+  48|  return ConnectionStatusNotifier();
+  49|});
+  50|

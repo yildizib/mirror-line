@@ -1,0 +1,20 @@
+  26|        timestamp: json['timestamp'] as int,
+  27|        payload: json['payload'] as String,
+  28|      );
+  29|
+  30|  String encode() => jsonEncode(toJson());
+  31|
+  32|  static MirrorMessage decode(String raw) => MirrorMessage.fromJson(jsonDecode(raw));
+  33|}
+  34|
+  35|abstract class MessageTypes {
+  36|  static const String callIncoming = 'call_incoming';
+  37|  static const String callRejected = 'call_rejected';
+  38|  static const String smsIncoming = 'sms_incoming';
+  39|  static const String smsOutgoing = 'sms_outgoing';
+  40|  static const String smsStatus = 'sms_status';
+  41|  static const String ack = 'ack';
+  42|  static const String ping = 'ping';
+  43|  static const String pong = 'pong';
+  44|  static const String notificationMirrored = 'notification_mirrored';
+  45|}

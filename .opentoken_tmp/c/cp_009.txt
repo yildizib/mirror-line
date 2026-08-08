@@ -1,0 +1,25 @@
+ 226|    _connecting = true;
+ 227|    try {
+ 228|      _socketManager ??= _createSocketManager();
+ 229|      final ok = await _socketManager!.connect(ip, port, key);
+ 230|      _ref.read(connectionStatusProvider.notifier).recordConnectAttempt(
+ 231|            ok ? null : 'Bağlantı başarısız: $ip:$port (sunucu kapalı veya ulaşılamıyor)',
+ 232|          );
+ 233|      return ok;
+ 234|    } finally {
+ 235|      _connecting = false;
+ 236|    }
+ 237|  }
+ 238|
+ 239|  void _onBeacon(BeaconInfo info) {
+ 240|    final peer = _peer;
+ 241|    if (peer == null) return;
+ 242|    if (info.peerId != peer.id) {
+ 243|      _logger.w('Ignoring beacon from unknown peer: ${info.peerId}');
+ 244|      return;
+ 245|    }
+ 246|
+ 247|    _lastDiscoveredIp = info.ip;
+ 248|    _ref.read(connectionStatusProvider.notifier).recordBeacon(info.ip);
+ 249|
+ 250|    if (info.ip != peer.ip || info.tcpPort != peer.port) {

@@ -1,0 +1,25 @@
+  51|
+  52|final pairingRequestProvider = StreamProvider<PairingRequest?>((ref) {
+  53|  return ref.watch(connectionProvider.notifier).pairingRequestStream;
+  54|});
+  55|
+  56|class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver {
+  57|  static const Duration _retryInterval = Duration(seconds: 10);
+  58|
+  59|  final Logger _logger = Logger();
+  60|  final Ref _ref;
+  61|  final ConnectivityService _connectivity = ConnectivityService();
+  62|  final PeerDao _peerDao = PeerDao();
+  63|  final QueueService _queue = QueueService();
+  64|  final BeaconBroadcaster _broadcaster = BeaconBroadcaster();
+  65|  final BeaconListener _listener = BeaconListener();
+  66|
+  67|  SocketManager? _socketManager;
+  68|  Peer? _peer;
+  69|  SecretKey? _key;
+  70|  Timer? _retryTimer;
+  71|  bool _connecting = false;
+  72|  bool _telephonyHandlerRegistered = false;
+  73|  String? _lastDiscoveredIp;
+  74|  final _pairingRequestController = StreamController<PairingRequest?>.broadcast();
+  75|

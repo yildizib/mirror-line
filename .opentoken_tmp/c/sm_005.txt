@@ -1,0 +1,25 @@
+ 126|
+ 127|  void _stopHeartbeat() {
+ 128|    _heartbeatTimer?.cancel();
+ 129|    _heartbeatTimer = null;
+ 130|  }
+ 131|
+ 132|  void _processBuffer() {
+ 133|    while (_buffer.isNotEmpty) {
+ 134|      final newlineIndex = _buffer.indexOf(10); // \n
+ 135|      if (newlineIndex == -1) break;
+ 136|
+ 137|      final rawMessage = _buffer.sublist(0, newlineIndex);
+ 138|      _buffer.removeRange(0, newlineIndex + 1);
+ 139|      if (rawMessage.isEmpty) continue;
+ 140|
+ 141|      try {
+ 142|        final raw = utf8.decode(rawMessage);
+ 143|        final message = MirrorMessage.decode(raw);
+ 144|
+ 145|        if (message.type == MessageTypes.ping) {
+ 146|          sendMessage(MessageTypes.pong, {});
+ 147|          continue;
+ 148|        }
+ 149|        if (message.type == MessageTypes.pong) {
+ 150|          continue;

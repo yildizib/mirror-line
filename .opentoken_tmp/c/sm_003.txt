@@ -1,0 +1,25 @@
+  76|    _disposed = false;
+  77|    _buffer.clear();
+  78|    _lastDataAt = DateTime.now();
+  79|    socket.setOption(SocketOption.tcpNoDelay, true);
+  80|    onConnected?.call();
+  81|    _listen(socket);
+  82|    _startHeartbeat();
+  83|  }
+  84|
+  85|  void _listen(Socket socket) {
+  86|    socket.listen(
+  87|      (data) {
+  88|        _lastDataAt = DateTime.now();
+  89|        _buffer.addAll(data);
+  90|        _processBuffer();
+  91|      },
+  92|      onDone: () {
+  93|        _logger.i('Socket connection closed by peer.');
+  94|        _handleClosed();
+  95|      },
+  96|      onError: (error) {
+  97|        _logger.e('Socket error: $error');
+  98|        _handleClosed();
+  99|      },
+ 100|      cancelOnError: true,

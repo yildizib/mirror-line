@@ -1,0 +1,25 @@
+  51|        // This device info
+  52|        _buildSectionTitle(context, 'Bu Cihaz'),
+  53|        Card(
+  54|          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+  55|          child: Padding(
+  56|            padding: const EdgeInsets.all(16),
+  57|            child: Column(
+  58|              crossAxisAlignment: CrossAxisAlignment.start,
+  59|              children: [
+  60|                if (peer != null) ...[
+  61|                  Text(
+  62|                    peer.deviceName,
+  63|                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+  64|                          fontWeight: FontWeight.bold,
+  65|                        ),
+  66|                  ),
+  67|                  const SizedBox(height: 8),
+  68|                  _buildInfoRow('IP', '${peer.ip}:${peer.port}'),
+  69|                  _buildInfoRow('Rol', peer.role == 'main' ? 'Asıl Telefon' : 'Diğer Telefon'),
+  70|                  _buildInfoRow('ID', peer.id),
+  71|                  const SizedBox(height: 16),
+  72|                  QrDisplay(data: '${peer.id}|${peer.ip}|${peer.port}|${peer.key}|${peer.deviceName}|${peer.role}'),
+  73|                ] else ...[
+  74|                  const Text('Henüz cihaz bilgisi oluşturulmadı. Rol seçin.'),
+  75|                ],

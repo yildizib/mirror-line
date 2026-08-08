@@ -62,6 +62,9 @@ class PeerNotifier extends StateNotifier<Peer?> {
     final ip = await PeerDiscovery().getLocalIp() ?? 'unknown';
     final deviceName = await _getDeviceName();
 
+    // Ensure this device has an Ed25519 identity keypair.
+    final myPublicKey = await KeyStore.ensureDeviceKeyPair();
+
     final peer = Peer(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
       deviceName: deviceName,
@@ -69,6 +72,7 @@ class PeerNotifier extends StateNotifier<Peer?> {
       ip: ip,
       port: 45678,
       key: keyBase64,
+      publicKey: myPublicKey,
       createdAt: DateTime.now(),
     );
 
@@ -88,6 +92,7 @@ class PeerNotifier extends StateNotifier<Peer?> {
     required String keyBase64,
     required String role,
     required String deviceName,
+    required String publicKey,
   }) async {
     final keyBytes = base64Decode(keyBase64);
     final key = SecretKey(keyBytes);
@@ -99,6 +104,7 @@ class PeerNotifier extends StateNotifier<Peer?> {
       ip: ip,
       port: port,
       key: keyBase64,
+      publicKey: publicKey,
       createdAt: DateTime.now(),
     );
 
@@ -113,6 +119,11 @@ class PeerNotifier extends StateNotifier<Peer?> {
     await KeyStore.setPeerId(peer.id);
     await KeyStore.setPeerKey(key);
     state = peer;
+  }
+
+  /// Returns this device's Ed25519 public key (generating if needed).
+  Future<String> getMyPublicKey() async {
+    return KeyStore.ensureDeviceKeyPair();
   }
 
   /// Applies an updated peer record (e.g. newly discovered IP address).
@@ -157,7 +168,8 @@ class PeerNotifier extends StateNotifier<Peer?> {
       await KeyStore.setPeerKey(key);
       state = remaining;
     } else {
-      await KeyStore.clearAll();
+      await KeyStore.clearPeerId();
+      await KeyStore.clearPeerKey();
       state = null;
     }
   }
@@ -167,7 +179,8 @@ class PeerNotifier extends StateNotifier<Peer?> {
     if (current != null) {
       await _dao.delete(current.id);
     }
-    await KeyStore.clearAll();
+    await KeyStore.clearPeerId();
+    await KeyStore.clearPeerKey();
     state = null;
   }
 }

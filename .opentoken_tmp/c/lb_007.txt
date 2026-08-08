@@ -1,0 +1,25 @@
+ 176|        while ((datagram = socket.receive()) != null) {
+ 177|          final raw = utf8.decode(datagram!.data, allowMalformed: true);
+ 178|          _logger.d('Received beacon from ${datagram.address.address}: $raw');
+ 179|          final info = BeaconCodec.decode(raw, datagram.address.address);
+ 180|          if (info != null) {
+ 181|            _logger.i('Beacon received from ${info.deviceName} at ${info.ip}:${info.tcpPort}');
+ 182|            _onBeacon?.call(info);
+ 183|          } else {
+ 184|            _logger.w('Invalid beacon format from ${datagram.address.address}');
+ 185|          }
+ 186|        }
+ 187|      });
+ 188|      _logger.i('Beacon listener started on port ${BeaconConfig.port}');
+ 189|
+ 190|      if (peerId != null && tcpPort != null && deviceName != null) {
+ 191|        _startBroadcasting(peerId, tcpPort, deviceName);
+ 192|      }
+ 193|    } catch (e) {
+ 194|      _logger.e('Failed to start beacon listener: $e');
+ 195|      await stop();
+ 196|    }
+ 197|  }
+ 198|
+ 199|  void _startBroadcasting(String peerId, int tcpPort, String deviceName) {
+ 200|    final payload = utf8.encode(

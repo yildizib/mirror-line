@@ -1,0 +1,25 @@
+  51|    final existing = await _dao.getPeer();
+  52|    if (existing != null) {
+  53|      final updated = existing.copyWith(role: role);
+  54|      await _dao.update(updated);
+  55|      state = updated;
+  56|      return;
+  57|    }
+  58|
+  59|    final key = CryptoManager.generateKey();
+  60|    final keyBytes = await key.extractBytes();
+  61|    final keyBase64 = base64Encode(keyBytes);
+  62|    final ip = await PeerDiscovery().getLocalIp() ?? 'unknown';
+  63|    final deviceName = await _getDeviceName();
+  64|
+  65|    final peer = Peer(
+  66|      id: DateTime.now().millisecondsSinceEpoch.toString(),
+  67|      deviceName: deviceName,
+  68|      role: role,
+  69|      ip: ip,
+  70|      port: 45678,
+  71|      key: keyBase64,
+  72|      createdAt: DateTime.now(),
+  73|    );
+  74|
+  75|    await _dao.insert(peer);

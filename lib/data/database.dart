@@ -19,7 +19,7 @@ class AppDatabase {
 
     return openDatabase(
       path,
-      version: 2,
+      version: 3,
       onCreate: _createTables,
       onUpgrade: _upgradeTables,
     );
@@ -28,6 +28,9 @@ class AppDatabase {
   Future<void> _upgradeTables(Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 2) {
       await db.execute('ALTER TABLE peer ADD COLUMN device_name TEXT NOT NULL DEFAULT "";');
+    }
+    if (oldVersion < 3) {
+      await db.execute('ALTER TABLE peer ADD COLUMN public_key TEXT NOT NULL DEFAULT "";');
     }
   }
 
@@ -40,6 +43,7 @@ class AppDatabase {
         ip TEXT NOT NULL,
         port INTEGER NOT NULL,
         key TEXT NOT NULL,
+        public_key TEXT NOT NULL DEFAULT "",
         created_at INTEGER NOT NULL
       )
     ''');

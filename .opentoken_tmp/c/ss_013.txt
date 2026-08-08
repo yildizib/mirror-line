@@ -1,0 +1,25 @@
+ 326|  }
+ 327|
+ 328|  void _connectManually(BuildContext context, WidgetRef ref) async {
+ 329|    final ip = _ipController.text.trim();
+ 330|    final port = int.tryParse(_portController.text.trim()) ?? 45678;
+ 331|
+ 332|    if (ip.isEmpty) {
+ 333|      ScaffoldMessenger.of(context).showSnackBar(
+ 334|        const SnackBar(content: Text('IP adresi girin')),
+ 335|      );
+ 336|      return;
+ 337|    }
+ 338|
+ 339|    final ok = await ref.read(connectionProvider.notifier).connectManually(ip, port);
+ 340|    if (!context.mounted) return;
+ 341|    ScaffoldMessenger.of(context).showSnackBar(
+ 342|      SnackBar(
+ 343|        content: Text(ok ? 'Bağlantı kuruldu' : 'Bağlantı kurulamadı'),
+ 344|        backgroundColor: ok ? Colors.green : Colors.redAccent,
+ 345|      ),
+ 346|    );
+ 347|  }
+ 348|
+ 349|  void _confirmReset(BuildContext context, WidgetRef ref) {
+ 350|    showDialog(

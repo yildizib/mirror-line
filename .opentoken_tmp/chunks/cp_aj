@@ -1,0 +1,49 @@
+        } else {
+          if (item.id != null) await _queue.markFailed(item.id!, item.retryCount);
+          break;
+        }
+      } catch (e) {
+        _logger.e('Failed to flush queue item ${item.id}: $e');
+        if (item.id != null) await _queue.markFailed(item.id!, item.retryCount);
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // Teardown
+  // ---------------------------------------------------------------------
+
+  Future<void> _stopMachinery() async {
+    _retryTimer?.cancel();
+    _retryTimer = null;
+    await _broadcaster.stop();
+    await _listener.stop();
+    await _socketManager?.disconnect();
+    _socketManager = null;
+    _lastDiscoveredIp = null;
+    state = false;
+    _ref.read(connectionStatusProvider.notifier).setServer(0, false);
+    try {
+      await TelephonyChannel.stopListening();
+    } catch (_) {}
+  }
+
+  /// Stops networking (e.g. after device reset).
+  Future<void> stopAll() => _stopMachinery();
+
+  Future<void> disconnect() async {
+    await _socketManager?.disconnectClient();
+    state = false;
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _connectivity.stopListening();
+    _retryTimer?.cancel();
+    _broadcaster.stop();
+    _listener.stop();
+    _socketManager?.disconnect();
+    super.dispose();
+  }
+}

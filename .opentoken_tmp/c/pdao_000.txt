@@ -1,0 +1,25 @@
+   1|import 'package:sqflite/sqflite.dart';
+   2|
+   3|import '../database.dart';
+   4|import '../models/peer.dart';
+   5|
+   6|class PeerDao {
+   7|  final AppDatabase _db = AppDatabase.instance;
+   8|
+   9|  Future<Database> get _database => _db.database;
+  10|
+  11|  Future<void> insert(Peer peer) async {
+  12|    final db = await _database;
+  13|    await db.insert('peer', peer.toJson(), conflictAlgorithm: ConflictAlgorithm.replace);
+  14|  }
+  15|
+  16|  /// Gets the first peer (legacy compatibility).
+  17|  Future<Peer?> getPeer() async {
+  18|    final db = await _database;
+  19|    final maps = await db.query('peer', orderBy: 'created_at DESC', limit: 1);
+  20|    if (maps.isEmpty) return null;
+  21|    return Peer.fromJson(maps.first);
+  22|  }
+  23|
+  24|  /// Gets all paired peers.
+  25|  Future<List<Peer>> getAllPeers() async {

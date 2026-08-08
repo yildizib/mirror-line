@@ -1,0 +1,25 @@
+ 301|          icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+ 302|          onPressed: () async {
+ 303|            await ref.read(peerProvider.notifier).deletePeer(p);
+ 304|            ref.invalidate(pairedPeersProvider);
+ 305|            await ref.read(connectionProvider.notifier).refresh();
+ 306|          },
+ 307|        ),
+ 308|      ),
+ 309|    );
+ 310|  }
+ 311|
+ 312|  Widget _buildSectionTitle(BuildContext context, String title) {
+ 313|    return Padding(
+ 314|      padding: const EdgeInsets.only(bottom: 8),
+ 315|      child: Text(
+ 316|        title,
+ 317|        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+ 318|              fontWeight: FontWeight.bold,
+ 319|            ),
+ 320|      ),
+ 321|    );
+ 322|  }
+ 323|
+ 324|  String _formatTime(DateTime time) {
+ 325|    return '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}:${time.second.toString().padLeft(2, '0')}';

@@ -1,0 +1,25 @@
+  26|  Timer? _heartbeatTimer;
+  27|  DateTime _lastDataAt = DateTime.now();
+  28|
+  29|  SocketManager({
+  30|    required this.onMessage,
+  31|    this.onConnected,
+  32|    this.onDisconnected,
+  33|  });
+  34|
+  35|  bool get isConnected => _isConnected;
+  36|
+  37|  Future<void> startServer(int port, SecretKey key) async {
+  38|    _key = key;
+  39|    if (_server != null) return;
+  40|    try {
+  41|      _server = await ServerSocket.bind(InternetAddress.anyIPv4, port);
+  42|      _logger.i('Socket server listening on port $port');
+  43|
+  44|      _server!.listen((socket) {
+  45|        if (_client != null) {
+  46|          _logger.w('A client is already connected. Rejecting new connection.');
+  47|          socket.close();
+  48|          return;
+  49|        }
+  50|        _accept(socket);

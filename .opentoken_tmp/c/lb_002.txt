@@ -1,0 +1,25 @@
+  51|      if (id is! String || id.isEmpty) return null;
+  52|      if (port is! int) return null;
+  53|      return BeaconInfo(
+  54|        peerId: id,
+  55|        tcpPort: port,
+  56|        deviceName: map['name'] is String ? map['name'] as String : '',
+  57|        ip: senderIp,
+  58|      );
+  59|    } catch (_) {
+  60|      return null;
+  61|    }
+  62|  }
+  63|}
+  64|
+  65|/// Periodically broadcasts a UDP beacon on the LAN so that the paired
+  66|/// 'main' device can discover this device's current IP address.
+  67|class BeaconBroadcaster {
+  68|  final Logger _logger = Logger();
+  69|  RawDatagramSocket? _socket;
+  70|  Timer? _timer;
+  71|
+  72|  bool get isBroadcasting => _timer != null;
+  73|
+  74|  Future<void> start({
+  75|    required String peerId,

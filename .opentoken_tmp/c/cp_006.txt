@@ -1,0 +1,25 @@
+ 151|    if (_socketManager!.isConnected == false) {
+ 152|      try {
+ 153|        await _socketManager!.startServer(peer.port, key);
+ 154|        _ref.read(connectionStatusProvider.notifier).setServer(peer.port, true);
+ 155|      } catch (e) {
+ 156|        _logger.e('Server start failed: $e');
+ 157|        _ref.read(connectionStatusProvider.notifier)
+ 158|            .recordConnectAttempt('Server başlatılamadı: $e');
+ 159|      }
+ 160|    }
+ 161|
+ 162|    await _broadcaster.start(
+ 163|      peerId: peer.id,
+ 164|      tcpPort: peer.port,
+ 165|      deviceName: peer.deviceName,
+ 166|    );
+ 167|
+ 168|    _registerTelephonyHandler();
+ 169|    try {
+ 170|      await TelephonyChannel.startListening();
+ 171|    } catch (e) {
+ 172|      _logger.e('Telephony startListening failed: $e');
+ 173|    }
+ 174|    _logger.i('Source mode active: server on ${peer.port}, beacon broadcasting.');
+ 175|  }

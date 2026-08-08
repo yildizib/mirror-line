@@ -1,0 +1,25 @@
+ 151|  bool get isListening => _socket != null;
+ 152|
+ 153|  Future<void> start({
+ 154|    required void Function(BeaconInfo) onBeacon,
+ 155|    String? peerId,
+ 156|    int? tcpPort,
+ 157|    String? deviceName,
+ 158|  }) async {
+ 159|    await stop();
+ 160|    _onBeacon = onBeacon;
+ 161|    _myPeerId = peerId;
+ 162|    _myTcpPort = tcpPort;
+ 163|    _myDeviceName = deviceName;
+ 164|    try {
+ 165|      final socket = await RawDatagramSocket.bind(
+ 166|        InternetAddress.anyIPv4,
+ 167|        BeaconConfig.port,
+ 168|        reuseAddress: true,
+ 169|      );
+ 170|      socket.broadcastEnabled = true;
+ 171|      _socket = socket;
+ 172|
+ 173|      socket.listen((event) {
+ 174|        if (event != RawSocketEvent.read) return;
+ 175|        Datagram? datagram;

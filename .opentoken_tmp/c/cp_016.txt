@@ -1,0 +1,25 @@
+ 401|              status: 'received',
+ 402|              timestamp: DateTime.fromMillisecondsSinceEpoch(
+ 403|                  payload['timestamp'] as int? ?? now.millisecondsSinceEpoch),
+ 404|              createdAt: now,
+ 405|            ));
+ 406|        await _notify(
+ 407|          id: int.tryParse(id) ?? 2,
+ 408|          title: 'SMS: $address',
+ 409|          body: body,
+ 410|          payload: message.id,
+ 411|        );
+ 412|        break;
+ 413|
+ 414|      case MessageTypes.smsOutgoing:
+ 415|        if (isSource) {
+ 416|          final address = payload['address'] as String? ?? '';
+ 417|          final body = payload['body'] as String? ?? '';
+ 418|          final id = payload['id'] as String? ?? message.id;
+ 419|          var status = 'sent';
+ 420|          try {
+ 421|            await TelephonyChannel.sendSms(address, body);
+ 422|          } catch (e) {
+ 423|            _logger.e('SMS send failed: $e');
+ 424|            status = 'failed';
+ 425|          }

@@ -1,0 +1,25 @@
+ 226|        for (final addr in interface.addresses) {
+ 227|          if (addr.isLoopback) continue;
+ 228|          final parts = addr.address.split('.');
+ 229|          if (parts.length == 4) {
+ 230|            targets.add(InternetAddress('${parts[0]}.${parts[1]}.${parts[2]}.255'));
+ 231|          }
+ 232|        }
+ 233|      }
+ 234|    } catch (_) {}
+ 235|    return targets.toList();
+ 236|  }
+ 237|
+ 238|  void updateBroadcastInfo({String? peerId, int? tcpPort, String? deviceName}) {
+ 239|    if (peerId != null) _myPeerId = peerId;
+ 240|    if (tcpPort != null) _myTcpPort = tcpPort;
+ 241|    if (deviceName != null) _myDeviceName = deviceName;
+ 242|
+ 243|    if (_broadcastTimer != null && _myPeerId != null && _myTcpPort != null && _myDeviceName != null) {
+ 244|      _broadcastTimer?.cancel();
+ 245|      _startBroadcasting(_myPeerId!, _myTcpPort!, _myDeviceName!);
+ 246|    }
+ 247|  }
+ 248|
+ 249|  Future<void> stop() async {
+ 250|    _broadcastTimer?.cancel();

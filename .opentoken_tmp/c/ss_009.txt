@@ -1,0 +1,25 @@
+ 226|        const SizedBox(height: 24),
+ 227|        _buildSectionTitle(context, 'Sistem'),
+ 228|        ListTile(
+ 229|          leading: const Icon(Icons.battery_alert),
+ 230|          title: const Text('Pil optimizasyonunu kaldır'),
+ 231|          subtitle: const Text('Uygulamanın arka planda güvenilir çalışması için'),
+ 232|          trailing: const Icon(Icons.chevron_right),
+ 233|          onTap: () async {
+ 234|            await PermissionService.requestIgnoreBatteryOptimizations();
+ 235|            if (context.mounted) {
+ 236|              ScaffoldMessenger.of(context).showSnackBar(
+ 237|                const SnackBar(content: Text('Pil ayarları açıldı')),
+ 238|              );
+ 239|            }
+ 240|          },
+ 241|        ),
+ 242|        ListTile(
+ 243|          leading: const Icon(Icons.delete_forever, color: Colors.redAccent),
+ 244|          title: const Text('Cihazı sıfırla', style: TextStyle(color: Colors.redAccent)),
+ 245|          subtitle: const Text('Tüm verileri sil ve yeni QR oluştur'),
+ 246|          onTap: () => _confirmReset(context, ref),
+ 247|        ),
+ 248|      ],
+ 249|    );
+ 250|  }

@@ -1,0 +1,60 @@
+  final ConnectivityService _connectivity = ConnectivityService();
+  final PeerDao _peerDao = PeerDao();
+  final QueueService _queue = QueueService();
+  final BeaconBroadcaster _broadcaster = BeaconBroadcaster();
+  final BeaconListener _listener = BeaconListener();
+
+  SocketManager? _socketManager;
+  Peer? _peer;
+  SecretKey? _key;
+  Timer? _retryTimer;
+  bool _connecting = false;
+  bool _telephonyHandlerRegistered = false;
+  String? _lastDiscoveredIp;
+  final _pairingRequestController = StreamController<PairingRequest?>.broadcast();
+
+  ConnectionNotifier(this._ref) : super(false) {
+    _init();
+  }
+
+  bool get isSource => _peer?.role == 'source';
+  bool get isConnecting => _connecting;
+  Stream<PairingRequest?> get pairingRequestStream => _pairingRequestController.stream;
+
+  void _init() async {
+    WidgetsBinding.instance.addObserver(this);
+
+    _connectivity.onChanged = (isOnline) {
+      if (isOnline) {
+        refresh();
+      } else {
+        state = false;
+      }
+    };
+    _connectivity.startListening();
+
+    try {
+      final isOnline = await _connectivity.isOnline();
+      if (isOnline) {
+        await refresh();
+      }
+    } catch (e) {
+      _logger.e('Connection init failed: $e');
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      refresh();
+    }
+  }
+
+  /// Reloads peer info and (re)starts role-specific networking machinery.
+  /// Call after pairing, role changes or resets.
+  Future<void> refresh() async {
+    try {
+      _peer = await _peerDao.getPeer();
+      _key = await KeyStore.getPeerKey();
+    } catch (e) {
+      _logger.e('Failed to load peer info: $e');

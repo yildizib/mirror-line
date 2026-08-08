@@ -1,0 +1,109 @@
+CP   481	
+CP   482	  // ---------------------------------------------------------------------
+CP   483	  // Outgoing messages (with offline queue)
+CP   484	  // ---------------------------------------------------------------------
+CP   485	
+CP   486	  Future<bool> _sendOrQueue(String type, Map<String, dynamic> payload) async {
+CP   487	    final sent = await _socketManager?.sendMessage(type, payload) ?? false;
+CP   488	    if (!sent) {
+CP   489	      await _queue.enqueue(type, jsonEncode(payload));
+CP   490	      _logger.w('$type queued for later delivery.');
+CP   491	    }
+CP   492	    return sent;
+CP   493	  }
+CP   494	
+CP   495	  Future<bool> sendCallNotification(String number, {String? id}) {
+CP   496	    final callId = id ?? '${DateTime.now().millisecondsSinceEpoch}';
+CP   497	    return _sendOrQueue(MessageTypes.callIncoming, {
+CP   498	      'id': callId,
+CP   499	      'number': number,
+CP   500	      'timestamp': DateTime.now().millisecondsSinceEpoch,
+CP   501	    });
+CP   502	  }
+CP   503	
+CP   504	  Future<bool> sendCallRejected(String callId) {
+CP   505	    return _sendOrQueue(MessageTypes.callRejected, {
+CP   506	      'id': callId,
+CP   507	      'timestamp': DateTime.now().millisecondsSinceEpoch,
+CP   508	    });
+CP   509	  }
+CP   510	
+CP   511	  Future<bool> sendSmsNotification(String address, String body, {String? id}) {
+CP   512	    final smsId = id ?? '${DateTime.now().millisecondsSinceEpoch}';
+CP   513	    return _sendOrQueue(MessageTypes.smsIncoming, {
+CP   514	      'id': smsId,
+CP   515	      'address': address,
+CP   516	      'body': body,
+CP   517	      'timestamp': DateTime.now().millisecondsSinceEpoch,
+CP   518	    });
+CP   519	  }
+CP   520	
+CP   521	  Future<bool> sendReplySms(String address, String body, {String? id}) {
+CP   522	    final smsId = id ?? '${DateTime.now().millisecondsSinceEpoch}';
+CP   523	    return _sendOrQueue(MessageTypes.smsOutgoing, {
+CP   524	      'id': smsId,
+CP   525	      'address': address,
+CP   526	      'body': body,
+CP   527	      'timestamp': DateTime.now().millisecondsSinceEpoch,
+CP   528	    });
+CP   529	  }
+CP   530	
+CP   531	  Future<void> _flushQueue() async {
+CP   532	    final items = await _queue.pendingItems();
+CP   533	    if (items.isEmpty) return;
+CP   534	    _logger.i('Flushing ${items.length} queued message(s).');
+CP   535	    for (final item in items) {
+CP   536	      try {
+CP   537	        final payload = jsonDecode(item.payload) as Map<String, dynamic>;
+CP   538	        final sent = await _socketManager?.sendMessage(item.type, payload) ?? false;
+CP   539	        if (sent) {
+CP   540	          if (item.id != null) await _queue.markSent(item.id!);
+CP   541	        } else {
+CP   542	          if (item.id != null) await _queue.markFailed(item.id!, item.retryCount);
+CP   543	          break;
+CP   544	        }
+CP   545	      } catch (e) {
+CP   546	        _logger.e('Failed to flush queue item ${item.id}: $e');
+CP   547	        if (item.id != null) await _queue.markFailed(item.id!, item.retryCount);
+CP   548	      }
+CP   549	    }
+CP   550	  }
+CP   551	
+CP   552	  // ---------------------------------------------------------------------
+CP   553	  // Teardown
+CP   554	  // ---------------------------------------------------------------------
+CP   555	
+CP   556	  Future<void> _stopMachinery() async {
+CP   557	    _retryTimer?.cancel();
+CP   558	    _retryTimer = null;
+CP   559	    await _broadcaster.stop();
+CP   560	    await _listener.stop();
+CP   561	    await _socketManager?.disconnect();
+CP   562	    _socketManager = null;
+CP   563	    _lastDiscoveredIp = null;
+CP   564	    state = false;
+CP   565	    _ref.read(connectionStatusProvider.notifier).setServer(0, false);
+CP   566	    try {
+CP   567	      await TelephonyChannel.stopListening();
+CP   568	    } catch (_) {}
+CP   569	  }
+CP   570	
+CP   571	  /// Stops networking (e.g. after device reset).
+CP   572	  Future<void> stopAll() => _stopMachinery();
+CP   573	
+CP   574	  Future<void> disconnect() async {
+CP   575	    await _socketManager?.disconnectClient();
+CP   576	    state = false;
+CP   577	  }
+CP   578	
+CP   579	  @override
+CP   580	  void dispose() {
+CP   581	    WidgetsBinding.instance.removeObserver(this);
+CP   582	    _connectivity.stopListening();
+CP   583	    _retryTimer?.cancel();
+CP   584	    _broadcaster.stop();
+CP   585	    _listener.stop();
+CP   586	    _socketManager?.disconnect();
+CP   587	    super.dispose();
+CP   588	  }
+CP   589	}

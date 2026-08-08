@@ -6,6 +6,7 @@ import '../../providers/connection_provider.dart';
 import '../../providers/connection_status_provider.dart';
 import '../../providers/peer_provider.dart';
 import '../../services/permission_service.dart';
+import '../../telephony/telephony_channel.dart';
 import '../widgets/qr_display.dart';
 import 'pairing_screen.dart';
 import 'role_selection_screen.dart';
@@ -35,15 +36,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final isConnected = ref.watch(connectionProvider);
     final isConnecting = ref.watch(connectionConnectingProvider);
     final status = ref.watch(connectionStatusProvider);
-    final pairingRequest = ref.watch(pairingRequestProvider);
-
-    pairingRequest.whenData((request) {
-      if (request != null && mounted) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          _showPairingConfirmation(context, ref, request);
-        });
-      }
-    });
 
     return ListView(
       padding: const EdgeInsets.all(16),
@@ -239,8 +231,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             }
           },
         ),
-        ListTile(
-          leading: const Icon(Icons.delete_forever, color: Colors.redAccent),
+ ListTile(
+ leading: const Icon(Icons.notifications_active),
+ title: const Text('Bildirim erişimi'),
+ subtitle: const Text('Diğer telefondan bildirimleri yansıtmak için gerekli'),
+ trailing: const Icon(Icons.chevron_right),
+ onTap: () async {
+ await TelephonyChannel.openNotificationListenerSettings();
+ },
+ ),
+ ListTile(
+ leading: const Icon(Icons.delete_forever, color: Colors.redAccent),
           title: const Text('Cihazı sıfırla', style: TextStyle(color: Colors.redAccent)),
           subtitle: const Text('Tüm verileri sil ve yeni QR oluştur'),
           onTap: () => _confirmReset(context, ref),
@@ -376,42 +377,5 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         ],
       ),
     );
-  }
-}
-void _showPairingConfirmation(BuildContext context, WidgetRef ref, PairingRequest request) async {
-  final confirmed = await showDialog<bool>(
-    context: context,
-    barrierDismissible: false,
-    builder: (ctx) => AlertDialog(
-      title: const Text('Bağlantı İsteği'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text('${request.deviceName} cihazı bağlanmak istiyor.'),
-          const SizedBox(height: 16),
-          const Text('Doğrulama Kodu:', style: TextStyle(fontWeight: FontWeight.bold)),
-          Text(
-            request.verificationCode,
-            style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, letterSpacing: 4),
-          ),
-          const SizedBox(height: 8),
-          const Text('Kod her iki cihazda aynı olmalı.'),
-        ],
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(ctx).pop(false),
-          child: const Text('Reddet'),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.of(ctx).pop(true),
-          child: const Text('Kabul Et'),
-        ),
-      ],
-    ),
-  );
-
-  if (confirmed != true) {
-    ref.read(connectionProvider.notifier).stopAll();
   }
 }

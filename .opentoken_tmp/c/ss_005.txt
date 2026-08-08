@@ -1,0 +1,25 @@
+ 126|            }
+ 127|            return Column(
+ 128|              children: peers.map((p) => _buildPeerCard(context, ref, p)).toList(),
+ 129|            );
+ 130|          },
+ 131|          loading: () => const Center(child: CircularProgressIndicator()),
+ 132|          error: (err, _) => Text('Hata: $err'),
+ 133|        ),
+ 134|
+ 135|        // Actions
+ 136|        const SizedBox(height: 24),
+ 137|        _buildSectionTitle(context, 'Eylemler'),
+ 138|        Card(
+ 139|          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+ 140|          child: Padding(
+ 141|            padding: const EdgeInsets.all(16),
+ 142|            child: Column(
+ 143|              crossAxisAlignment: CrossAxisAlignment.start,
+ 144|              children: [
+ 145|                Row(
+ 146|                  children: [
+ 147|                    Icon(
+ 148|                      isConnecting ? Icons.wifi_find : (isConnected ? Icons.wifi : Icons.wifi_off),
+ 149|                      color: isConnecting ? Colors.orange : (isConnected ? Colors.green : Colors.orange),
+ 150|                      size: 20,

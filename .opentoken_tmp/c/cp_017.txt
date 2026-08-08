@@ -1,0 +1,25 @@
+ 426|          await _ref.read(smsListProvider.notifier).add(SmsMessage(
+ 427|                id: id,
+ 428|                threadId: payload['thread_id'] as String? ?? '',
+ 429|                address: address,
+ 430|                body: body,
+ 431|                encrypted: message.payload,
+ 432|                direction: 'outgoing',
+ 433|                status: status,
+ 434|                timestamp: DateTime.fromMillisecondsSinceEpoch(
+ 435|                    payload['timestamp'] as int? ?? now.millisecondsSinceEpoch),
+ 436|                createdAt: now,
+ 437|              ));
+ 438|          await _socketManager?.sendMessage(MessageTypes.smsStatus, {
+ 439|            'id': id,
+ 440|            'status': status,
+ 441|          });
+ 442|        }
+ 443|        break;
+ 444|
+ 445|      case MessageTypes.smsStatus:
+ 446|        final id = payload['id'] as String?;
+ 447|        final status = payload['status'] as String? ?? 'sent';
+ 448|        if (id != null) {
+ 449|          await _ref.read(smsListProvider.notifier).updateStatus(id, status);
+ 450|        }

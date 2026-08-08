@@ -1,0 +1,25 @@
+ 276|    return Card(
+ 277|      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+ 278|      margin: const EdgeInsets.only(bottom: 8),
+ 279|      child: ListTile(
+ 280|        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+ 281|        leading: CircleAvatar(
+ 282|          backgroundColor: p.role == 'main'
+ 283|              ? theme.colorScheme.primaryContainer
+ 284|              : Colors.green[100],
+ 285|          child: Icon(
+ 286|            p.role == 'main' ? Icons.phone_android : Icons.sim_card,
+ 287|            color: p.role == 'main' ? theme.colorScheme.primary : Colors.green,
+ 288|          ),
+ 289|        ),
+ 290|        title: Text(p.deviceName, style: const TextStyle(fontWeight: FontWeight.bold)),
+ 291|        subtitle: Column(
+ 292|          crossAxisAlignment: CrossAxisAlignment.start,
+ 293|          children: [
+ 294|            Text('IP: ${p.ip}:${p.port}'),
+ 295|            Text(
+ 296|              'Rol: ${p.role == 'main' ? 'Asıl Telefon' : 'Diğer Telefon'}',
+ 297|            ),
+ 298|          ],
+ 299|        ),
+ 300|        trailing: IconButton(

@@ -1,0 +1,25 @@
+ 226|            Text(
+ 227|              verificationCode,
+ 228|              style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, letterSpacing: 4),
+ 229|            ),
+ 230|            const SizedBox(height: 8),
+ 231|            const Text('Kod her iki cihazda aynı olmalı.'),
+ 232|          ],
+ 233|        ),
+ 234|        actions: [
+ 235|          TextButton(
+ 236|            onPressed: () {
+ 237|              setState(() {
+ 238|                _isProcessing = false;
+ 239|                _isScanning = false;
+ 240|              });
+ 241|              Navigator.of(ctx).pop(false);
+ 242|            },
+ 243|            child: const Text('İptal'),
+ 244|          ),
+ 245|          FilledButton(
+ 246|            onPressed: () => Navigator.of(ctx).pop(true),
+ 247|            child: const Text('Onayla'),
+ 248|          ),
+ 249|        ],
+ 250|      ),

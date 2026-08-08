@@ -1,0 +1,25 @@
+  26|    _ipController.dispose();
+  27|    _portController.dispose();
+  28|    super.dispose();
+  29|  }
+  30|
+  31|  @override
+  32|  Widget build(BuildContext context) {
+  33|    final peer = ref.watch(peerProvider);
+  34|    final pairedPeers = ref.watch(pairedPeersProvider);
+  35|    final isConnected = ref.watch(connectionProvider);
+  36|    final isConnecting = ref.watch(connectionConnectingProvider);
+  37|    final status = ref.watch(connectionStatusProvider);
+  38|    final pairingRequest = ref.watch(pairingRequestProvider);
+  39|
+  40|    pairingRequest.whenData((request) {
+  41|      if (request != null && mounted) {
+  42|        WidgetsBinding.instance.addPostFrameCallback((_) {
+  43|          _showPairingConfirmation(context, ref, request);
+  44|        });
+  45|      }
+  46|    });
+  47|
+  48|    return ListView(
+  49|      padding: const EdgeInsets.all(16),
+  50|      children: [

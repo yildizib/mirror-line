@@ -1,0 +1,25 @@
+   1|import 'dart:io';
+   2|
+   3|import 'package:logger/logger.dart';
+   4|
+   5|import '../telephony/telephony_channel.dart';
+   6|
+   7|class PeerDiscovery {
+   8|  final Logger _logger = Logger();
+   9|
+  10|  /// Returns the device's local IPv4 address on the LAN.
+  11|  ///
+  12|  /// On Android the native platform channel is used first
+  13|  /// (ConnectivityManager/LinkProperties — reliable), because
+  14|  /// dart:io's NetworkInterface.list often returns the cellular
+  15|  /// interface or nothing at all on Android.
+  16|  /// Falls back to dart:io for other platforms and edge cases.
+  17|  Future<String?> getLocalIp() async {
+  18|    // 1) Native (Android): active network's real IPv4.
+  19|    try {
+  20|      final native = await TelephonyChannel.getLocalIp();
+  21|      if (native != null && native.isNotEmpty) {
+  22|        return native;
+  23|      }
+  24|    } catch (e) {
+  25|      _logger.w('Native getLocalIp failed: $e');

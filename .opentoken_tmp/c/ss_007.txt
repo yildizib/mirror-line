@@ -1,0 +1,25 @@
+ 176|                    isDense: true,
+ 177|                  ),
+ 178|                ),
+ 179|                const SizedBox(height: 8),
+ 180|                Row(
+ 181|                  children: [
+ 182|                    Expanded(
+ 183|                      child: TextField(
+ 184|                        controller: _portController,
+ 185|                        keyboardType: TextInputType.number,
+ 186|                        decoration: const InputDecoration(
+ 187|                          labelText: 'Port',
+ 188|                          border: OutlineInputBorder(),
+ 189|                          isDense: true,
+ 190|                        ),
+ 191|                      ),
+ 192|                    ),
+ 193|                    const SizedBox(width: 8),
+ 194|                    FilledButton(
+ 195|                      onPressed: () => _connectManually(context, ref),
+ 196|                      child: const Text('Bağlan'),
+ 197|                    ),
+ 198|                  ],
+ 199|                ),
+ 200|              ],

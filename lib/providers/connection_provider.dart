@@ -16,6 +16,7 @@ import '../network/peer_discovery.dart';
 import '../network/socket_manager.dart';
 import '../providers/call_list_provider.dart';
 import '../providers/connection_status_provider.dart';
+import '../providers/pairing_provider.dart';
 import '../providers/peer_provider.dart';
 import '../providers/sms_list_provider.dart';
 import '../security/crypto_manager.dart';
@@ -31,26 +32,6 @@ final connectionProvider = StateNotifierProvider<ConnectionNotifier, bool>((ref)
 
 final connectionConnectingProvider = Provider<bool>((ref) {
   return ref.watch(connectionProvider.notifier).isConnecting;
-});
-
-class PairingRequest {
-  final String peerId;
-  final String deviceName;
-  final String ip;
-  final int port;
-  final String verificationCode;
-
-  PairingRequest({
-    required this.peerId,
-    required this.deviceName,
-    required this.ip,
-    required this.port,
-    required this.verificationCode,
-  });
-}
-
-final pairingRequestProvider = StreamProvider<PairingRequest?>((ref) {
-  return ref.watch(connectionProvider.notifier).pairingRequestStream;
 });
 
 class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver {
@@ -71,7 +52,6 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
   bool _connecting = false;
   bool _telephonyHandlerRegistered = false;
   String? _lastDiscoveredIp;
-  final _pairingRequestController = StreamController<PairingRequest?>.broadcast();
 
   ConnectionNotifier(this._ref) : super(false) {
     _init();
@@ -79,15 +59,20 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
 
   bool get isSource => _peer?.role == 'source';
   bool get isConnecting => _connecting;
-  Stream<PairingRequest?> get pairingRequestStream => _pairingRequestController.stream;
+
+  /// Exposed so PairingNotifier can reply on the live connection.
+  SocketManager? get socketManager => _socketManager;
 
   void _init() async {
     WidgetsBinding.instance.addObserver(this);
 
     _connectivity.onChanged = (isOnline) {
       if (isOnline) {
+        _logger.i('Network back online. Reconnecting...');
         refresh();
+        _scheduleReconnect();
       } else {
+        _logger.i('Network offline. Pausing connection attempts.');
         state = false;
       }
     };
@@ -107,6 +92,7 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       refresh();
+      _scheduleReconnect();
     }
   }
 
@@ -148,6 +134,7 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
     final key = _key!;
 
     _socketManager ??= _createSocketManager();
+    await _configureAuth(_socketManager!);
     if (_socketManager!.isConnected == false) {
       try {
         await _socketManager!.startServer(peer.port, key);
@@ -188,19 +175,48 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
   }
 
   SocketManager _createSocketManager() {
-    return SocketManager(
+    final sm = SocketManager(
       onMessage: _handleIncomingMessage,
       onConnected: () {
         state = true;
         _ref.read(connectionStatusProvider.notifier).clearError();
-        _logger.i('Socket connected!');
+        _logger.i('Socket connected and authenticated!');
         _flushQueue();
       },
       onDisconnected: () {
         state = false;
-        _logger.w('Socket disconnected.');
+        _logger.w('Socket disconnected. Will auto-reconnect when peer is reachable.');
+        _scheduleReconnect();
       },
     );
+    _configureAuth(sm);
+    return sm;
+  }
+
+  /// Sets the auth identity (peer's public key + our Ed25519 keypair) on
+  /// the socket so challenge-response authentication can run.
+  Future<void> _configureAuth(SocketManager sm) async {
+    final peer = _peer;
+    if (peer == null) return;
+    final localKeyPair = await KeyStore.getDeviceKeyPair();
+    if (localKeyPair == null) return;
+    sm.setAuthIdentity(
+      peerPublicKeyBase64: peer.publicKey,
+      localKeyPair: localKeyPair,
+    );
+  }
+
+  /// Schedules an immediate reconnect attempt (used after an unexpected
+  /// disconnect). If the peer is still unreachable, the periodic retry timer
+  /// will keep trying until success.
+  void _scheduleReconnect() {
+    if (_peer == null || _key == null) return;
+    if (state || _connecting) return;
+    Future.delayed(const Duration(seconds: 2), () {
+      if (!state && !_connecting) {
+        _tryConnectToStoredPeer();
+      }
+    });
   }
 
   Future<void> _tryConnectToStoredPeer() async {
@@ -226,6 +242,7 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
     _connecting = true;
     try {
       _socketManager ??= _createSocketManager();
+      await _configureAuth(_socketManager!);
       final ok = await _socketManager!.connect(ip, port, key);
       _ref.read(connectionStatusProvider.notifier).recordConnectAttempt(
             ok ? null : 'Bağlantı başarısız: $ip:$port (sunucu kapalı veya ulaşılamıyor)',
@@ -257,14 +274,6 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
     }
 
     if (!state && !_connecting) {
-      final verificationCode = (peer.key.hashCode.abs() % 1000000).toString().padLeft(6, '0');
-      _pairingRequestController.add(PairingRequest(
-        peerId: peer.id,
-        deviceName: info.deviceName,
-        ip: info.ip,
-        port: info.tcpPort,
-        verificationCode: verificationCode,
-      ));
       _connectTo(info.ip, info.tcpPort);
     }
   }
@@ -333,6 +342,18 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
           'body': body,
           'thread_id': threadId,
           'timestamp': now.millisecondsSinceEpoch,
+        });
+      } else if (type == 'onNotification') {
+        final packageName = (data['packageName'] as String?) ?? 'unknown';
+        final title = (data['title'] as String?) ?? '';
+        final text = (data['text'] as String?) ?? '';
+        final timestamp = (data['timestamp'] as int?) ?? now.millisecondsSinceEpoch;
+        if (packageName == 'com.thinksolve.mirrorline') return;
+        await _sendOrQueue(MessageTypes.notificationMirrored, {
+          'packageName': packageName,
+          'title': title,
+          'text': text,
+          'timestamp': timestamp,
         });
       }
     });
@@ -452,6 +473,29 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
 
       case MessageTypes.ack:
         _logger.i('ACK received: ${message.id}');
+        break;
+
+      case MessageTypes.notificationMirrored:
+        final packageName = payload['packageName'] as String? ?? 'unknown';
+        final title = payload['title'] as String? ?? '';
+        final text = payload['text'] as String? ?? '';
+        final timestamp = payload['timestamp'] as int? ?? now.millisecondsSinceEpoch;
+        await NotificationService.showMirrored(
+          id: timestamp % 1000000,
+          title: title.isNotEmpty ? title : packageName,
+          body: text,
+          packageName: packageName,
+        );
+        break;
+
+      case MessageTypes.pairingRequest:
+        _ref.read(pairingProvider.notifier).handleIncomingRequest(payload);
+        break;
+
+      case MessageTypes.pairingAccept:
+      case MessageTypes.pairingReject:
+        // Handled by PairingNotifier's own socket on the scanner side.
+        // On the scanned side we never receive these (we send them).
         break;
 
       default:

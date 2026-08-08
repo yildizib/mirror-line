@@ -1,0 +1,60 @@
+            await TelephonyChannel.sendSms(address, body);
+          } catch (e) {
+            _logger.e('SMS send failed: $e');
+            status = 'failed';
+          }
+          await _ref.read(smsListProvider.notifier).add(SmsMessage(
+                id: id,
+                threadId: payload['thread_id'] as String? ?? '',
+                address: address,
+                body: body,
+                encrypted: message.payload,
+                direction: 'outgoing',
+                status: status,
+                timestamp: DateTime.fromMillisecondsSinceEpoch(
+                    payload['timestamp'] as int? ?? now.millisecondsSinceEpoch),
+                createdAt: now,
+              ));
+          await _socketManager?.sendMessage(MessageTypes.smsStatus, {
+            'id': id,
+            'status': status,
+          });
+        }
+        break;
+
+      case MessageTypes.smsStatus:
+        final id = payload['id'] as String?;
+        final status = payload['status'] as String? ?? 'sent';
+        if (id != null) {
+          await _ref.read(smsListProvider.notifier).updateStatus(id, status);
+        }
+        break;
+
+      case MessageTypes.ack:
+        _logger.i('ACK received: ${message.id}');
+        break;
+
+      default:
+        _logger.i('Unknown message type: ${message.type}');
+    }
+  }
+
+  Future<void> _notify({
+    required int id,
+    required String title,
+    required String body,
+    String? payload,
+  }) async {
+    try {
+      // Android notification ids must fit in a 32-bit int.
+      final safeId = id & 0x7fffffff;
+      await NotificationService.show(
+        id: safeId,
+        title: title,
+        body: body,
+        payload: payload,
+      );
+    } catch (e) {
+      _logger.e('Notification failed: $e');
+    }
+  }

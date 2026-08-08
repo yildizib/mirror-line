@@ -1,0 +1,25 @@
+ 551|
+ 552|  // ---------------------------------------------------------------------
+ 553|  // Teardown
+ 554|  // ---------------------------------------------------------------------
+ 555|
+ 556|  Future<void> _stopMachinery() async {
+ 557|    _retryTimer?.cancel();
+ 558|    _retryTimer = null;
+ 559|    await _broadcaster.stop();
+ 560|    await _listener.stop();
+ 561|    await _socketManager?.disconnect();
+ 562|    _socketManager = null;
+ 563|    _lastDiscoveredIp = null;
+ 564|    state = false;
+ 565|    _ref.read(connectionStatusProvider.notifier).setServer(0, false);
+ 566|    try {
+ 567|      await TelephonyChannel.stopListening();
+ 568|    } catch (_) {}
+ 569|  }
+ 570|
+ 571|  /// Stops networking (e.g. after device reset).
+ 572|  Future<void> stopAll() => _stopMachinery();
+ 573|
+ 574|  Future<void> disconnect() async {
+ 575|    await _socketManager?.disconnectClient();

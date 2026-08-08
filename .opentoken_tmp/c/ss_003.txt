@@ -1,0 +1,25 @@
+  76|              ],
+  77|            ),
+  78|          ),
+  79|        ),
+  80|
+  81|        // Connection diagnostics
+  82|        const SizedBox(height: 24),
+  83|        _buildSectionTitle(context, 'Bağlantı Teşhisi'),
+  84|        Card(
+  85|          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+  86|          child: Padding(
+  87|            padding: const EdgeInsets.all(16),
+  88|            child: Column(
+  89|              crossAxisAlignment: CrossAxisAlignment.start,
+  90|              children: [
+  91|                _buildInfoRow('Bu cihaz IP', status.localIp ?? 'belirlenemedi'),
+  92|                _buildInfoRow('Eş cihaz IP', status.peerIp ?? '-'),
+  93|                _buildInfoRow('Sunucu', status.serverRunning ? 'çalışıyor (port ${status.serverPort})' : 'kapalı'),
+  94|                _buildInfoRow(
+  95|                  'Son beacon',
+  96|                  status.lastBeaconIp == null
+  97|                      ? 'henüz yok'
+  98|                      : '${status.lastBeaconIp} (${_formatTime(status.lastBeaconAt!)})',
+  99|                ),
+ 100|                _buildInfoRow('Deneme sayısı', '${status.connectAttempts}'),

@@ -5,6 +5,7 @@ class Peer {
   final String ip;
   final int port;
   final String key; // base64 AES-256 key
+  final String publicKey; // base64 Ed25519 public key of the other device
   final DateTime createdAt;
 
   Peer({
@@ -14,6 +15,7 @@ class Peer {
     required this.ip,
     required this.port,
     required this.key,
+    required this.publicKey,
     required this.createdAt,
   });
 
@@ -24,6 +26,7 @@ class Peer {
         'ip': ip,
         'port': port,
         'key': key,
+        'public_key': publicKey,
         'created_at': createdAt.millisecondsSinceEpoch,
       };
 
@@ -34,6 +37,7 @@ class Peer {
         ip: json['ip'] as String,
         port: json['port'] as int,
         key: json['key'] as String,
+        publicKey: json['public_key'] as String? ?? '',
         createdAt: DateTime.fromMillisecondsSinceEpoch(json['created_at'] as int),
       );
 
@@ -44,6 +48,7 @@ class Peer {
     String? ip,
     int? port,
     String? key,
+    String? publicKey,
     DateTime? createdAt,
   }) =>
   Peer(
@@ -53,6 +58,7 @@ class Peer {
     ip: ip ?? this.ip,
     port: port ?? this.port,
     key: key ?? this.key,
+    publicKey: publicKey ?? this.publicKey,
     createdAt: createdAt ?? this.createdAt,
   );
 

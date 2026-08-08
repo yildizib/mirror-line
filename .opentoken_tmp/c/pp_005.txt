@@ -1,0 +1,25 @@
+ 126|    final current = state;
+ 127|    if (current == null) return;
+ 128|    final ip = await PeerDiscovery().getLocalIp();
+ 129|    if (ip != null && ip != current.ip) {
+ 130|      final updated = current.copyWith(ip: ip);
+ 131|      await _dao.update(updated);
+ 132|      state = updated;
+ 133|    }
+ 134|  }
+ 135|
+ 136|  Future<void> updateConnectionInfo(String ip, int port) async {
+ 137|    final current = state;
+ 138|    if (current == null) return;
+ 139|    final updated = current.copyWith(ip: ip, port: port);
+ 140|    await _dao.update(updated);
+ 141|    state = updated;
+ 142|  }
+ 143|
+ 144|  /// Deletes a specific peer record.
+ 145|  /// If it was the active peer, the next available peer becomes active
+ 146|  /// (and its key is restored); otherwise the device becomes unpaired.
+ 147|  Future<void> deletePeer(Peer peer) async {
+ 148|    await _dao.delete(peer.id);
+ 149|    final current = state;
+ 150|    if (current?.id != peer.id) return;
