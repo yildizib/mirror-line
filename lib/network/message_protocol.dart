@@ -58,6 +58,10 @@ abstract class MessageTypes {
   static const String authResponse = 'auth_response';
   // Server -> Client:  "Doğrulandı, bağlantı kabul"
   static const String authOk = 'auth_ok';
+  // Client -> Server:  "authOk'u aldım" -- server ancak bunu alınca
+  // bağlantıyı kurulmuş sayar; aksi halde authOk kaybolursa server yanlışça
+  // "bağlı" görünüp client çoktan vazgeçmiş olabilirdi.
+  static const String authAck = 'auth_ack';
   // Server -> Client:  "Doğrulanamadı, bağlantı reddedildi"
   static const String authFail = 'auth_fail';
 }

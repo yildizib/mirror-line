@@ -241,6 +241,10 @@ class SocketManager {
           continue;
         }
         if (message.type == MessageTypes.authOk) {
+          _onClientAuthOk();
+          continue;
+        }
+        if (message.type == MessageTypes.authAck) {
           _onAuthSuccess();
           continue;
         }
@@ -391,14 +395,28 @@ class SocketManager {
     );
 
     if (ok) {
-      _logger.i('Client authenticated successfully.');
+      _logger.i('Client authenticated successfully. Sent authOk, awaiting ack.');
       await sendMessage(MessageTypes.authOk, {});
-      _onAuthSuccess();
+      // Don't call _onAuthSuccess() yet: if this authOk never reaches the
+      // client (dropped packet, client already gave up), we'd otherwise
+      // believe the connection is live -- start heartbeating, report
+      // "connected" -- while the client has already closed its side. Only
+      // commit to "connected" once the client acks (see authAck above).
+      // _serverAuthTimer (already running) closes the connection if no ack
+      // arrives in time.
     } else {
       _logger.w('Client authentication failed (invalid signature).');
       await sendMessage(MessageTypes.authFail, {});
       _onAuthFail();
     }
+  }
+
+  /// Client side: server accepted our signed challenge. Ack it so the
+  /// server knows we actually received this before either side considers
+  /// the connection established (see _handleAuthResponse above).
+  void _onClientAuthOk() async {
+    await sendMessage(MessageTypes.authAck, {});
+    _onAuthSuccess();
   }
 
   void _onAuthSuccess() {
