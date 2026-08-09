@@ -30,6 +30,11 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final pub = await KeyStore.ensureDeviceKeyPair();
       if (mounted) setState(() => _myPublicKey = pub);
+      // The QR encodes this device's current IP; without this it stays
+      // whatever it was when the peer record was first created (possibly a
+      // stale/dead address from a previous network), causing the scanning
+      // device's connect attempt to fail.
+      ref.read(peerProvider.notifier).refreshLocalIp();
     });
   }
 
@@ -39,7 +44,11 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
     final pairingState = ref.watch(pairingProvider);
     final l = AppLocalizations.of(context);
 
-    if (peer != null && _cachedPeerForQr?.id != peer.id) {
+    // Re-sync on any identity-relevant change, not just a new peer id --
+    // otherwise a refreshLocalIp() update to the same peer's ip would never
+    // reach the QR, silently defeating it (see initState).
+    if (peer != null &&
+        (_cachedPeerForQr?.id != peer.id || _cachedPeerForQr?.ip != peer.ip)) {
       _cachedPeerForQr = peer;
     }
 
