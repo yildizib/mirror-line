@@ -152,6 +152,10 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
         // on the next attempt without ever firing onConnected, leaving
         // `state` permanently stuck at false until the app is restarted.
         _socketManager?.disconnectClient();
+        // Forget the peer address we discovered on the old network: once
+        // we're back online it may be stale, and reconnect must re-discover
+        // instead of hammering a dead IP for minutes.
+        _lastDiscoveredIp = null;
       }
     };
     _connectivity.startListening();
@@ -207,8 +211,10 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
       }
 
       final statusNotifier = _ref.read(connectionStatusProvider.notifier);
-      final localIp = await PeerDiscovery().getLocalIp();
-      statusNotifier.setLocalIp(localIp);
+      // Use getAllLocalIps for VPN support: collects WiFi + VPN TUN + etc.
+      final allIps = await PeerDiscovery().getAllLocalIps();
+      _allLocalIps = allIps.map((e) => e.ip).toList();
+      statusNotifier.setLocalIp(allIps.isNotEmpty ? allIps.first.ip : null);
       statusNotifier.setPeerIp(_peer?.ip);
 
       if (_peer == null || _key == null) {
@@ -230,6 +236,29 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
       _refreshing = false;
     }
   }
+
+  /// Refreshes the reported local IP without touching the peer record.
+  /// Used when showing the pairing QR, where the address must be current but
+  /// must never be written back into the (possibly already-paired) peer row
+  /// -- unlike PeerNotifier.refreshLocalIp, which used to overwrite the
+  /// paired peer's stored IP with this device's own address.
+  ///
+  /// Uses [getAllLocalIps] for VPN support: when the device has both WiFi
+  /// and VPN interfaces, the first private IP (typically WiFi) is set as
+  /// the "primary" localIp for backwards compatibility, but the full list
+  /// is available for subnet scanning.
+  Future<void> updateLocalIp() async {
+    final allIps = await PeerDiscovery().getAllLocalIps();
+    if (allIps.isNotEmpty) {
+      _ref.read(connectionStatusProvider.notifier).setLocalIp(allIps.first.ip);
+      _allLocalIps = allIps.map((e) => e.ip).toList();
+    }
+  }
+
+  /// All local IPs across all interfaces (WiFi + VPN + ethernet). Used by
+  /// the subnet scanner to scan all /24 subnets in parallel for VPN support.
+  /// Updated by [updateLocalIp] and [refresh].
+  List<String> _allLocalIps = [];
 
   Future<void> _startAsSource() async {
     final peer = _peer!;
@@ -257,10 +286,14 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
     if (!_broadcaster.isBroadcasting) {
       final selfId = await KeyStore.getSelfId() ?? peer.id;
       final selfName = await KeyStore.getSelfDeviceName() ?? peer.deviceName;
+      // Include all local IPs (WiFi + VPN) in the beacon so the receiver
+      // can try them all if the UDP source IP is unreachable.
+      final allIps = _allLocalIps.isNotEmpty ? _allLocalIps : null;
       await _broadcaster.start(
         peerId: selfId,
         tcpPort: peer.port,
         deviceName: selfName,
+        ips: allIps,
       );
     }
 
@@ -302,7 +335,16 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
     _ref.read(connectionStatusProvider.notifier).setServer(0, false);
 
     if (!_listener.isListening) {
-      await _listener.start(onBeacon: _onBeacon);
+      final selfId = await KeyStore.getSelfId() ?? peer.id;
+      final selfName = await KeyStore.getSelfDeviceName() ?? peer.deviceName;
+      final allIps = _allLocalIps.isNotEmpty ? _allLocalIps : null;
+      await _listener.start(
+        onBeacon: _onBeacon,
+        peerId: selfId,
+        tcpPort: peer.port,
+        deviceName: selfName,
+        ips: allIps,
+      );
     }
 
     // Periodic retries now come from the role-agnostic _healthTimer (see
@@ -321,6 +363,17 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
         _lastAcceptedMessageTimestamp = null;
         _ref.read(connectionStatusProvider.notifier).clearError();
         _logger.i('Socket connected and authenticated!');
+        // Source: the peer (Main) connected to us. Record its remote
+        // address so Settings shows the correct peer IP and future
+        // reconnects know where to find it. On Main this is a no-op
+        // (it already knows the IP it connected to).
+        final remote = _socketManager?.remoteAddress;
+        if (remote != null && remote.isNotEmpty) {
+          final peer = _peer;
+          if (peer != null && peer.ip != remote) {
+            _recordDiscoveredAddress(remote, peer.port);
+          }
+        }
         _flushQueue();
         _broadcaster.setThrottle(true);
         _listener.setThrottle(true);
@@ -358,8 +411,19 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
   /// up after one try and then waited up to 10s for the health timer --
   /// making the app feel unresponsive when the screen was turned back on
   /// after a disconnect.
+  ///
+  /// **Source guard:** Source never dials out -- it only listens. Without
+  /// this guard, an onDisconnected callback on Source would schedule a
+  /// _tryConnectToStoredPeer -> _connectTo call on Source's own socket
+  /// manager, which would flip `_isServer = false` (see SocketManager.
+  /// connect) and destroy the server socket's ability to accept incoming
+  /// connections. This was a root cause of the "auth timeout on 1st-2nd
+  /// attempt, succeeds on 3rd" pattern: each failed reconnect attempt
+  /// silently broke Source's server, and only the next incoming
+  /// connection from Main eventually revived it.
   void _scheduleReconnect() {
     if (_peer == null || _key == null) return;
+    if (isSource) return; // Source never dials out
     if (state || _connecting) return;
     final delay = _reconnectInitialDelay * (1 << _reconnectAttempts);
     final clampedDelay = delay > _reconnectMaxDelay ? _reconnectMaxDelay : delay;
@@ -375,6 +439,7 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
     final peer = _peer;
     final key = _key;
     if (peer == null || key == null) return;
+    if (isSource) return; // Source never dials out
     if (state || _connecting) return;
 
     final ip = _lastDiscoveredIp ?? peer.ip;
@@ -387,16 +452,20 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
     await _connectTo(ip, peer.port);
   }
 
-  Future<bool> _connectTo(String ip, int port) async {
+  Future<bool> _connectTo(String ip, int port, {Duration? connectTimeout}) async {
     final key = _key;
     if (key == null || _connecting || state) return false;
 
     final generation = ++_connectGeneration;
     _connecting = true;
+    _ref.read(connectionStatusProvider.notifier).setDiscoveryState(
+      DiscoveryState.connecting,
+      detail: 'Connecting to $ip:$port...',
+    );
     try {
       _socketManager ??= _createSocketManager();
       await _configureAuth(_socketManager!);
-      final ok = await _socketManager!.connect(ip, port, key);
+      final ok = await _socketManager!.connect(ip, port, key, connectTimeout: connectTimeout);
       if (generation != _connectGeneration) {
         // A forced reconnect abandoned this attempt while it was in flight;
         // the newer attempt it triggered now owns _connecting/scheduling.
@@ -407,8 +476,16 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
             errorDetail: ok ? null : '$ip:$port',
           );
       if (ok) {
+        _ref.read(connectionStatusProvider.notifier).setDiscoveryState(
+          DiscoveryState.connected,
+          detail: 'Connected to $ip:$port',
+        );
         _rememberKnownNetwork(ip, port);
       } else {
+        _ref.read(connectionStatusProvider.notifier).setDiscoveryState(
+          DiscoveryState.failed,
+          detail: 'Failed to connect to $ip:$port',
+        );
         _reconnectAttempts++;
         _scheduleReconnect();
       }
@@ -450,7 +527,12 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
   /// peer in a while". The re-entrancy guard (_scanning) and the backoff
   /// between actual scan attempts (_scanBackoff) still apply either way, so
   /// rapid network flapping can't turn this into a routine poll.
-  Future<void> _maybeRunFallbackScan({bool immediate = false}) async {
+  ///
+  /// [force] additionally bypasses the _scanBackoff throttle -- reserved for
+  /// the user-facing "Force reconnect" action, which must actually scan even
+  /// if a routine fallback scan ran moments ago (that's what made the old
+  /// button feel like it did nothing).
+  Future<void> _maybeRunFallbackScan({bool immediate = false, bool force = false}) async {
     if (isSource) return; // only Main ever dials out
     if (state || _connecting || _scanning) return;
 
@@ -463,20 +545,38 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
       if (DateTime.now().difference(disconnectedSince) < _scanGraceDuration) return;
     }
 
-    final lastScan = _lastScanAt;
-    if (lastScan != null && DateTime.now().difference(lastScan) < _scanBackoff) return;
+    if (!force) {
+      final lastScan = _lastScanAt;
+      if (lastScan != null && DateTime.now().difference(lastScan) < _scanBackoff) return;
+    }
 
     final peer = _peer;
     final localIp = _ref.read(connectionStatusProvider).localIp;
     if (peer == null || localIp == null) return;
+    // Use all local IPs (WiFi + VPN) for subnet scanning.
+    final scanIps = _allLocalIps.isNotEmpty ? _allLocalIps : [localIp];
 
     _scanning = true;
     _lastScanAt = DateTime.now();
     try {
-      final found = await _scanner.findHostWithOpenPort(localIp: localIp, port: peer.port);
-      if (found != null && !state && !_connecting) {
+      final found = await _scanner.findHostWithOpenPortMulti(localIps: scanIps, port: peer.port);
+      if (found != null && !state) {
         _logger.i('Fallback scan located peer at $found; attempting connection.');
         _lastDiscoveredIp = found;
+        // Persist the freshly-discovered address so diagnostics and future
+        // reconnect attempts agree on where the peer actually is -- the scan
+        // path used to only update the in-memory value, leaving the stored
+        // peer record stale after a roam.
+        _recordDiscoveredAddress(found, peer.port);
+        // If a connect attempt is in flight to a stale IP, abandon it so
+        // we can immediately try the freshly-discovered IP. This is critical
+        // for VPN: the stored/beacon IP may be a 5G IP that times out in 5s,
+        // while the scan just found the VPN IP that would connect instantly.
+        if (_connecting) {
+          _connectGeneration++;
+          _connecting = false;
+          await _socketManager?.disconnectClient();
+        }
         await _connectTo(found, peer.port);
       }
     } finally {
@@ -492,21 +592,72 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
       return;
     }
 
-    _lastDiscoveredIp = info.ip;
-    _ref.read(connectionStatusProvider.notifier).recordBeacon(info.ip);
+    // The datagram source IP may be a 5G/WiFi IP that's unreachable
+    // from this device (e.g. the peer is on VPN but OS chose the 5G
+    // interface as the UDP source). If the beacon includes a list of
+    // all the peer's IPs (v2 beacon), prefer a VPN IP (tun/tap) or
+    // any IP on a subnet we share, falling back to the source IP.
+    final bestIp = _pickBestBeaconIp(info);
+    _lastDiscoveredIp = bestIp;
+    _ref.read(connectionStatusProvider.notifier).recordBeacon(bestIp);
+    _recordDiscoveredAddress(bestIp, info.tcpPort);
 
-    if (info.ip != peer.ip || info.tcpPort != peer.port) {
-      _logger.i('Peer discovered at new address ${info.ip}:${info.tcpPort}');
-      final updated = peer.copyWith(ip: info.ip, port: info.tcpPort);
-      _peer = updated;
-      _peerDao.update(updated);
-      _ref.read(peerProvider.notifier).applyUpdate(updated);
-      _ref.read(connectionStatusProvider.notifier).setPeerIp(info.ip);
+    // Also persist all claimed IPs so the force-connect / scan path can
+    // try them if the best IP fails.
+    if (info.ips.isNotEmpty) {
+      _beaconIps = info.ips;
     }
 
     if (!state && !_connecting) {
-      _connectTo(info.ip, info.tcpPort);
+      _connectTo(bestIp, info.tcpPort);
     }
+  }
+
+  /// Picks the most likely-reachable IP from a beacon. Prefers:
+  /// 1. An IP on the same /24 as one of our local IPs (same subnet).
+  /// 2. Any VPN-style IP (10.x, 172.16-31.x) the peer claims.
+  /// 3. The datagram source IP (fallback).
+  String _pickBestBeaconIp(BeaconInfo info) {
+    final sourceIp = info.ip;
+    final allPeerIps = {sourceIp, ...info.ips};
+
+    // 1) Same-subnet match: do we share a /24 with any peer IP?
+    for (final peerIp in allPeerIps) {
+      final peerPrefix = subnetPrefixOf(peerIp);
+      if (peerPrefix == null) continue;
+      for (final localIp in _allLocalIps) {
+        if (subnetPrefixOf(localIp) == peerPrefix) {
+          return peerIp; // same subnet, directly reachable
+        }
+      }
+    }
+
+    // 2) VPN-style IP (10.x is common for VPNs like OpenVPN/WireGuard).
+    for (final peerIp in allPeerIps) {
+      if (peerIp.startsWith('10.')) return peerIp;
+    }
+
+    // 3) Fallback: datagram source IP.
+    return sourceIp;
+  }
+
+  /// IPs claimed by the peer in its last beacon. Used by force-connect to
+  /// try all of them if the primary IP fails.
+  List<String> _beaconIps = [];
+
+  /// Persists a peer address discovered via beacon or subnet scan so the
+  /// stored peer record, diagnostics and future reconnect attempts all agree
+  /// on where the peer actually is. No-op when the address is unchanged.
+  void _recordDiscoveredAddress(String ip, int port) {
+    final peer = _peer;
+    if (peer == null) return;
+    if (ip == peer.ip && port == peer.port) return;
+    _logger.i('Peer discovered at new address $ip:$port');
+    final updated = peer.copyWith(ip: ip, port: port);
+    _peer = updated;
+    unawaited(_peerDao.update(updated));
+    _ref.read(peerProvider.notifier).applyUpdate(updated);
+    _ref.read(connectionStatusProvider.notifier).setPeerIp(ip);
   }
 
   /// Reacts to the native onNetworkChanged event (see
@@ -517,12 +668,24 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
   /// heartbeat timeout followed by _maybeRunFallbackScan's 25s grace
   /// period -- 2+ minutes of silence. Here we already know *why* the
   /// connection may be stale, so we react immediately instead of waiting.
+  ///
+  /// **Fast reconnect:** runs the fallback scan with `force: true` so the
+  /// 60s scan backoff doesn't block discovery after a roam, and schedules
+  /// a reconnect with no extra delay (the first attempt starts right away
+  /// via the health-timer-less `_tryConnectToStoredPeer` path). The beacon
+  /// listener is un-throttled to fast cadence (3s) so a beacon from the
+  /// peer lands as quickly as possible.
   void _handleNetworkChangedEvent(Map data) {
     final newIp = data['localIp'] as String?;
     _logger.i('Native reported a network change (new local IP: $newIp).');
     if (newIp != null) {
       _ref.read(connectionStatusProvider.notifier).setLocalIp(newIp);
     }
+    // Re-enumerate all local IPs (WiFi + VPN) so the subnet scanner covers
+    // all interfaces after a network change.
+    PeerDiscovery().getAllLocalIps().then((ips) {
+      _allLocalIps = ips.map((e) => e.ip).toList();
+    });
 
     // Don't wait for the heartbeat timeout to notice the old socket is
     // dead -- same teardown _connectivity.onChanged's offline branch
@@ -531,11 +694,18 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
     _socketManager?.disconnectClient();
     state = false;
     _disconnectedSince ??= DateTime.now();
+    // The address we last discovered belongs to the old network -- reconnect
+    // must re-discover instead of hammering a dead IP for minutes.
+    _lastDiscoveredIp = null;
     _broadcaster.setThrottle(false);
     _listener.setThrottle(false);
 
     if (isSource) return; // server role: fast beacon is all there is to do
-    _maybeRunFallbackScan(immediate: true);
+    // Force the fallback scan immediately: bypass both the 25s grace and
+    // the 60s scan backoff, since we have a concrete reason to believe the
+    // network changed. The scan runs in parallel with the scheduled
+    // reconnect below (which tries the stored peer IP directly).
+    _maybeRunFallbackScan(immediate: true, force: true);
     _scheduleReconnect();
   }
 
@@ -560,30 +730,262 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
   /// Manually triggered reconnect: tries the last-known peer address, then
   /// falls through to the known-network cache and an active subnet scan if
   /// that didn't work. Backs the Settings "force reconnect" button so the
-  /// user isn't stuck waiting on the beacon/health-timer cadence. No-op on
-  /// Source (never dials out) and while already connected -- the button is
-  /// disabled in that state, so this is just a defensive guard, not the
-  /// primary gate.
+  /// user isn't stuck waiting on the beacon/health-timer cadence. No-op only
+  /// while already connected -- the button is disabled in that state, so
+  /// this is just a defensive guard, not the primary gate.
   ///
   /// Unlike the internal reconnect paths, this doesn't just bail when an
   /// attempt is already in flight -- "force" means it abandons the stuck
   /// attempt and dials again immediately, rather than silently doing
-  /// nothing until it resolves on its own.
+  /// nothing until it resolves on its own. It also forgets the stale
+  /// discovered address and bypasses the fallback-scan backoff, because a
+  /// user pressing this is explicitly telling us the normal cadence failed.
+  ///
+  /// **Paralel force:** Stored IP, known-network cache, and subnet scan
+  /// all start at once (raced); the first to connect wins and the others
+  /// are cancelled via `_connectGeneration`. This is dramatically faster
+  /// than the old sequential path (5s timeout × 3 stages ≈ 15s).
+  ///
+  /// **Progress:** Live status is pushed into `ConnectionStatus` so the
+  /// Settings UI's force-connect dialog can show what's happening:
+  /// "Trying stored IP 192.168.1.42...", "Scanning subnet batch 3/11",
+  /// "Connected to 192.168.1.99!".
+  ///
+  /// On Source (the SIM-holding device that never dials out) it isn't a
+  /// no-op: it re-initializes this device's own machinery (server socket,
+  /// beacon broadcaster) so a silently-dead socket or broadcaster can't keep
+  /// blocking Main's incoming reconnect attempts.
   Future<void> forceReconnect() async {
-    if (isSource || state) return;
+    if (state) return;
+    final statusNotifier = _ref.read(connectionStatusProvider.notifier);
+    statusNotifier.beginForceConnect();
+
+    if (isSource) {
+      statusNotifier.logDiscovery('Re-initializing source device (server + beacon)...');
+      _lastDiscoveredIp = null;
+      await _socketManager?.disconnectClient();
+      await _broadcaster.stop();
+      await _listener.stop();
+      await refresh();
+      statusNotifier.logDiscovery('Source device ready.', isSuccess: true);
+      statusNotifier.endForceConnect();
+      return;
+    }
+
+    // Abandon any in-flight attempt so the parallel race below owns the
+    // generation and the busy guards.
     if (_connecting) {
-      // Don't wait for the in-flight attempt: drop its socket (any late
-      // TCP/auth completion is discarded by SocketManager's own generation
-      // guard, see connect()) and stop tracking it as the current attempt
-      // (see the _connectGeneration guard in _connectTo) so the fresh
-      // attempt below isn't blocked by the busy guards.
       _connectGeneration++;
       _connecting = false;
       await _socketManager?.disconnectClient();
+      statusNotifier.logDiscovery('Cancelled previous attempt.');
     }
-    await _tryConnectToStoredPeer();
-    if (state || _connecting) return;
-    await _maybeRunFallbackScan(immediate: true);
+    _lastDiscoveredIp = null;
+
+    await _parallelForceConnect(statusNotifier);
+    statusNotifier.endForceConnect();
+  }
+
+  /// Races the three discovery paths in parallel to find candidate IPs,
+  /// then tries connecting to them sequentially (fastest candidate first)
+  /// until one succeeds. Updates [statusNotifier] with live progress.
+  ///
+  /// **Why discovery is parallel but connect is sequential:** `_connectTo`
+  /// uses a single shared SocketManager with a `_connecting` guard, so
+  /// two concurrent `_connectTo` calls would collide. Instead, we race
+  /// only the *discovery* (finding which IPs to try), then connect to the
+  /// discovered candidates one at a time. This is still much faster than
+  /// the old sequential path because the slow subnet scan runs in
+  /// parallel with the stored-IP and known-network lookups instead of
+  /// only starting after they fail.
+  Future<void> _parallelForceConnect(ConnectionStatusNotifier statusNotifier) async {
+    final peer = _peer;
+    final key = _key;
+    if (peer == null || key == null) {
+      statusNotifier.logDiscovery('No peer configured.', isError: true);
+      return;
+    }
+
+    final localIp = _ref.read(connectionStatusProvider).localIp;
+    final storedIp = peer.ip;
+
+    // Phase 1: Parallel discovery -- collect candidate IPs.
+    final candidateFutures = <Future<List<String>>>[];
+
+    // Path 1: stored IP (instant) + beacon IPs (if any).
+    if (storedIp.isNotEmpty && storedIp != 'unknown') {
+      final candidates = <String>[storedIp, ..._beaconIps.where((ip) => ip != storedIp)];
+      statusNotifier.logDiscovery('Trying stored/beacon IPs: ${candidates.join(', ')}...');
+      candidateFutures.add(Future.value(candidates));
+    } else if (_beaconIps.isNotEmpty) {
+      statusNotifier.logDiscovery('Trying beacon IPs: ${_beaconIps.join(', ')}...');
+      candidateFutures.add(Future.value(_beaconIps));
+    }
+
+    // Path 2: known-network cache (fast DB lookup).
+    candidateFutures.add(_lookupKnownNetworkIp(statusNotifier, peer.id));
+
+    // Path 3: subnet scan (slow, runs in parallel with 1+2). Scan ALL local
+    // subnets (WiFi + VPN) in parallel for VPN support.
+    final scanIps = _allLocalIps.isNotEmpty ? _allLocalIps : (localIp != null ? [localIp] : <String>[]);
+    final scanCandidates = <String>{};
+    if (scanIps.isNotEmpty) {
+      candidateFutures.add(_scanSubnetsWithProgress(scanIps, peer.port, statusNotifier).then((found) {
+        if (found != null) {
+          statusNotifier.logDiscovery('Scan found host: $found', isSuccess: true);
+          scanCandidates.add(found);
+          return [found];
+        }
+        return <String>[];
+      }));
+    }
+
+    // Collect candidates as they arrive, but don't block on all of them
+    // -- start trying to connect as soon as the first candidate is available.
+    final allCandidates = <String>{};
+    var discoveryDone = false;
+
+    // Add candidates as they arrive. Don't gate on _connecting -- even
+    // if a connect attempt is in flight, we still want to collect new
+    // candidates (e.g. from the subnet scan) so they're ready when the
+    // current attempt fails.
+    for (final f in candidateFutures) {
+      f.then((ips) {
+        for (final ip in ips) {
+          if (!discoveryDone && !state) {
+            allCandidates.add(ip);
+          }
+        }
+      });
+    }
+
+    // Phase 2: Try connecting to candidates as they become available.
+    // Give discovery a small head start (200ms) so the fast paths (stored
+    // IP, known-network) have a chance to populate before we start trying.
+    await Future.delayed(const Duration(milliseconds: 200));
+
+    // Track whether all discovery futures have completed.
+    var completedCount = 0;
+    final totalCount = candidateFutures.length;
+    for (final f in candidateFutures) {
+      f.then((_) => completedCount++);
+    }
+
+    // Try stored IP and known-network first (they're likely already in
+    // allCandidates by now). Then wait for the scan if needed.
+    // Stored/beacon IPs get a short timeout (1.5s) since they may be
+    // stale (5G IP from beacon, old network). Scan-discovered IPs get
+    // the full 5s since they're freshly confirmed to have the port open.
+    while (!state && !_connecting) {
+      if (allCandidates.isNotEmpty) {
+        final ip = allCandidates.first;
+        allCandidates.remove(ip);
+        // Short timeout for stored/beacon IPs (likely stale), full
+        // timeout for scan-discovered IPs (freshly probed).
+        final isScanCandidate = scanCandidates.contains(ip);
+        final timeout = isScanCandidate ? null : const Duration(milliseconds: 1500);
+        final ok = await _connectWithProgress(
+          ip, peer.port, statusNotifier,
+          label: ip,
+          connectTimeout: timeout,
+        );
+        if (ok) {
+          _recordDiscoveredAddress(ip, peer.port);
+          statusNotifier.logDiscovery('Connected to $ip!', isSuccess: true);
+          discoveryDone = true;
+          return;
+        }
+        statusNotifier.logDiscovery('Failed to connect to $ip.', isError: true);
+      } else {
+        // No candidates yet -- wait for discovery to produce some.
+        if (completedCount >= totalCount) {
+          // All discovery paths finished and we have no more candidates.
+          break;
+        }
+        await Future.delayed(const Duration(milliseconds: 100));
+      }
+    }
+
+    if (state) {
+      // Connected via a parallel path (beacon, etc.) while we were scanning.
+      statusNotifier.logDiscovery('Connected!', isSuccess: true);
+      discoveryDone = true;
+      return;
+    }
+
+    statusNotifier.logDiscovery('All discovery paths failed.', isError: true);
+    discoveryDone = true;
+  }
+
+  /// Looks up the known-network cached IP for this subnet.
+  Future<List<String>> _lookupKnownNetworkIp(
+    ConnectionStatusNotifier statusNotifier, String peerId,
+  ) async {
+    final localIp = await PeerDiscovery().getLocalIp();
+    final prefix = subnetPrefixOf(localIp ?? '');
+    if (prefix == null) return [];
+    final cachedIp = await _knownNetworkDao.lookupIp(peerId: peerId, subnetPrefix: prefix);
+    if (cachedIp == null) {
+      statusNotifier.logDiscovery('Known-network: no cached IP for $prefix.0/24.');
+      return [];
+    }
+    statusNotifier.logDiscovery('Known-network cache hit: $cachedIp');
+    return [cachedIp];
+  }
+
+  /// Wraps `_connectTo` with progress logging. Returns true on success.
+  /// [connectTimeout] shortens the TCP connect timeout -- used in
+  /// force-connect to avoid waiting 5s on a stale stored IP before trying
+  /// the next candidate from the scan.
+  Future<bool> _connectWithProgress(
+    String ip, int port, ConnectionStatusNotifier statusNotifier, {
+    required String label,
+    Duration? connectTimeout,
+  }) async {
+    statusNotifier.setDiscoveryState(DiscoveryState.connecting, detail: 'Trying $label...');
+    statusNotifier.logDiscovery('Trying $label...');
+    final ok = await _connectTo(ip, port, connectTimeout: connectTimeout);
+    if (ok) {
+      statusNotifier.setDiscoveryState(DiscoveryState.connected, detail: 'Connected to $ip');
+    }
+    return ok;
+  }
+
+  /// Multi-subnet scan (VPN support): scans all local subnets in parallel.
+  /// Returns the first responsive host across all subnets.
+  Future<String?> _scanSubnetsWithProgress(
+    List<String> localIps, int port, ConnectionStatusNotifier statusNotifier,
+  ) async {
+    if (isSource || state || _connecting || _scanning) return null;
+    if (localIps.isEmpty) return null;
+    _scanning = true;
+    _lastScanAt = DateTime.now();
+    statusNotifier.setDiscoveryState(
+      DiscoveryState.scanningSubnet,
+      detail: 'Scanning ${localIps.length} subnets...',
+    );
+    statusNotifier.logDiscovery('Scanning ${localIps.length} subnets: ${localIps.join(', ')}');
+    try {
+      final found = await _scanner.findHostWithOpenPortMulti(
+        localIps: localIps,
+        port: port,
+        onProgress: (batch, total, subnet) {
+          statusNotifier.setDiscoveryState(
+            DiscoveryState.scanningSubnet,
+            detail: 'Scanning $subnet.0/24 (batch $batch/$total)',
+          );
+          if (batch == 1 || batch % 3 == 0) {
+            statusNotifier.logDiscovery('Scanning $subnet.0/24 ($batch/$total)...');
+          }
+        },
+      );
+      if (found != null) {
+        statusNotifier.logDiscovery('Scan found host: $found', isSuccess: true);
+      }
+      return found;
+    } finally {
+      _scanning = false;
+    }
   }
 
   // ---------------------------------------------------------------------

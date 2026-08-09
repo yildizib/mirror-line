@@ -230,6 +230,21 @@ class AppLocalizationsTr extends AppLocalizations {
   String get settingsForceReconnect => 'Yeniden Bağlan';
 
   @override
+  String get settingsForceConnectTitle => 'Bağlanıyor...';
+
+  @override
+  String get settingsForceConnectNoPeer => 'Eşleştirilmiş cihaz yok';
+
+  @override
+  String get settingsForceConnectDone => 'Bağlandı';
+
+  @override
+  String get settingsForceConnectFailed => 'Bağlanamadı';
+
+  @override
+  String get settingsForceConnectClose => 'Kapat';
+
+  @override
   String get settingsPairDevice => 'Cihaz Eşleştir';
 
   @override

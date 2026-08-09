@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:mirrorline/core/data/database.dart';
 import 'package:mirrorline/core/data/models/peer.dart';
 import 'package:sqflite/sqflite.dart';
@@ -5,7 +6,20 @@ import 'package:sqflite/sqflite.dart';
 class PeerDao {
   final AppDatabase _db = AppDatabase.instance;
 
-  Future<Database> get _database => _db.database;
+  PeerDao();
+
+  /// Optional override for tests: when provided, all operations run against
+  /// this in-memory database instead of the singleton AppDatabase. See
+  /// test/peer_persistence_test.dart.
+  @visibleForTesting
+  PeerDao.forDatabase(Database db) : _testDb = db;
+
+  Database? _testDb;
+
+  Future<Database> get _database async {
+    if (_testDb != null) return _testDb!;
+    return _db.database;
+  }
 
   Future<void> insert(Peer peer) async {
     final db = await _database;

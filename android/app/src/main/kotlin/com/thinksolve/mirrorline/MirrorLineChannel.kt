@@ -45,6 +45,13 @@ object MirrorLineChannel {
     private var connectivityManager: ConnectivityManager? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var lastReportedIp: String? = null
+    // Set when the default network is lost (e.g. an AP roam with a brief
+    // full disconnect, or a router reboot on the same subnet). Lets the
+    // next "back online" check report a change even if the IP came back
+    // identical -- without this the Dart side would wait out the full 90s
+    // heartbeat timeout before re-discovering the peer, the "2 minutes of
+    // silence" this callback exists to avoid.
+    private var wasOffline = false
     private val networkHandler = Handler(Looper.getMainLooper())
     private var pendingNetworkChange: Runnable? = null
 
@@ -156,6 +163,11 @@ object MirrorLineChannel {
                 override fun onAvailable(network: Network) {
                     scheduleNetworkChangeCheck(context)
                 }
+
+                override fun onLost(network: Network) {
+                    wasOffline = true
+                    scheduleNetworkChangeCheck(context)
+                }
             }
             networkCallback = callback
             cm.registerDefaultNetworkCallback(callback)
@@ -175,9 +187,14 @@ object MirrorLineChannel {
         val check = Runnable {
             val ip = getLocalIp(context)
             // Native-side dedup: only notify Dart when the IP actually
-            // changed, so a flapping link doesn't spam the channel.
-            if (ip != null && ip != lastReportedIp) {
+            // changed, so a flapping link doesn't spam the channel. The one
+            // exception is recovering from a full link loss (wasOffline):
+            // the Dart side must re-discover the peer even when the address
+            // came back identical, or it would sit silent until the 90s
+            // heartbeat timeout fires.
+            if (ip != null && (ip != lastReportedIp || wasOffline)) {
                 lastReportedIp = ip
+                wasOffline = false
                 try {
                     channel?.invokeMethod("onNetworkChanged", mapOf("localIp" to ip))
                 } catch (_: Exception) {

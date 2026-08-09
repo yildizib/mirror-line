@@ -109,6 +109,13 @@ class PairingNotifier extends StateNotifier<PairingState> {
   SecretKey? _handshakeKey;
   Completer<bool>? _acceptCompleter;
 
+  /// Stashed accept payload from the scanned device (set by
+  /// _handleHandshakeMessage when pairingAccept arrives). Holds the
+  /// scanned device's real IP/role/deviceName as it claims them -- used
+  /// to overwrite the QR-derived values (which may be stale or wrong on
+  /// NAT/VLAN setups) when persisting the peer.
+  Map<String, dynamic>? _acceptPayload;
+
   /// Scanned side: resolves once the scanner's pairingAck arrives (or times
   /// out). Persisting the paired peer (applyPairedPeer) is gated on this so
   /// a lost pairingAccept can't leave the scanned device believing it's
@@ -130,9 +137,12 @@ class PairingNotifier extends StateNotifier<PairingState> {
 
   /// Called by the scanner after reading the other device's QR code.
   ///
-  /// [scannedIp]/[scannedPort] come from the QR.  [scannedKeyBase64] is the
-  /// shared AES key (also from the QR).  [myDeviceName] and [myPeerId] are
-  /// this device's identity.
+  /// [scannedIp]/[scannedPort] come from the QR (used only for the *initial*
+  /// TCP connection). [scannedKeyBase64] is the shared AES key (also from
+  /// the QR). [myDeviceName], [myPeerId], [myRole], [myPublicKey] are this
+  /// device's identity. [myIp] is this device's live local IP -- sent to
+  /// the scanned device so it can store it as the peer IP (more reliable
+  /// than the TCP remote address, which can be wrong on NAT/VLAN setups).
   Future<void> sendRequest({
     required String scannedId,
     required String scannedIp,
@@ -144,6 +154,7 @@ class PairingNotifier extends StateNotifier<PairingState> {
     required String myPeerId,
     required String myRole,
     required String myPublicKey,
+    required String myIp,
   }) async {
     final keyBytes = base64Decode(scannedKeyBase64);
     final key = SecretKey(keyBytes);
@@ -185,6 +196,7 @@ class PairingNotifier extends StateNotifier<PairingState> {
         'peerId': myPeerId,
         'role': myRole,
         'publicKey': myPublicKey,
+        'ip': myIp,
       });
 
       _acceptCompleter = Completer<bool>();
@@ -200,13 +212,26 @@ class PairingNotifier extends StateNotifier<PairingState> {
         // (so ConnectionNotifier knows whether to start as source or main).
         // `key` is the shared AES key from the QR.  `publicKey` is the
         // scanned device's Ed25519 public key for auth.
+        //
+        // Prefer the IP/deviceName the scanned device itself reported in
+        // its pairingAccept (more reliable than the QR's IP, which may be
+        // stale or wrong on NAT/VLAN setups) -- fall back to the QR values
+        // if the scanned device didn't claim an IP.
+        final accept = _acceptPayload;
+        final peerIp = (accept?['ip'] as String?)?.isNotEmpty == true
+            ? accept!['ip'] as String
+            : scannedIp;
+        final peerDeviceName =
+            (accept?['deviceName'] as String?)?.isNotEmpty == true
+                ? accept!['deviceName'] as String
+                : scannedDeviceName;
         await _ref.read(peerProvider.notifier).createPeerFromQr(
               id: scannedId,
-              ip: scannedIp,
+              ip: peerIp,
               port: scannedPort,
               keyBase64: scannedKeyBase64,
               role: myRole,
-              deviceName: scannedDeviceName,
+              deviceName: peerDeviceName,
               publicKey: scannedPublicKey,
             );
         // Tell the scanned side we actually persisted our end -- see
@@ -234,9 +259,17 @@ class PairingNotifier extends StateNotifier<PairingState> {
     final decrypted = await CryptoManager.decrypt(key, message.payload);
     if (decrypted == null) return;
 
+    Map<String, dynamic>? payload;
+    try {
+      payload = jsonDecode(decrypted) as Map<String, dynamic>;
+    } catch (_) {
+      payload = null;
+    }
+
     switch (message.type) {
       case MessageTypes.pairingAccept:
         _logger.i('Pairing accepted by remote.');
+        _acceptPayload = payload;
         state = state.copyWith(isWaitingForAccept: false);
         if (_acceptCompleter != null && !_acceptCompleter!.isCompleted) {
           _acceptCompleter!.complete(true);
@@ -270,6 +303,7 @@ class PairingNotifier extends StateNotifier<PairingState> {
     final deviceName = payload['deviceName'] as String?;
     final peerId = payload['peerId'] as String? ?? '';
     final publicKey = payload['publicKey'] as String? ?? '';
+    final scannerIp = payload['ip'] as String?;
 
     final peer = _ref.read(peerProvider);
     final verificationCode = peer?.verificationCode ?? '';
@@ -280,7 +314,7 @@ class PairingNotifier extends StateNotifier<PairingState> {
       remotePeerId: peerId,
       verificationCode: verificationCode,
     );
-    _logger.i('Incoming pairing request from $deviceName ($peerId, pubKey=${publicKey.substring(0, publicKey.length > 8 ? 8 : publicKey.length)}...)');
+    _logger.i('Incoming pairing request from $deviceName ($peerId, pubKey=${publicKey.substring(0, publicKey.length > 8 ? 8 : publicKey.length)}..., ip=$scannerIp)');
 
     // Stash the scanner's info for later use in acceptRequest.
     _pendingScannerInfo = {
@@ -288,6 +322,7 @@ class PairingNotifier extends StateNotifier<PairingState> {
       'peerId': peerId,
       'role': payload['role'] as String? ?? 'main',
       'publicKey': publicKey,
+      'ip': scannerIp,
     };
   }
 
@@ -295,7 +330,10 @@ class PairingNotifier extends StateNotifier<PairingState> {
   ///
   /// [socketManager] is the live connection from ConnectionNotifier so we
   /// can reply on the same channel.  [scannerInfo] carries the scanner's
-  /// identity to persist as our peer.
+  /// identity to persist as our peer.  [myIp] is this device's live local
+  /// IP -- sent to the scanner so it can store it as the peer IP (more
+  /// reliable than the TCP remote address, which can be wrong on NAT/VLAN
+  /// setups).
   ///
   /// Deliberately does NOT persist the paired peer until the scanner's
   /// pairingAck confirms it actually completed its own side too (see
@@ -308,6 +346,7 @@ class PairingNotifier extends StateNotifier<PairingState> {
   Future<void> acceptRequest({
     required SocketManager socketManager,
     required Map<String, dynamic> scannerInfo,
+    required String myIp,
   }) async {
     final myPeer = _ref.read(peerProvider);
     final myPublicKey = await KeyStore.ensureDeviceKeyPair();
@@ -318,6 +357,8 @@ class PairingNotifier extends StateNotifier<PairingState> {
       'deviceName': myPeer?.deviceName ?? 'Unknown Device',
       'peerId': myPeer?.id ?? '',
       'publicKey': myPublicKey,
+      'role': myPeer?.role ?? 'main',
+      'ip': myIp,
     });
 
     state = state.copyWith(isShowingRequest: false, isFinalizing: true);
@@ -335,21 +376,25 @@ class PairingNotifier extends StateNotifier<PairingState> {
     }
 
     // Persist the scanner's full identity (id, name, public key), and its
-    // real IP straight from the live TCP socket (more trustworthy than
-    // anything it claims about itself). This makes `peer` consistently
-    // represent the other device after pairing, on both sides, regardless
-    // of who scanned whom.
+    // real IP. Prefer the IP the scanner itself claimed in its
+    // pairingRequest (more reliable than the TCP remote address, which can
+    // be wrong on NAT/VLAN setups) -- fall back to the TCP remote address
+    // if the scanner didn't claim an IP.
     final scannerId = scannerInfo['peerId'] as String? ?? '';
     // Persisted identity data -- locale-neutral fallback, same reasoning as
     // peer_provider.dart's _getDeviceName().
     final scannerDeviceName = scannerInfo['deviceName'] as String? ?? 'Unknown Device';
     final scannerPublicKey = scannerInfo['publicKey'] as String? ?? '';
+    final scannerClaimedIp = scannerInfo['ip'] as String?;
+    final scannerIp = (scannerClaimedIp != null && scannerClaimedIp.isNotEmpty)
+        ? scannerClaimedIp
+        : socketManager.remoteAddress;
     if (scannerId.isNotEmpty && scannerPublicKey.isNotEmpty) {
       await _ref.read(peerProvider.notifier).applyPairedPeer(
             id: scannerId,
             deviceName: scannerDeviceName,
             publicKey: scannerPublicKey,
-            ip: socketManager.remoteAddress,
+            ip: scannerIp,
           );
     }
 
@@ -391,6 +436,7 @@ class PairingNotifier extends StateNotifier<PairingState> {
     } catch (_) {}
     _handshakeSocket = null;
     _handshakeKey = null;
+    _acceptPayload = null;
   }
 
   @override

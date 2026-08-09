@@ -31,11 +31,14 @@ String? subnetPrefixOf(String ip) {
 class SubnetScanner {
   final Logger _logger = Logger();
 
+  /// Scans a single local /24 subnet for a host with [port] open.
+  /// Returns the first responsive host IP, or null if none found.
   Future<String?> findHostWithOpenPort({
     required String localIp,
     required int port,
     Duration perHostTimeout = const Duration(milliseconds: 400),
     int concurrency = 24,
+    void Function(int batch, int totalBatches, String subnet)? onProgress,
   }) async {
     final base = subnetPrefixOf(localIp);
     if (base == null) return null;
@@ -43,8 +46,12 @@ class SubnetScanner {
     _logger.i('Scanning $base.0/24 for port $port (fallback discovery)...');
     final candidates = List<int>.generate(254, (i) => i + 1);
     final selfLastOctet = int.tryParse(localIp.split('.').last);
+    final totalBatches = (candidates.length / concurrency).ceil();
 
+    var batchIndex = 0;
     for (var start = 0; start < candidates.length; start += concurrency) {
+      batchIndex++;
+      onProgress?.call(batchIndex, totalBatches, base);
       final batch = candidates.skip(start).take(concurrency).where((n) => n != selfLastOctet);
       final results = await Future.wait(
         batch.map((n) => _probe('$base.$n', port, perHostTimeout)),
@@ -58,6 +65,63 @@ class SubnetScanner {
     }
     _logger.w('Fallback scan found no responsive host on port $port.');
     return null;
+  }
+
+  /// Scans **multiple** local subnets in parallel (e.g. WiFi `192.168.1.0/24`
+  /// + VPN `10.8.0.0/24`). This is essential for VPN support: the peer may
+  /// be on the VPN subnet while the device also has a WiFi interface.
+  ///
+  /// [localIps] is the list of local IPs (one per interface) to scan the
+  /// /24 of. Each is scanned independently in parallel; the first hit
+  /// across all subnets wins.
+  ///
+  /// [onProgress] reports per-subnet progress: `(batch, totalBatches, subnet)`
+  /// where `subnet` is the prefix (e.g. "192.168.1" or "10.8.0"). Since
+  /// multiple subnets scan in parallel, the callback may interleave
+  /// progress from different subnets -- the caller should display the
+  /// latest.
+  Future<String?> findHostWithOpenPortMulti({
+    required List<String> localIps,
+    required int port,
+    Duration perHostTimeout = const Duration(milliseconds: 400),
+    int concurrency = 24,
+    void Function(int batch, int totalBatches, String subnet)? onProgress,
+  }) async {
+    if (localIps.isEmpty) return null;
+    if (localIps.length == 1) {
+      return findHostWithOpenPort(
+        localIp: localIps.first,
+        port: port,
+        perHostTimeout: perHostTimeout,
+        concurrency: concurrency,
+        onProgress: onProgress,
+      );
+    }
+
+    _logger.i('Scanning ${localIps.length} subnets in parallel for port $port...');
+
+    // Race all subnet scans in parallel. First hit wins.
+    final completer = Completer<String?>();
+    var pending = localIps.length;
+
+    for (final ip in localIps) {
+      findHostWithOpenPort(
+        localIp: ip,
+        port: port,
+        perHostTimeout: perHostTimeout,
+        concurrency: concurrency,
+        onProgress: onProgress,
+      ).then((found) {
+        pending--;
+        if (found != null && !completer.isCompleted) {
+          completer.complete(found);
+        } else if (pending == 0 && !completer.isCompleted) {
+          completer.complete(null);
+        }
+      });
+    }
+
+    return completer.future;
   }
 
   Future<String?> _probe(String ip, int port, Duration timeout) async {

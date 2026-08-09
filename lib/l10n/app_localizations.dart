@@ -506,6 +506,36 @@ abstract class AppLocalizations {
   /// **'Yeniden Bağlan'**
   String get settingsForceReconnect;
 
+  /// No description provided for @settingsForceConnectTitle.
+  ///
+  /// In tr, this message translates to:
+  /// **'Bağlanıyor...'**
+  String get settingsForceConnectTitle;
+
+  /// No description provided for @settingsForceConnectNoPeer.
+  ///
+  /// In tr, this message translates to:
+  /// **'Eşleştirilmiş cihaz yok'**
+  String get settingsForceConnectNoPeer;
+
+  /// No description provided for @settingsForceConnectDone.
+  ///
+  /// In tr, this message translates to:
+  /// **'Bağlandı'**
+  String get settingsForceConnectDone;
+
+  /// No description provided for @settingsForceConnectFailed.
+  ///
+  /// In tr, this message translates to:
+  /// **'Bağlanamadı'**
+  String get settingsForceConnectFailed;
+
+  /// No description provided for @settingsForceConnectClose.
+  ///
+  /// In tr, this message translates to:
+  /// **'Kapat'**
+  String get settingsForceConnectClose;
+
   /// No description provided for @settingsPairDevice.
   ///
   /// In tr, this message translates to:

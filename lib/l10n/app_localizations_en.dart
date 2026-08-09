@@ -229,6 +229,21 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsForceReconnect => 'Force Reconnect';
 
   @override
+  String get settingsForceConnectTitle => 'Connecting...';
+
+  @override
+  String get settingsForceConnectNoPeer => 'No paired device';
+
+  @override
+  String get settingsForceConnectDone => 'Connected';
+
+  @override
+  String get settingsForceConnectFailed => 'Could not connect';
+
+  @override
+  String get settingsForceConnectClose => 'Close';
+
+  @override
   String get settingsPairDevice => 'Pair Device';
 
   @override

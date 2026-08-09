@@ -5,6 +5,7 @@ import 'package:mirrorline/core/data/models/peer.dart';
 import 'package:mirrorline/core/security/key_store.dart';
 import 'package:mirrorline/core/theme/theme.dart';
 import 'package:mirrorline/features/connection/connection_provider.dart';
+import 'package:mirrorline/features/connection/connection_status_provider.dart';
 import 'package:mirrorline/features/pairing/pairing_provider.dart';
 import 'package:mirrorline/features/pairing/peer_provider.dart';
 import 'package:mirrorline/features/pairing/role_selection_screen.dart';
@@ -30,11 +31,11 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final pub = await KeyStore.ensureDeviceKeyPair();
       if (mounted) setState(() => _myPublicKey = pub);
-      // The QR encodes this device's current IP; without this it stays
-      // whatever it was when the peer record was first created (possibly a
-      // stale/dead address from a previous network), causing the scanning
-      // device's connect attempt to fail.
-      ref.read(peerProvider.notifier).refreshLocalIp();
+      // The QR encodes this device's current IP. Refresh it into the
+      // connection status (never into the peer record -- after pairing that
+      // row belongs to the *other* device, and overwriting it with our own
+      // address is what made Settings show the same IP for both devices).
+      ref.read(connectionProvider.notifier).updateLocalIp();
     });
   }
 
@@ -42,13 +43,12 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
   Widget build(BuildContext context) {
     final peer = ref.watch(peerProvider);
     final pairingState = ref.watch(pairingProvider);
+    final status = ref.watch(connectionStatusProvider);
     final l = AppLocalizations.of(context);
 
-    // Re-sync on any identity-relevant change, not just a new peer id --
-    // otherwise a refreshLocalIp() update to the same peer's ip would never
-    // reach the QR, silently defeating it (see initState).
-    if (peer != null &&
-        (_cachedPeerForQr?.id != peer.id || _cachedPeerForQr?.ip != peer.ip)) {
+    // Re-sync on any identity-relevant change so the QR always reflects the
+    // current peer record.
+    if (peer != null && _cachedPeerForQr?.id != peer.id) {
       _cachedPeerForQr = peer;
     }
 
@@ -74,7 +74,7 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
         ),
         body: TabBarView(
           children: [
-            _buildShowQrTab(_cachedPeerForQr, pairingState),
+            _buildShowQrTab(_cachedPeerForQr, pairingState, status.localIp),
             _buildScanTab(pairingState),
           ],
         ),
@@ -82,7 +82,7 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
     );
   }
 
-  Widget _buildShowQrTab(Peer? peer, PairingState pairingState) {
+  Widget _buildShowQrTab(Peer? peer, PairingState pairingState, String? localIp) {
     final theme = Theme.of(context);
     final l = AppLocalizations.of(context);
 
@@ -114,9 +114,19 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
     // QR format: id|ip|port|key|deviceName|role|publicKey
     // publicKey here is THIS device's Ed25519 public key (from KeyStore),
     // NOT the peer's publicKey field (which is the other device's key).
+    // The encoded ip is THIS device's live local address (from the
+    // connection status), never peer.ip -- after pairing that field holds
+    // the *other* device's address, and encoding it here would break the
+    // scanner's connect attempt.
     final myPub = _myPublicKey ?? '';
+    // If localIp is null, don't encode a stale/wrong IP (peer.ip may be
+    // this device's own IP after pairing, which would create a loop).
+    // Prefer VPN IP (tun0) if available -- it's reachable from any device
+    // on the same VPN, unlike a WiFi IP that's only reachable on the same
+    // LAN. Fall back to WiFi/local IP, then 'unknown'.
+    final qrIp = localIp ?? 'unknown';
     final qrData =
-        '${peer.id}|${peer.ip}|${peer.port}|${peer.key}|${peer.deviceName}|${peer.role}|$myPub';
+        '${peer.id}|$qrIp|${peer.port}|${peer.key}|${peer.deviceName}|${peer.role}|$myPub';
 
     return Center(
       child: SingleChildScrollView(
@@ -404,9 +414,12 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
               if (socketManager != null) {
                 final notifier = ref.read(pairingProvider.notifier);
                 final scannerInfo = notifier.pendingScannerInfo ?? {};
+                final status = ref.read(connectionStatusProvider);
+                final myIp = status.localIp ?? '';
                 await notifier.acceptRequest(
                   socketManager: socketManager,
                   scannerInfo: scannerInfo,
+                  myIp: myIp,
                 );
                 await ref.read(connectionProvider.notifier).refresh();
               }
@@ -549,6 +562,8 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
 
     // Send pairing request via PairingNotifier.
     final myPublicKey = await KeyStore.ensureDeviceKeyPair();
+    final status = ref.read(connectionStatusProvider);
+    final myIp = status.localIp ?? '';
 
     await ref.read(pairingProvider.notifier).sendRequest(
           scannedId: scannedId,
@@ -561,6 +576,7 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
           myPeerId: myPeer.id,
           myRole: myRole,
           myPublicKey: myPublicKey,
+          myIp: myIp,
         );
 
     await ref.read(connectionProvider.notifier).refresh();
