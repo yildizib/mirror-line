@@ -12,14 +12,15 @@ doğrudan birbirine bağlanır.
 
 ## Kullanım Senaryosu
 
-Bazı ülkelerde (ör. Türkiye) telefonun kayıtlı olduğu hatta bağlı kalması için
-SIM'in o telefonda olması gerekir. SIM başka bir cihaza taşındığında asıl
-telefonunuz bu hattı kullanamaz hale gelir. Yaygın çözüm: pahalı olmayan ikinci
-bir telefon alıp SIM'leri ona takmak. Ama bu kez de asıl telefonunuz aramaları,
-SMS'leri ve bildirimleri kaçırır.
+Türkiye'de yurt dışından getirilen telefonlar, IMEI kaydı yapılmadan yalnızca
+sınırlı bir süre (takvim yılı içinde 120 gün) mobil şebekeye bağlanabilir; süre
+dolduğunda cihazın arama, SMS ve mobil veri erişimi kesilir — yalnızca Wi-Fi
+çalışmaya devam eder. Yaygın çözüm: SIM'leri yurt içi (kayıtlı) pahalı olmayan
+ikinci bir telefona takmak. Ama bu kez de asıl telefonunuz aramaları, SMS'leri
+ve bildirimleri kaçırır.
 
 MirrorLine bu iki telefonu tek bir kullanıcı deneyiminde birleştirir: SIM'li
-ucuz telefon (Source) sadece arka planda hattı taşır; siz her şeyi kendi
+kayıtlı telefon (Source) sadece arka planda hattı taşır; siz her şeyi kendi
 telefonunuzdan (Main) görürsünüz — aramalar, mesajlar, bildirimler. İnternete ya
 da sunucuya gerek yok, iki telefon aynı WiFi'a bağlı olunca doğrudan konuşur.
 
@@ -49,16 +50,18 @@ other directly over the local network.
 
 ## Use Case
 
-In some countries (e.g. Turkey) a phone must hold the SIM itself to stay
-registered on the line; when the SIM moves to another device, your main phone
-loses access to that number. A common workaround is buying a cheap second phone
-and putting the SIMs in it — but then your main phone misses the calls, texts,
-and notifications.
+In Turkey, phones brought from abroad can only connect to the mobile network
+for a limited period (120 days within a calendar year) without an IMEI
+registration; once that expires, the device loses calls, SMS, and mobile data —
+only Wi-Fi keeps working. A common workaround is putting the SIMs into a cheap,
+locally-registered second phone — but then your main phone misses the calls,
+texts, and notifications.
 
-MirrorLine fuses those two phones into one experience: the cheap SIM phone
-(Source) simply carries the line in the background, while you see everything on
-your own phone (Main) — calls, messages, notifications. No internet, no server;
-the two phones talk to each other directly over the same Wi-Fi network.
+MirrorLine fuses those two phones into one experience: the SIM-holding,
+registered phone (Source) simply carries the line in the background, while you
+see everything on your own phone (Main) — calls, messages, notifications. No
+internet, no server; the two phones talk to each other directly over the same
+Wi-Fi network.
 
 ## License
 
