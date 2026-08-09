@@ -675,17 +675,21 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
   /// via the health-timer-less `_tryConnectToStoredPeer` path). The beacon
   /// listener is un-throttled to fast cadence (3s) so a beacon from the
   /// peer lands as quickly as possible.
-  void _handleNetworkChangedEvent(Map data) {
+  Future<void> _handleNetworkChangedEvent(Map data) async {
     final newIp = data['localIp'] as String?;
     _logger.i('Native reported a network change (new local IP: $newIp).');
     if (newIp != null) {
       _ref.read(connectionStatusProvider.notifier).setLocalIp(newIp);
     }
-    // Re-enumerate all local IPs (WiFi + VPN) so the subnet scanner covers
-    // all interfaces after a network change.
-    PeerDiscovery().getAllLocalIps().then((ips) {
-      _allLocalIps = ips.map((e) => e.ip).toList();
-    });
+
+    // Abandon any connect attempt that's in flight on the old network so
+    // the guards (_connecting) don't silently swallow the fast reconnect
+    // below -- same pattern forceReconnect()/_maybeRunFallbackScan use.
+    _connectGeneration++;
+    _connecting = false;
+    // The reconnect backoff was accumulated against the old network's
+    // failures; a roam is a fresh state, so start from the fast cadence.
+    _reconnectAttempts = 0;
 
     // Don't wait for the heartbeat timeout to notice the old socket is
     // dead -- same teardown _connectivity.onChanged's offline branch
@@ -700,7 +704,18 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
     _broadcaster.setThrottle(false);
     _listener.setThrottle(false);
 
-    if (isSource) return; // server role: fast beacon is all there is to do
+    // Re-enumerate all local IPs (WiFi + VPN) BEFORE scanning so the scan
+    // covers the new network's subnets (previously this was fire-and-forget
+    // and the immediate scan could race it and probe the old subnet).
+    final allIps = await PeerDiscovery().getAllLocalIps();
+    _allLocalIps = allIps.map((e) => e.ip).toList();
+
+    if (isSource) {
+      // Source's beacon advertises this device's own IPs to Main -- refresh
+      // them so a freshly-roamed Main learns the new address right away.
+      _broadcaster.updateBroadcastInfo(ips: _allLocalIps);
+      return; // server role: fast beacon is all there is to do
+    }
     // Force the fallback scan immediately: bypass both the 25s grace and
     // the 60s scan backoff, since we have a concrete reason to believe the
     // network changed. The scan runs in parallel with the scheduled

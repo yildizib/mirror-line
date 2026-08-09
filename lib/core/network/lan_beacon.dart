@@ -86,6 +86,10 @@ class BeaconBroadcaster {
   RawDatagramSocket? _socket;
   Timer? _timer;
   Duration _interval = BeaconConfig.intervalFast;
+  String? _myPeerId;
+  int? _myTcpPort;
+  String? _myDeviceName;
+  List<String>? _myIps;
 
   bool get isBroadcasting => _timer != null;
 
@@ -129,6 +133,10 @@ class BeaconBroadcaster {
     List<String>? ips,
   }) async {
     await stop();
+    _myPeerId = peerId;
+    _myTcpPort = tcpPort;
+    _myDeviceName = deviceName;
+    _myIps = ips;
     try {
       final socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
       socket.broadcastEnabled = true;
@@ -187,6 +195,38 @@ class BeaconBroadcaster {
     _socket?.close();
     _socket = null;
     _payload = null;
+  }
+
+  /// Updates the broadcast payload in place (no socket rebind) with new
+  /// interface/IP information -- e.g. after the device roams to a new
+  /// network, so peers receive the fresh address list. No-op when not
+  /// currently broadcasting.
+  void updateBroadcastInfo({List<String>? ips}) {
+    if (ips != null) _myIps = ips;
+    final peerId = _myPeerId;
+    final tcpPort = _myTcpPort;
+    final deviceName = _myDeviceName;
+    final socket = _socket;
+    if (peerId == null || tcpPort == null || deviceName == null || socket == null) return;
+
+    _payload = Uint8List.fromList(
+      utf8.encode(BeaconCodec.encode(peerId: peerId, tcpPort: tcpPort, deviceName: deviceName, ips: _myIps)),
+    );
+
+    void sendOnce() async {
+      final targets = await _broadcastTargets();
+      for (final target in targets) {
+        try {
+          socket.send(payload, target, BeaconConfig.port);
+        } catch (e) {
+          _logger.w('Beacon send to $target failed: $e');
+        }
+      }
+    }
+
+    sendOnce();
+    _timer?.cancel();
+    _timer = Timer.periodic(_interval, (_) => sendOnce());
   }
 }
 
