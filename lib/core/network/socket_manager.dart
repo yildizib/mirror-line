@@ -51,6 +51,11 @@ class SocketManager {
   final List<int> _buffer = [];
   Timer? _heartbeatTimer;
   DateTime _lastDataAt = DateTime.now();
+  // Bumped on every connect()/disconnect()/disconnectClient() call so a
+  // superseded connect() attempt (e.g. abandoned by a forced reconnect) can
+  // tell it's stale when its TCP handshake finally resolves, instead of
+  // reviving a connection nothing is expecting anymore.
+  int _connectGeneration = 0;
 
   SocketManager({
     required this.onMessage,
@@ -125,8 +130,17 @@ class SocketManager {
     if (ip.isEmpty || ip == 'unknown') return false;
     _key = key;
     _isServer = false;
+    final generation = ++_connectGeneration;
     try {
       final socket = await Socket.connect(ip, port, timeout: const Duration(seconds: 5));
+      if (generation != _connectGeneration) {
+        // A newer connect()/disconnect() call superseded this one while the
+        // TCP handshake was in flight (e.g. a forced reconnect) -- discard
+        // this socket instead of reviving a connection nothing is expecting
+        // anymore, which would otherwise clobber the newer attempt's _client.
+        socket.destroy();
+        return false;
+      }
       _accept(socket);
       _logger.i('Connected to peer $ip:$port, awaiting auth...');
 
@@ -461,6 +475,7 @@ class SocketManager {
   }
 
   Future<void> disconnect() async {
+    _connectGeneration++;
     _disposed = true;
     _authed = false;
     _stopHeartbeat();
@@ -490,6 +505,7 @@ class SocketManager {
 
   /// Closes only the active client connection; keeps the server listening.
   Future<void> disconnectClient() async {
+    _connectGeneration++;
     _authed = false;
     _stopHeartbeat();
     _stopServerAuthTimer();

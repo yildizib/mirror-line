@@ -143,6 +143,23 @@ class AppLocalizationsEn extends AppLocalizations {
   String get pairingUnknownDevice => 'Unknown Device';
 
   @override
+  String get pairingErrorConnectionFailed => 'Could not connect.';
+
+  @override
+  String get pairingErrorRejectedOrTimedOut =>
+      'Pairing was rejected or timed out.';
+
+  @override
+  String get pairingErrorHandshake => 'Pairing error';
+
+  @override
+  String get pairingErrorRejected => 'Pairing rejected.';
+
+  @override
+  String get pairingErrorAckTimeout =>
+      'Pairing could not complete (no confirmation from the other device). Try again.';
+
+  @override
   String get settingsThisDevice => 'This Device';
 
   @override
@@ -191,22 +208,25 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsNoPairedDevices => 'No paired devices yet.';
 
   @override
-  String get settingsActions => 'Actions';
-
-  @override
-  String get settingsRetry => 'Retry';
-
-  @override
-  String get settingsManualIp => 'Peer IP (manual)';
-
-  @override
-  String get settingsIpHint => 'e.g. 192.168.1.20';
-
-  @override
   String get settingsPort => 'Port';
 
   @override
-  String get settingsConnect => 'Connect';
+  String get settingsIpLabel => 'IP';
+
+  @override
+  String get settingsPublicKeyLabel => 'Public Key';
+
+  @override
+  String get settingsRoleLabel => 'Role';
+
+  @override
+  String get settingsCounterpartSuffix => ' (peer)';
+
+  @override
+  String get settingsIpUnknown => 'unknown';
+
+  @override
+  String get settingsForceReconnect => 'Force Reconnect';
 
   @override
   String get settingsPairDevice => 'Pair Device';
@@ -276,15 +296,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsResetDone => 'Device reset';
 
   @override
-  String get settingsEnterIp => 'Enter an IP address';
-
-  @override
-  String get settingsConnected => 'Connection established';
-
-  @override
-  String get settingsConnectFailed => 'Connection failed';
-
-  @override
   String get settingsLanguage => 'Language';
 
   @override
@@ -302,6 +313,38 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get connBannerOffline =>
       'No connection. Searching for peer; make sure you\'re on the same WiFi network.';
+
+  @override
+  String get connErrorServerStartFailed => 'Could not start server';
+
+  @override
+  String get connErrorPeerIpUnknown =>
+      'Peer device IP unknown (waiting for beacon)';
+
+  @override
+  String get connErrorConnectFailed =>
+      'Connection failed (server down or unreachable)';
+
+  @override
+  String get callStatusRinging => 'Ringing';
+
+  @override
+  String get callStatusAnswered => 'Answered';
+
+  @override
+  String get callStatusMissed => 'Missed';
+
+  @override
+  String get callStatusRejected => 'Rejected';
+
+  @override
+  String get callStatusEnded => 'Ended';
+
+  @override
+  String get callStatusFailed => 'Failed';
+
+  @override
+  String get callUnknownNumber => 'Unknown number';
 
   @override
   String get callsEmpty => 'No incoming calls yet';
@@ -337,6 +380,24 @@ class AppLocalizationsEn extends AppLocalizations {
   String callsDeleteOne(int count) {
     return '$count call(s) will be permanently deleted.';
   }
+
+  @override
+  String get smsStatusReceived => 'Received';
+
+  @override
+  String get smsStatusSent => 'Sent';
+
+  @override
+  String get smsStatusDelivered => 'Delivered';
+
+  @override
+  String get smsStatusSending => 'Sending';
+
+  @override
+  String get smsStatusFailed => 'Failed';
+
+  @override
+  String get smsUnknownSender => 'Unknown sender';
 
   @override
   String get smsEmpty => 'No messages yet';

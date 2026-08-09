@@ -173,6 +173,7 @@ class TelephonyChannel {
         case 'onSms':
         case 'onNotification':
         case 'onNotificationRemoved':
+        case 'onNetworkChanged':
           handler(call.method, (call.arguments as Map? ?? {}));
           return null;
         default:

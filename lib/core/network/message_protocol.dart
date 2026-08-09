@@ -57,6 +57,12 @@ abstract class MessageTypes {
   static const String pairingAccept = 'pairing_accept';
   // Scanned -> Scanner:  "Eşleşme reddedildi"
   static const String pairingReject = 'pairing_reject';
+  // Scanner -> Scanned:  "pairingAccept'i aldım ve kendi tarafımı da
+  // kalıcı olarak kaydettim" -- Scanned, bu ack'i almadan applyPairedPeer
+  // çağırmaz (bkz. authOk/authAck deseni aşağıda). Bunsuz, pairingAccept
+  // ağ üzerinde kaybolursa Scanned kendini eşleşmiş sanır ama Scanner hiç
+  // kaydetmemiş olur -- asimetrik, kendi kendine düzelmeyen bir durum.
+  static const String pairingAck = 'pairing_ack';
 
   // ---- Connection authentication (challenge-response) -----------------
   // Server -> Client:  "Bana kim olduğunu kanıtla" (nonce içerir)

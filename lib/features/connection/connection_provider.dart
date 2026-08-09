@@ -5,6 +5,7 @@ import 'package:cryptography/cryptography.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logger/logger.dart';
+import 'package:mirrorline/core/data/daos/known_network_dao.dart';
 import 'package:mirrorline/core/data/daos/peer_dao.dart';
 import 'package:mirrorline/core/data/models/peer.dart';
 import 'package:mirrorline/core/data/models/queue_item.dart';
@@ -58,6 +59,7 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
   final Ref _ref;
   final ConnectivityService _connectivity = ConnectivityService();
   final PeerDao _peerDao = PeerDao();
+  final KnownNetworkDao _knownNetworkDao = KnownNetworkDao();
   final QueueService _queue = QueueService();
   final BeaconBroadcaster _broadcaster = BeaconBroadcaster();
   final BeaconListener _listener = BeaconListener();
@@ -75,6 +77,11 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
   DateTime? _disconnectedSince;
   DateTime? _lastScanAt;
   int _reconnectAttempts = 0;
+  // Bumped whenever a forced reconnect abandons an in-flight _connectTo()
+  // call, so that stale call's post-await continuation (recordConnectAttempt,
+  // _reconnectAttempts++, _scheduleReconnect, resetting _connecting) is
+  // skipped instead of stomping on the newer attempt it was superseded by.
+  int _connectGeneration = 0;
   // Guards against an active on-path attacker (e.g. ARP spoofing into an
   // already-authenticated TCP session) replaying a previously captured,
   // genuinely valid encrypted message to make the app act on it a second
@@ -120,6 +127,14 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
 
   void _init() async {
     WidgetsBinding.instance.addObserver(this);
+
+    // Registered here (role-agnostic, before any peer/role is even loaded)
+    // rather than only from _startAsSource(): the native onNetworkChanged
+    // event (see _handleNetworkChangedEvent) needs to reach Main too, since
+    // Main is the device that dials out and most needs to react quickly to
+    // having roamed (see _maybeRunFallbackScan's "only Main ever dials
+    // out"). Idempotent via _telephonyHandlerRegistered.
+    _registerTelephonyHandler();
 
     _connectivity.onChanged = (isOnline) {
       if (isOnline) {
@@ -229,7 +244,7 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
       } catch (e) {
         _logger.e('Server start failed: $e');
         _ref.read(connectionStatusProvider.notifier)
-            .recordConnectAttempt('Server başlatılamadı: $e');
+            .recordConnectAttempt(ConnectionErrorCode.serverStartFailed, errorDetail: '$e');
       }
     }
 
@@ -249,7 +264,6 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
       );
     }
 
-    _registerTelephonyHandler();
     try {
       await TelephonyChannel.startListening();
     } catch (e) {
@@ -366,7 +380,7 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
     final ip = _lastDiscoveredIp ?? peer.ip;
     if (ip.isEmpty || ip == 'unknown') {
       _ref.read(connectionStatusProvider.notifier)
-          .recordConnectAttempt('Eş cihaz IP bilinmiyor (beacon bekleniyor)');
+          .recordConnectAttempt(ConnectionErrorCode.peerIpUnknown);
       return;
     }
 
@@ -377,22 +391,49 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
     final key = _key;
     if (key == null || _connecting || state) return false;
 
+    final generation = ++_connectGeneration;
     _connecting = true;
     try {
       _socketManager ??= _createSocketManager();
       await _configureAuth(_socketManager!);
       final ok = await _socketManager!.connect(ip, port, key);
+      if (generation != _connectGeneration) {
+        // A forced reconnect abandoned this attempt while it was in flight;
+        // the newer attempt it triggered now owns _connecting/scheduling.
+        return ok;
+      }
       _ref.read(connectionStatusProvider.notifier).recordConnectAttempt(
-            ok ? null : 'Bağlantı başarısız: $ip:$port (sunucu kapalı veya ulaşılamıyor)',
+            ok ? null : ConnectionErrorCode.connectFailed,
+            errorDetail: ok ? null : '$ip:$port',
           );
-      if (!ok) {
+      if (ok) {
+        _rememberKnownNetwork(ip, port);
+      } else {
         _reconnectAttempts++;
         _scheduleReconnect();
       }
       return ok;
     } finally {
-      _connecting = false;
+      if (generation == _connectGeneration) _connecting = false;
     }
+  }
+
+  /// Records "this IP worked on this subnet" for the known-network fast
+  /// path (see _tryKnownNetworkFastPath). Only meaningful for Main, which
+  /// is the only role that ever dials out -- Source never calls _connectTo
+  /// at all, so there is nothing useful to remember on that side.
+  void _rememberKnownNetwork(String ip, int port) {
+    if (isSource) return;
+    final peer = _peer;
+    final localIp = _ref.read(connectionStatusProvider).localIp;
+    final prefix = subnetPrefixOf(localIp ?? '');
+    if (peer == null || prefix == null) return;
+    unawaited(_knownNetworkDao.recordSuccess(
+      peerId: peer.id,
+      subnetPrefix: prefix,
+      ip: ip,
+      port: port,
+    ));
   }
 
   /// Fallback discovery: if the beacon and last-known-IP haven't gotten us
@@ -402,13 +443,25 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
   /// period + backoff, see the constants above) since scanning ~254 hosts
   /// has a real, if brief, battery/radio cost -- this is a fallback, not a
   /// routine poll.
-  Future<void> _maybeRunFallbackScan() async {
+  ///
+  /// [immediate] skips the grace-period wait -- used when we already have a
+  /// concrete reason to believe the network changed (see
+  /// _handleNetworkChangedEvent) rather than just "haven't heard from the
+  /// peer in a while". The re-entrancy guard (_scanning) and the backoff
+  /// between actual scan attempts (_scanBackoff) still apply either way, so
+  /// rapid network flapping can't turn this into a routine poll.
+  Future<void> _maybeRunFallbackScan({bool immediate = false}) async {
     if (isSource) return; // only Main ever dials out
     if (state || _connecting || _scanning) return;
 
-    final disconnectedSince = _disconnectedSince;
-    if (disconnectedSince == null) return;
-    if (DateTime.now().difference(disconnectedSince) < _scanGraceDuration) return;
+    if (await _tryKnownNetworkFastPath()) return;
+    if (state || _connecting) return;
+
+    if (!immediate) {
+      final disconnectedSince = _disconnectedSince;
+      if (disconnectedSince == null) return;
+      if (DateTime.now().difference(disconnectedSince) < _scanGraceDuration) return;
+    }
 
     final lastScan = _lastScanAt;
     if (lastScan != null && DateTime.now().difference(lastScan) < _scanBackoff) return;
@@ -456,21 +509,82 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
     }
   }
 
-  /// Manual connection fallback from the settings screen.
-  Future<bool> connectManually(String ip, int port) async {
-    final peer = _peer;
-    final key = _key;
-    if (peer == null || key == null) return false;
+  /// Reacts to the native onNetworkChanged event (see
+  /// MirrorLineChannel.kt's NetworkCallback / onLinkPropertiesChanged),
+  /// which fires on IP/subnet changes that ConnectivityService's
+  /// connectivity-*type* monitoring can't see -- e.g. roaming from one WiFi
+  /// network to another. Without this, the app only notices via the 90s
+  /// heartbeat timeout followed by _maybeRunFallbackScan's 25s grace
+  /// period -- 2+ minutes of silence. Here we already know *why* the
+  /// connection may be stale, so we react immediately instead of waiting.
+  void _handleNetworkChangedEvent(Map data) {
+    final newIp = data['localIp'] as String?;
+    _logger.i('Native reported a network change (new local IP: $newIp).');
+    if (newIp != null) {
+      _ref.read(connectionStatusProvider.notifier).setLocalIp(newIp);
+    }
 
-    final updated = peer.copyWith(ip: ip, port: port);
-    _peer = updated;
-    await _peerDao.update(updated);
-    _ref.read(peerProvider.notifier).applyUpdate(updated);
+    // Don't wait for the heartbeat timeout to notice the old socket is
+    // dead -- same teardown _connectivity.onChanged's offline branch
+    // already uses for the analogous "we know this connection is stale"
+    // situation.
+    _socketManager?.disconnectClient();
+    state = false;
+    _disconnectedSince ??= DateTime.now();
+    _broadcaster.setThrottle(false);
+    _listener.setThrottle(false);
 
-    return _connectTo(ip, port);
+    if (isSource) return; // server role: fast beacon is all there is to do
+    _maybeRunFallbackScan(immediate: true);
+    _scheduleReconnect();
   }
 
-  Future<void> retryNow() => _tryConnectToStoredPeer();
+  /// Fast path for reconnecting to a previously-seen network: before
+  /// falling back to beacon/subnet-scan, try the IP that worked last time
+  /// on this subnet (see KnownNetworkDao). Most home routers hand out the
+  /// same DHCP lease repeatedly, so "returning to a known network" usually
+  /// reconnects in one attempt instead of waiting on discovery.
+  Future<bool> _tryKnownNetworkFastPath() async {
+    if (isSource || state || _connecting) return false;
+    final peer = _peer;
+    if (peer == null) return false;
+    final localIp = await PeerDiscovery().getLocalIp();
+    final prefix = subnetPrefixOf(localIp ?? '');
+    if (prefix == null) return false;
+    final cachedIp = await _knownNetworkDao.lookupIp(peerId: peer.id, subnetPrefix: prefix);
+    if (cachedIp == null || state || _connecting) return false;
+    _logger.i('Known-network cache hit for $prefix.0/24 -> $cachedIp; trying fast reconnect.');
+    return _connectTo(cachedIp, peer.port);
+  }
+
+  /// Manually triggered reconnect: tries the last-known peer address, then
+  /// falls through to the known-network cache and an active subnet scan if
+  /// that didn't work. Backs the Settings "force reconnect" button so the
+  /// user isn't stuck waiting on the beacon/health-timer cadence. No-op on
+  /// Source (never dials out) and while already connected -- the button is
+  /// disabled in that state, so this is just a defensive guard, not the
+  /// primary gate.
+  ///
+  /// Unlike the internal reconnect paths, this doesn't just bail when an
+  /// attempt is already in flight -- "force" means it abandons the stuck
+  /// attempt and dials again immediately, rather than silently doing
+  /// nothing until it resolves on its own.
+  Future<void> forceReconnect() async {
+    if (isSource || state) return;
+    if (_connecting) {
+      // Don't wait for the in-flight attempt: drop its socket (any late
+      // TCP/auth completion is discarded by SocketManager's own generation
+      // guard, see connect()) and stop tracking it as the current attempt
+      // (see the _connectGeneration guard in _connectTo) so the fresh
+      // attempt below isn't blocked by the busy guards.
+      _connectGeneration++;
+      _connecting = false;
+      await _socketManager?.disconnectClient();
+    }
+    await _tryConnectToStoredPeer();
+    if (state || _connecting) return;
+    await _maybeRunFallbackScan(immediate: true);
+  }
 
   // ---------------------------------------------------------------------
   // Telephony events (source device only)
@@ -481,6 +595,10 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
     _telephonyHandlerRegistered = true;
 
     TelephonyChannel.setEventHandler((type, data) async {
+      if (type == 'onNetworkChanged') {
+        _handleNetworkChangedEvent(data);
+        return;
+      }
       if (!isSource) return;
       final now = DateTime.now();
       final id = '${now.millisecondsSinceEpoch}';
@@ -585,6 +703,14 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
 
       case MessageTypes.pairingRequest:
         _ref.read(pairingProvider.notifier).handleIncomingRequest(payload);
+        break;
+
+      case MessageTypes.pairingAck:
+        // Scanned side: the scanner confirmed it persisted its own end --
+        // arrives on this device's regular socket (unlike pairingAccept/
+        // pairingReject below, which the *scanner* receives on its own
+        // separate handshake socket, never here).
+        _ref.read(pairingProvider.notifier).handlePairingAck();
         break;
 
       case MessageTypes.pairingAccept:

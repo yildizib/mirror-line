@@ -29,14 +29,18 @@ class PeerNotifier extends StateNotifier<Peer?> {
     state = await _dao.getPeer();
   }
 
+  /// Not routed through AppLocalizations: this becomes the persisted/
+  /// transmitted device identity shown on the *other* paired device (whose
+  /// app language may differ from this one's), so it needs a locale-neutral
+  /// fallback rather than this device's own language.
   Future<String> _getDeviceName() async {
     try {
       final deviceInfo = DeviceInfoPlugin();
       final androidInfo = await deviceInfo.androidInfo;
       final model = androidInfo.model;
-      return model.isEmpty ? 'Android Cihaz' : model;
+      return model.isEmpty ? 'Android Device' : model;
     } catch (_) {
-      return 'Bilinmeyen Cihaz';
+      return 'Unknown Device';
     }
   }
 

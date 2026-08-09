@@ -5,7 +5,11 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.ConnectivityManager
+import android.net.LinkProperties
+import android.net.Network
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.telecom.TelecomManager
 import android.telephony.SmsManager
 import androidx.core.app.ActivityCompat
@@ -37,6 +41,17 @@ object MirrorLineChannel {
         private set
 
     private var activityRef: WeakReference<MainActivity>? = null
+
+    private var connectivityManager: ConnectivityManager? = null
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private var lastReportedIp: String? = null
+    private val networkHandler = Handler(Looper.getMainLooper())
+    private var pendingNetworkChange: Runnable? = null
+
+    // Android can fire several onLinkPropertiesChanged callbacks in quick
+    // succession for one real network transition (address assigned, then
+    // DNS servers updated, etc.) -- this coalesces them into one Dart event.
+    private const val NETWORK_CHANGE_DEBOUNCE_MS = 300L
 
     private val requiredPermissions = buildList {
         add(Manifest.permission.READ_PHONE_STATE)
@@ -109,6 +124,68 @@ object MirrorLineChannel {
                 else -> result.notImplemented()
             }
         }
+
+        registerNetworkCallback(appContext)
+    }
+
+    /**
+     * Detects network changes that connectivity-type monitoring on the Dart
+     * side (see ConnectivityService) can't see -- e.g. roaming from one WiFi
+     * network to another, where the transport stays "wifi" throughout but
+     * the IP/subnet changes. onLinkPropertiesChanged fires on exactly that.
+     *
+     * Registered once, role-agnostically, from attach() rather than tied to
+     * MirrorLineService's lifecycle: that service only ever runs on the
+     * 'source' device, but it's 'main' that dials out and most needs to
+     * react quickly to having roamed (see ConnectionNotifier._maybeRunFallbackScan,
+     * "only Main ever dials out"). attach() runs for both roles whenever the
+     * shared, process-lifetime FlutterEngine is created, and -- like the
+     * channel itself -- is never torn down for the life of the process, so
+     * the callback's lifetime matches.
+     */
+    private fun registerNetworkCallback(context: Context) {
+        if (networkCallback != null) return
+        try {
+            val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            connectivityManager = cm
+            val callback = object : ConnectivityManager.NetworkCallback() {
+                override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) {
+                    scheduleNetworkChangeCheck(context)
+                }
+
+                override fun onAvailable(network: Network) {
+                    scheduleNetworkChangeCheck(context)
+                }
+            }
+            networkCallback = callback
+            cm.registerDefaultNetworkCallback(callback)
+        } catch (_: Exception) {
+            // Best-effort: if this fails, the app falls back to the
+            // slower connectivity-type-change + heartbeat-timeout path.
+        }
+    }
+
+    // NetworkCallback methods don't run on the main thread unless an
+    // Executor/Handler is passed to registerDefaultNetworkCallback -- same
+    // reason MirrorLineService.enrichFromCallLogThenNotify posts back
+    // through a Handler(Looper.getMainLooper()) before touching the
+    // MethodChannel.
+    private fun scheduleNetworkChangeCheck(context: Context) {
+        pendingNetworkChange?.let { networkHandler.removeCallbacks(it) }
+        val check = Runnable {
+            val ip = getLocalIp(context)
+            // Native-side dedup: only notify Dart when the IP actually
+            // changed, so a flapping link doesn't spam the channel.
+            if (ip != null && ip != lastReportedIp) {
+                lastReportedIp = ip
+                try {
+                    channel?.invokeMethod("onNetworkChanged", mapOf("localIp" to ip))
+                } catch (_: Exception) {
+                }
+            }
+        }
+        pendingNetworkChange = check
+        networkHandler.postDelayed(check, NETWORK_CHANGE_DEBOUNCE_MS)
     }
 
     /** Called by MainActivity.onRequestPermissionsResult once granted. */

@@ -171,6 +171,7 @@ class _GroupedCallCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final l = AppLocalizations.of(context);
     final last = group.lastCall;
     final multi = group.count > 1;
 
@@ -242,7 +243,7 @@ class _GroupedCallCard extends StatelessWidget {
                   onPressed: onReject,
                 )
               else if (!isSelecting)
-                _StatusChip(label: group.statusLabel, color: _statusColor(theme, last.status)),
+                _StatusChip(label: group.statusLabel(l), color: _statusColor(theme, last.status)),
             ],
           ),
         ),

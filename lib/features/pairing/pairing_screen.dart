@@ -224,7 +224,7 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
     }
 
     // Show error if any.
-    if (pairingState.errorMessage != null) {
+    if (pairingState.errorCode != null) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -232,7 +232,7 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
             Icon(Icons.error_outline_rounded, size: 64, color: Theme.of(context).colorScheme.error),
             const SizedBox(height: AppSpacing.md),
             Text(
-              pairingState.errorMessage!,
+              pairingErrorText(l, pairingState.errorCode!, pairingState.errorDetail),
               style: const TextStyle(fontSize: 16),
               textAlign: TextAlign.center,
             ),
@@ -401,22 +401,37 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
                 );
                 await ref.read(connectionProvider.notifier).refresh();
               }
+              // acceptRequest now waits for the scanner's ack before
+              // committing (see pairing_provider.dart) -- it can come back
+              // with an errorCode if that ack never arrived, so this can
+              // no longer unconditionally claim success.
+              final latest = ref.read(pairingProvider);
+              final errorCode = latest.errorCode;
+              final succeeded = socketManager != null && errorCode == null;
               if (mounted) {
                 setState(() => _isProcessing = false);
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
-                    content: Text(
-                        l.pairingPairedWith(pairingState.remoteDeviceName ?? l.pairingUnknownDevice)),
-                    backgroundColor: Theme.of(context).status.success,
+                    content: Text(succeeded
+                        ? l.pairingPairedWith(
+                            pairingState.remoteDeviceName ?? l.pairingUnknownDevice)
+                        : (errorCode == null
+                            ? l.pairingInvalidQr
+                            : pairingErrorText(l, errorCode, latest.errorDetail))),
+                    backgroundColor: succeeded
+                        ? Theme.of(context).status.success
+                        : Theme.of(context).colorScheme.error,
                   ),
                 );
               }
               if (ctx.mounted) {
                 Navigator.of(ctx).pop();
               }
-              Future.delayed(const Duration(milliseconds: 500), () {
-                if (mounted) Navigator.of(context).pop();
-              });
+              if (succeeded) {
+                Future.delayed(const Duration(milliseconds: 500), () {
+                  if (mounted) Navigator.of(context).pop();
+                });
+              }
             },
             child: Text(l.pairingConfirm),
           ),
@@ -543,7 +558,7 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
 
     if (!mounted) return;
     final pairingState = ref.read(pairingProvider);
-    if (pairingState.errorMessage == null) {
+    if (pairingState.errorCode == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(l.pairingPairedWith(scannedName)),

@@ -9,41 +9,74 @@ import 'package:mirrorline/core/network/socket_manager.dart';
 import 'package:mirrorline/core/security/crypto_manager.dart';
 import 'package:mirrorline/core/security/key_store.dart';
 import 'package:mirrorline/features/pairing/peer_provider.dart';
+import 'package:mirrorline/l10n/app_localizations.dart';
+
+/// What went wrong during pairing, kept as a code (not a rendered string)
+/// so it can be localized at the widget layer -- see [pairingErrorText].
+enum PairingErrorCode {
+  connectionFailed,
+  rejectedOrTimedOut,
+  handshakeFailed,
+  rejected,
+  ackTimeout,
+}
+
+/// Renders a [PairingErrorCode] into user-facing text. A standalone
+/// function (not a PairingState method) since PairingState has no
+/// BuildContext to resolve AppLocalizations with.
+String pairingErrorText(AppLocalizations l, PairingErrorCode code, String? detail) {
+  return switch (code) {
+    PairingErrorCode.connectionFailed => l.pairingErrorConnectionFailed,
+    PairingErrorCode.rejectedOrTimedOut => l.pairingErrorRejectedOrTimedOut,
+    PairingErrorCode.handshakeFailed =>
+      detail == null ? l.pairingErrorHandshake : '${l.pairingErrorHandshake}: $detail',
+    PairingErrorCode.rejected => l.pairingErrorRejected,
+    PairingErrorCode.ackTimeout => l.pairingErrorAckTimeout,
+  };
+}
 
 /// Pairing state visible to the UI.
 class PairingState {
   final bool isWaitingForAccept; // Scanner side: sent request, waiting reply
   final bool isShowingRequest; // Scanned side: incoming request, awaiting user
+  final bool isFinalizing; // Scanned side: sent accept, waiting for scanner's ack
   final String? remoteDeviceName; // Other device's name
   final String? remotePeerId; // Other device's peer id
   final String? verificationCode; // 6-digit code shared via QR/key
-  final String? errorMessage;
+  final PairingErrorCode? errorCode;
+  final String? errorDetail; // extra context for PairingErrorCode.handshakeFailed
 
   const PairingState({
     this.isWaitingForAccept = false,
     this.isShowingRequest = false,
+    this.isFinalizing = false,
     this.remoteDeviceName,
     this.remotePeerId,
     this.verificationCode,
-    this.errorMessage,
+    this.errorCode,
+    this.errorDetail,
   });
 
   PairingState copyWith({
     bool? isWaitingForAccept,
     bool? isShowingRequest,
+    bool? isFinalizing,
     String? remoteDeviceName,
     String? remotePeerId,
     String? verificationCode,
-    String? errorMessage,
+    PairingErrorCode? errorCode,
+    String? errorDetail,
     bool clearError = false,
   }) {
     return PairingState(
       isWaitingForAccept: isWaitingForAccept ?? this.isWaitingForAccept,
       isShowingRequest: isShowingRequest ?? this.isShowingRequest,
+      isFinalizing: isFinalizing ?? this.isFinalizing,
       remoteDeviceName: remoteDeviceName ?? this.remoteDeviceName,
       remotePeerId: remotePeerId ?? this.remotePeerId,
       verificationCode: verificationCode ?? this.verificationCode,
-      errorMessage: clearError ? null : errorMessage ?? this.errorMessage,
+      errorCode: clearError ? null : errorCode ?? this.errorCode,
+      errorDetail: clearError ? null : errorDetail ?? this.errorDetail,
     );
   }
 }
@@ -75,6 +108,13 @@ class PairingNotifier extends StateNotifier<PairingState> {
   SocketManager? _handshakeSocket;
   SecretKey? _handshakeKey;
   Completer<bool>? _acceptCompleter;
+
+  /// Scanned side: resolves once the scanner's pairingAck arrives (or times
+  /// out). Persisting the paired peer (applyPairedPeer) is gated on this so
+  /// a lost pairingAccept can't leave the scanned device believing it's
+  /// paired while the scanner never actually completed its own side --
+  /// same reasoning as SocketManager's authOk/authAck two-step commit.
+  Completer<bool>? _pairAckCompleter;
 
   /// Stashed scanner info on the *scanned* side (set by handleIncomingRequest).
   Map<String, dynamic>? _pendingScannerInfo;
@@ -135,7 +175,7 @@ class PairingNotifier extends StateNotifier<PairingState> {
     try {
       final ok = await _handshakeSocket!.connect(scannedIp, scannedPort, key);
       if (!ok) {
-        state = const PairingState(errorMessage: 'Bağlantı kurulamadı.');
+        state = const PairingState(errorCode: PairingErrorCode.connectionFailed);
         await _cleanupSocket();
         return;
       }
@@ -169,15 +209,19 @@ class PairingNotifier extends StateNotifier<PairingState> {
               deviceName: scannedDeviceName,
               publicKey: scannedPublicKey,
             );
+        // Tell the scanned side we actually persisted our end -- see
+        // pairingAck's doc comment in message_protocol.dart. Sent on the
+        // same handshake socket before it's torn down below.
+        await _handshakeSocket?.sendMessage(MessageTypes.pairingAck, {});
       } else {
         state = state.copyWith(
           isWaitingForAccept: false,
-          errorMessage: 'Eşleşme reddedildi veya zaman aşımına uğradı.',
+          errorCode: PairingErrorCode.rejectedOrTimedOut,
         );
       }
     } catch (e) {
       _logger.e('Pairing sendRequest failed: $e');
-      state = PairingState(errorMessage: 'Eşleşme hatası: $e');
+      state = PairingState(errorCode: PairingErrorCode.handshakeFailed, errorDetail: '$e');
     } finally {
       await _cleanupSocket();
     }
@@ -203,7 +247,7 @@ class PairingNotifier extends StateNotifier<PairingState> {
         _logger.i('Pairing rejected by remote.');
         state = state.copyWith(
           isWaitingForAccept: false,
-          errorMessage: 'Eşleşme reddedildi.',
+          errorCode: PairingErrorCode.rejected,
         );
         if (_acceptCompleter != null && !_acceptCompleter!.isCompleted) {
           _acceptCompleter!.complete(false);
@@ -219,7 +263,11 @@ class PairingNotifier extends StateNotifier<PairingState> {
   /// Called when a `pairingRequest` message arrives on the *scanned* device.
   /// Updates state so the UI can show a confirmation dialog.
   void handleIncomingRequest(Map<String, dynamic> payload) {
-    final deviceName = payload['deviceName'] as String? ?? 'Bilinmeyen Cihaz';
+    // Left null (not defaulted here) so the UI's own
+    // `remoteDeviceName ?? l.pairingUnknownDevice` fallback -- localized to
+    // *this* device's language -- is what actually renders, instead of a
+    // fixed-language placeholder baked in before the widget ever sees it.
+    final deviceName = payload['deviceName'] as String?;
     final peerId = payload['peerId'] as String? ?? '';
     final publicKey = payload['publicKey'] as String? ?? '';
 
@@ -248,6 +296,15 @@ class PairingNotifier extends StateNotifier<PairingState> {
   /// [socketManager] is the live connection from ConnectionNotifier so we
   /// can reply on the same channel.  [scannerInfo] carries the scanner's
   /// identity to persist as our peer.
+  ///
+  /// Deliberately does NOT persist the paired peer until the scanner's
+  /// pairingAck confirms it actually completed its own side too (see
+  /// pairingAck's doc comment). Without this, a pairingAccept lost after
+  /// being sent (dropped packet, scanner already gave up waiting) used to
+  /// leave this device believing it was paired while the scanner had
+  /// nothing saved at all -- an asymmetric state a plain re-scan couldn't
+  /// cleanly recover from, since this device's permanent socket would then
+  /// demand real challenge-response auth the scanner isn't set up to do.
   Future<void> acceptRequest({
     required SocketManager socketManager,
     required Map<String, dynamic> scannerInfo,
@@ -256,10 +313,26 @@ class PairingNotifier extends StateNotifier<PairingState> {
     final myPublicKey = await KeyStore.ensureDeviceKeyPair();
 
     await socketManager.sendMessage(MessageTypes.pairingAccept, {
-      'deviceName': myPeer?.deviceName ?? 'Bilinmeyen',
+      // Sent to the other device as identity data -- locale-neutral
+      // fallback, same reasoning as peer_provider.dart's _getDeviceName().
+      'deviceName': myPeer?.deviceName ?? 'Unknown Device',
       'peerId': myPeer?.id ?? '',
       'publicKey': myPublicKey,
     });
+
+    state = state.copyWith(isShowingRequest: false, isFinalizing: true);
+
+    _pairAckCompleter = Completer<bool>();
+    final acked = await _pairAckCompleter!.future.timeout(
+      const Duration(seconds: 15),
+      onTimeout: () => false,
+    );
+
+    if (!acked) {
+      state = const PairingState(errorCode: PairingErrorCode.ackTimeout);
+      _pendingScannerInfo = null;
+      return;
+    }
 
     // Persist the scanner's full identity (id, name, public key), and its
     // real IP straight from the live TCP socket (more trustworthy than
@@ -267,7 +340,9 @@ class PairingNotifier extends StateNotifier<PairingState> {
     // represent the other device after pairing, on both sides, regardless
     // of who scanned whom.
     final scannerId = scannerInfo['peerId'] as String? ?? '';
-    final scannerDeviceName = scannerInfo['deviceName'] as String? ?? 'Bilinmeyen Cihaz';
+    // Persisted identity data -- locale-neutral fallback, same reasoning as
+    // peer_provider.dart's _getDeviceName().
+    final scannerDeviceName = scannerInfo['deviceName'] as String? ?? 'Unknown Device';
     final scannerPublicKey = scannerInfo['publicKey'] as String? ?? '';
     if (scannerId.isNotEmpty && scannerPublicKey.isNotEmpty) {
       await _ref.read(peerProvider.notifier).applyPairedPeer(
@@ -281,6 +356,14 @@ class PairingNotifier extends StateNotifier<PairingState> {
     state = const PairingState();
   }
 
+  /// Scanned side: the scanner confirmed it persisted its own end. Safe to
+  /// commit our side now (see acceptRequest).
+  void handlePairingAck() {
+    if (_pairAckCompleter != null && !_pairAckCompleter!.isCompleted) {
+      _pairAckCompleter!.complete(true);
+    }
+  }
+
   /// Called by the UI when the *scanned* device user rejects the request.
   Future<void> rejectRequest({required SocketManager socketManager}) async {
     await socketManager.sendMessage(MessageTypes.pairingReject, {});
@@ -292,6 +375,9 @@ class PairingNotifier extends StateNotifier<PairingState> {
     state = const PairingState();
     if (_acceptCompleter != null && !_acceptCompleter!.isCompleted) {
       _acceptCompleter!.complete(false);
+    }
+    if (_pairAckCompleter != null && !_pairAckCompleter!.isCompleted) {
+      _pairAckCompleter!.complete(false);
     }
     _pendingScannerInfo = null;
     _cleanupSocket();

@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logger/logger.dart';
 import 'package:mirrorline/core/data/models/call_event.dart';
 import 'package:mirrorline/core/network/message_protocol.dart' show MessageTypes, MirrorMessage;
+import 'package:mirrorline/core/services/locale_service.dart';
 import 'package:mirrorline/core/services/notification_service.dart';
 import 'package:mirrorline/core/telephony/telephony_channel.dart';
 import 'package:mirrorline/features/calls/call_list_provider.dart';
@@ -173,10 +174,11 @@ class CallEventHandler {
           createdAt: now,
         );
         await _ref.read(callListProvider.notifier).add(event);
+        final l = appL10n(_ref);
         await _notify(
           id: int.tryParse(id) ?? 1,
-          title: event.displayName,
-          body: event.statusLabel,
+          title: event.displayName(l),
+          body: event.statusLabel(l),
           payload: NotificationPayload(type: 'call', id: id),
         );
         break;
@@ -206,10 +208,11 @@ class CallEventHandler {
           // of just sitting there saying "Çalıyor" forever.
           final updated = _findCall(id);
           if (updated != null) {
+            final l = appL10n(_ref);
             await _notify(
               id: int.tryParse(id) ?? 1,
-              title: updated.displayName,
-              body: updated.statusLabel,
+              title: updated.displayName(l),
+              body: updated.statusLabel(l),
               payload: NotificationPayload(type: 'call', id: id),
             );
           }
@@ -226,10 +229,11 @@ class CallEventHandler {
             );
         final enriched = _findCall(id);
         if (enriched != null) {
+          final l = appL10n(_ref);
           await _notify(
             id: int.tryParse(id) ?? 1,
-            title: enriched.displayName,
-            body: enriched.statusLabel,
+            title: enriched.displayName(l),
+            body: enriched.statusLabel(l),
             payload: NotificationPayload(type: 'call', id: id),
           );
         }

@@ -3,6 +3,19 @@ import 'dart:io';
 
 import 'package:logger/logger.dart';
 
+/// First three octets of a dotted-quad IPv4 address (e.g. "192.168.1" from
+/// "192.168.1.42"), or null if it doesn't look like one. Used both by
+/// [SubnetScanner] (to bound its /24 scan) and by the known-network
+/// reconnect cache (see KnownNetworkDao) as a permission-free stand-in for
+/// "which network am I on" -- weaker than a real BSSID (two different
+/// routers can share the same private subnet range) but requires no
+/// location permission, which this app doesn't otherwise request.
+String? subnetPrefixOf(String ip) {
+  final parts = ip.split('.');
+  if (parts.length != 4) return null;
+  return '${parts[0]}.${parts[1]}.${parts[2]}';
+}
+
 /// Fallback peer discovery for when the passive UDP beacon isn't getting
 /// through (some routers restrict broadcast/multicast even within the same
 /// subnet, even with AP isolation off). Actively probes the local /24 for a
@@ -24,7 +37,7 @@ class SubnetScanner {
     Duration perHostTimeout = const Duration(milliseconds: 400),
     int concurrency = 24,
   }) async {
-    final base = _subnetBase(localIp);
+    final base = subnetPrefixOf(localIp);
     if (base == null) return null;
 
     _logger.i('Scanning $base.0/24 for port $port (fallback discovery)...');
@@ -57,14 +70,5 @@ class SubnetScanner {
     } finally {
       socket?.destroy();
     }
-  }
-
-  /// First three octets of a dotted-quad IPv4 address, or null if it
-  /// doesn't look like one. Assumes a /24 -- true for the overwhelming
-  /// majority of home/consumer routers this app targets.
-  String? _subnetBase(String ip) {
-    final parts = ip.split('.');
-    if (parts.length != 4) return null;
-    return '${parts[0]}.${parts[1]}.${parts[2]}';
   }
 }

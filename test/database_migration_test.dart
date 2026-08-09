@@ -1,5 +1,5 @@
 // Exercises AppDatabase's real onCreate/onUpgrade callbacks (not a
-// reimplementation of them) so schema changes across the app's 4 released
+// reimplementation of them) so schema changes across the app's released
 // versions are verified to (a) not lose existing data and (b) leave the
 // expected columns/defaults in place for a fresh install.
 import 'package:flutter_test/flutter_test.dart';
@@ -39,6 +39,12 @@ void main() {
     expect(
       smsColumns,
       containsAll(['id', 'thread_id', 'address', 'contact_name', 'body', 'status']),
+    );
+
+    final knownNetworkColumns = await _columnNames(db, 'known_network');
+    expect(
+      knownNetworkColumns,
+      containsAll(['peer_id', 'subnet_prefix', 'ip', 'port', 'last_seen_at']),
     );
 
     await db.close();
@@ -125,6 +131,9 @@ void main() {
     final smsColumns = await _columnNames(db, 'sms_message');
     expect(smsColumns, contains('contact_name'));
 
+    final knownNetworkColumns = await _columnNames(db, 'known_network');
+    expect(knownNetworkColumns, containsAll(['peer_id', 'subnet_prefix', 'ip', 'port', 'last_seen_at']));
+
     await db.close();
   });
 
@@ -161,6 +170,55 @@ void main() {
 
     final peerColumns = await _columnNames(db, 'peer');
     expect(peerColumns, contains('public_key'));
+
+    await db.close();
+  });
+
+  test('upgrading from v4 adds the known_network table', () async {
+    final db = await databaseFactory.openDatabase(inMemoryDatabasePath, options: OpenDatabaseOptions(version: 4));
+
+    await db.execute('''
+      CREATE TABLE peer (
+        id TEXT PRIMARY KEY, device_name TEXT NOT NULL DEFAULT "", role TEXT NOT NULL,
+        ip TEXT NOT NULL, port INTEGER NOT NULL, key TEXT NOT NULL,
+        public_key TEXT NOT NULL DEFAULT "", created_at INTEGER NOT NULL
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE call_event (
+        id TEXT PRIMARY KEY, direction TEXT NOT NULL, number TEXT NOT NULL,
+        contact_name TEXT NOT NULL DEFAULT "", timestamp INTEGER NOT NULL,
+        encrypted TEXT NOT NULL, status TEXT NOT NULL, created_at INTEGER NOT NULL
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE sms_message (
+        id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, address TEXT NOT NULL,
+        contact_name TEXT NOT NULL DEFAULT "", body TEXT NOT NULL, encrypted TEXT NOT NULL,
+        direction TEXT NOT NULL, status TEXT NOT NULL, timestamp INTEGER NOT NULL,
+        created_at INTEGER NOT NULL
+      )
+    ''');
+
+    // known_network doesn't exist yet pre-upgrade -- confirm that, then
+    // confirm the real v4->v5 upgrade path creates it.
+    expect(await _columnNames(db, 'known_network'), isEmpty);
+
+    await AppDatabase.instance.upgradeTables(db, 4, AppDatabase.schemaVersion);
+
+    final knownNetworkColumns = await _columnNames(db, 'known_network');
+    expect(knownNetworkColumns, containsAll(['peer_id', 'subnet_prefix', 'ip', 'port', 'last_seen_at']));
+
+    await db.insert('known_network', {
+      'peer_id': 'peer-1',
+      'subnet_prefix': '192.168.1',
+      'ip': '192.168.1.42',
+      'port': 45678,
+      'last_seen_at': 1700000000000,
+    });
+    final rows = await db.query('known_network');
+    expect(rows, hasLength(1));
+    expect(rows.first['ip'], '192.168.1.42');
 
     await db.close();
   });

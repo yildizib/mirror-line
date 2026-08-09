@@ -22,9 +22,6 @@ class SettingsScreen extends ConsumerStatefulWidget {
 }
 
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
-  final _ipController = TextEditingController();
-  final _portController = TextEditingController(text: '45678');
-
   String? _selfDeviceName;
   String? _selfPublicKey;
   bool _hasKnownAutoStartScreen = false;
@@ -58,13 +55,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final known = await TelephonyChannel.hasKnownBatterySaverSettings();
     if (!mounted) return;
     setState(() => _hasKnownBatterySaverScreen = known);
-  }
-
-  @override
-  void dispose() {
-    _ipController.dispose();
-    _portController.dispose();
-    super.dispose();
   }
 
   @override
@@ -117,8 +107,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       ],
                     ),
                     const SizedBox(height: AppSpacing.md),
-                    _infoRow(context, 'IP', status.localIp ?? peer.ip),
-                    if (_selfPublicKey != null) _infoRow(context, 'Public Key', _selfPublicKey!),
+                    _infoRow(context, l.settingsIpLabel, status.localIp ?? peer.ip),
+                    if (_selfPublicKey != null) _infoRow(context, l.settingsPublicKeyLabel, _selfPublicKey!),
                     if (peer.publicKey.isEmpty) ...[
                       const SizedBox(height: AppSpacing.md),
                       Text(
@@ -166,9 +156,24 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ],
                 ),
                 const SizedBox(height: AppSpacing.md),
-                _infoRow(context, 'IP', '${peer.ip}:${peer.port}'),
-                _infoRow(context, l.settingsPort, peer.role == 'main' ? '${l.roleSource} (karşı)' : '${l.roleMain} (karşı)'),
-                _infoRow(context, 'Public Key', peer.publicKey),
+                _infoRow(context, l.settingsIpLabel, '${peer.ip}:${peer.port}'),
+                _infoRow(
+                  context,
+                  l.settingsPort,
+                  '${peer.role == 'main' ? l.roleSource : l.roleMain}${l.settingsCounterpartSuffix}',
+                ),
+                _infoRow(context, l.settingsPublicKeyLabel, peer.publicKey),
+                const SizedBox(height: AppSpacing.sm),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton.icon(
+                    onPressed: isConnected
+                        ? null
+                        : () => ref.read(connectionProvider.notifier).forceReconnect(),
+                    icon: const Icon(Icons.refresh_rounded, size: 18),
+                    label: Text(l.settingsForceReconnect),
+                  ),
+                ),
               ],
             ),
           ),
@@ -181,7 +186,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _infoRow(context, l.settingsLocalIp, status.localIp ?? 'belirlenemedi'),
+              _infoRow(context, l.settingsLocalIp, status.localIp ?? l.settingsIpUnknown),
               _infoRow(context, l.settingsPeerIp, status.peerIp ?? '-'),
               _infoRow(
                 context,
@@ -196,10 +201,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     : '${status.lastBeaconIp} (${_formatTime(status.lastBeaconAt!)})',
               ),
               _infoRow(context, l.settingsConnectAttempts, '${status.connectAttempts}'),
-              if (status.lastError != null) ...[
+              if (status.lastErrorCode != null) ...[
                 const SizedBox(height: AppSpacing.sm),
                 Text(
-                  status.lastError!,
+                  connectionErrorText(l, status.lastErrorCode!, status.lastErrorDetail),
                   style: TextStyle(fontSize: 12, color: theme.colorScheme.error),
                 ),
               ],
@@ -223,58 +228,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           error: (err, _) => Text(l.commonError(err.toString())),
         ),
 
-        // Actions
         const SizedBox(height: AppSpacing.lg),
-        _sectionTitle(context, l.settingsActions),
-        _sectionCard(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  _connectionStatusChip(context, isConnected: isConnected, isConnecting: isConnecting),
-                  const Spacer(),
-                  if (!isConnected && !isConnecting)
-                    TextButton(
-                      onPressed: () => ref.read(connectionProvider.notifier).retryNow(),
-                      child: Text(l.settingsRetry),
-                    ),
-                ],
-              ),
-              const SizedBox(height: AppSpacing.sm),
-              TextField(
-                controller: _ipController,
-                keyboardType: TextInputType.number,
-                decoration: InputDecoration(
-                  labelText: l.settingsManualIp,
-                  hintText: l.settingsIpHint,
-                  isDense: true,
-                ),
-              ),
-              const SizedBox(height: AppSpacing.sm),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _portController,
-                      keyboardType: TextInputType.number,
-                      decoration: InputDecoration(
-                        labelText: l.settingsPort,
-                        isDense: true,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: AppSpacing.sm),
-                  FilledButton(
-                    onPressed: () => _connectManually(context, ref),
-                    child: Text(l.settingsConnect),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: AppSpacing.sm),
         FilledButton.icon(
           onPressed: () => Navigator.push(
             context,
@@ -492,8 +446,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('IP: ${p.ip}:${p.port}'),
-            Text('Rol: ${p.role == 'main' ? l.roleMain : l.roleSource}'),
+            Text('${l.settingsIpLabel}: ${p.ip}:${p.port}'),
+            Text('${l.settingsRoleLabel}: ${p.role == 'main' ? l.roleMain : l.roleSource}'),
           ],
         ),
         trailing: IconButton(
@@ -510,29 +464,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   String _formatTime(DateTime time) {
     return '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}:${time.second.toString().padLeft(2, '0')}';
-  }
-
-  void _connectManually(BuildContext context, WidgetRef ref) async {
-    final ip = _ipController.text.trim();
-    final port = int.tryParse(_portController.text.trim()) ?? 45678;
-    final l = AppLocalizations.of(context);
-
-    if (ip.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(l.settingsEnterIp)),
-      );
-      return;
-    }
-
-    final ok = await ref.read(connectionProvider.notifier).connectManually(ip, port);
-    if (!context.mounted) return;
-    final theme = Theme.of(context);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(ok ? l.settingsConnected : l.settingsConnectFailed),
-        backgroundColor: ok ? theme.status.success : theme.colorScheme.error,
-      ),
-    );
   }
 
   void _confirmReset(BuildContext context, WidgetRef ref) {
