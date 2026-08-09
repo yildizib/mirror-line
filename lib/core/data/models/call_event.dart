@@ -1,3 +1,5 @@
+import 'package:mirrorline/l10n/app_localizations.dart';
+
 class CallEvent {
   final String id;
   final String direction; // 'incoming' | 'outgoing'
@@ -54,23 +56,30 @@ class CallEvent {
         createdAt: createdAt,
       );
 
+  /// Locale-independent grouping identity for the calls list (contact name
+  /// if resolved, else the raw number, else '' so all "unknown number"
+  /// calls still land in one group as before) -- deliberately not the
+  /// (localized) [displayName] text, so grouping doesn't depend on the
+  /// active language.
+  String get groupKey => contactName.isNotEmpty ? contactName : number;
+
   /// Display name for UI/notifications: contact name if resolved, else the
   /// raw phone number, else a placeholder when neither is known (the
   /// carrier/OS never delivered a number for this call).
-  String get displayName {
+  String displayName(AppLocalizations l) {
     if (contactName.isNotEmpty) return contactName;
     if (number.isNotEmpty) return number;
-    return 'Bilinmeyen numara';
+    return l.callUnknownNumber;
   }
 
-  /// Turkish status label shared by the calls list UI and notifications.
-  String get statusLabel => switch (status) {
-        'ringing' => 'Çalıyor',
-        'answered' => 'Cevaplandı',
-        'missed' => 'Cevapsız',
-        'rejected' => 'Reddedildi',
-        'ended' => 'Sonlandı',
-        'failed' => 'Gönderilemedi',
+  /// Status label shared by the calls list UI and notifications.
+  String statusLabel(AppLocalizations l) => switch (status) {
+        'ringing' => l.callStatusRinging,
+        'answered' => l.callStatusAnswered,
+        'missed' => l.callStatusMissed,
+        'rejected' => l.callStatusRejected,
+        'ended' => l.callStatusEnded,
+        'failed' => l.callStatusFailed,
         _ => status,
       };
 }

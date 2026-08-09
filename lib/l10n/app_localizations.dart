@@ -344,6 +344,36 @@ abstract class AppLocalizations {
   /// **'Bilinmeyen Cihaz'**
   String get pairingUnknownDevice;
 
+  /// No description provided for @pairingErrorConnectionFailed.
+  ///
+  /// In tr, this message translates to:
+  /// **'Bağlantı kurulamadı.'**
+  String get pairingErrorConnectionFailed;
+
+  /// No description provided for @pairingErrorRejectedOrTimedOut.
+  ///
+  /// In tr, this message translates to:
+  /// **'Eşleşme reddedildi veya zaman aşımına uğradı.'**
+  String get pairingErrorRejectedOrTimedOut;
+
+  /// No description provided for @pairingErrorHandshake.
+  ///
+  /// In tr, this message translates to:
+  /// **'Eşleşme hatası'**
+  String get pairingErrorHandshake;
+
+  /// No description provided for @pairingErrorRejected.
+  ///
+  /// In tr, this message translates to:
+  /// **'Eşleşme reddedildi.'**
+  String get pairingErrorRejected;
+
+  /// No description provided for @pairingErrorAckTimeout.
+  ///
+  /// In tr, this message translates to:
+  /// **'Eşleşme tamamlanamadı (karşı taraftan onay gelmedi). Tekrar deneyin.'**
+  String get pairingErrorAckTimeout;
+
   /// No description provided for @settingsThisDevice.
   ///
   /// In tr, this message translates to:
@@ -434,41 +464,77 @@ abstract class AppLocalizations {
   /// **'Henüz eşleşmiş cihaz yok.'**
   String get settingsNoPairedDevices;
 
-  /// No description provided for @settingsActions.
-  ///
-  /// In tr, this message translates to:
-  /// **'Eylemler'**
-  String get settingsActions;
-
-  /// No description provided for @settingsRetry.
-  ///
-  /// In tr, this message translates to:
-  /// **'Yeniden Dene'**
-  String get settingsRetry;
-
-  /// No description provided for @settingsManualIp.
-  ///
-  /// In tr, this message translates to:
-  /// **'Karşı cihaz IP (manuel)'**
-  String get settingsManualIp;
-
-  /// No description provided for @settingsIpHint.
-  ///
-  /// In tr, this message translates to:
-  /// **'örn. 192.168.1.20'**
-  String get settingsIpHint;
-
   /// No description provided for @settingsPort.
   ///
   /// In tr, this message translates to:
   /// **'Port'**
   String get settingsPort;
 
-  /// No description provided for @settingsConnect.
+  /// No description provided for @settingsIpLabel.
   ///
   /// In tr, this message translates to:
-  /// **'Bağlan'**
-  String get settingsConnect;
+  /// **'IP'**
+  String get settingsIpLabel;
+
+  /// No description provided for @settingsPublicKeyLabel.
+  ///
+  /// In tr, this message translates to:
+  /// **'Public Key'**
+  String get settingsPublicKeyLabel;
+
+  /// No description provided for @settingsRoleLabel.
+  ///
+  /// In tr, this message translates to:
+  /// **'Rol'**
+  String get settingsRoleLabel;
+
+  /// No description provided for @settingsCounterpartSuffix.
+  ///
+  /// In tr, this message translates to:
+  /// **' (karşı)'**
+  String get settingsCounterpartSuffix;
+
+  /// No description provided for @settingsIpUnknown.
+  ///
+  /// In tr, this message translates to:
+  /// **'belirlenemedi'**
+  String get settingsIpUnknown;
+
+  /// No description provided for @settingsForceReconnect.
+  ///
+  /// In tr, this message translates to:
+  /// **'Yeniden Bağlan'**
+  String get settingsForceReconnect;
+
+  /// No description provided for @settingsForceConnectTitle.
+  ///
+  /// In tr, this message translates to:
+  /// **'Bağlanıyor...'**
+  String get settingsForceConnectTitle;
+
+  /// No description provided for @settingsForceConnectNoPeer.
+  ///
+  /// In tr, this message translates to:
+  /// **'Eşleştirilmiş cihaz yok'**
+  String get settingsForceConnectNoPeer;
+
+  /// No description provided for @settingsForceConnectDone.
+  ///
+  /// In tr, this message translates to:
+  /// **'Bağlandı'**
+  String get settingsForceConnectDone;
+
+  /// No description provided for @settingsForceConnectFailed.
+  ///
+  /// In tr, this message translates to:
+  /// **'Bağlanamadı'**
+  String get settingsForceConnectFailed;
+
+  /// No description provided for @settingsForceConnectClose.
+  ///
+  /// In tr, this message translates to:
+  /// **'Kapat'**
+  String get settingsForceConnectClose;
 
   /// No description provided for @settingsPairDevice.
   ///
@@ -590,24 +656,6 @@ abstract class AppLocalizations {
   /// **'Cihaz sıfırlandı'**
   String get settingsResetDone;
 
-  /// No description provided for @settingsEnterIp.
-  ///
-  /// In tr, this message translates to:
-  /// **'IP adresi girin'**
-  String get settingsEnterIp;
-
-  /// No description provided for @settingsConnected.
-  ///
-  /// In tr, this message translates to:
-  /// **'Bağlantı kuruldu'**
-  String get settingsConnected;
-
-  /// No description provided for @settingsConnectFailed.
-  ///
-  /// In tr, this message translates to:
-  /// **'Bağlantı kurulamadı'**
-  String get settingsConnectFailed;
-
   /// No description provided for @settingsLanguage.
   ///
   /// In tr, this message translates to:
@@ -643,6 +691,66 @@ abstract class AppLocalizations {
   /// In tr, this message translates to:
   /// **'Bağlantı yok. Eş cihaz aranıyor; aynı WiFi ağında olduğunuzdan emin olun.'**
   String get connBannerOffline;
+
+  /// No description provided for @connErrorServerStartFailed.
+  ///
+  /// In tr, this message translates to:
+  /// **'Sunucu başlatılamadı'**
+  String get connErrorServerStartFailed;
+
+  /// No description provided for @connErrorPeerIpUnknown.
+  ///
+  /// In tr, this message translates to:
+  /// **'Eş cihaz IP bilinmiyor (beacon bekleniyor)'**
+  String get connErrorPeerIpUnknown;
+
+  /// No description provided for @connErrorConnectFailed.
+  ///
+  /// In tr, this message translates to:
+  /// **'Bağlantı başarısız (sunucu kapalı veya ulaşılamıyor)'**
+  String get connErrorConnectFailed;
+
+  /// No description provided for @callStatusRinging.
+  ///
+  /// In tr, this message translates to:
+  /// **'Çalıyor'**
+  String get callStatusRinging;
+
+  /// No description provided for @callStatusAnswered.
+  ///
+  /// In tr, this message translates to:
+  /// **'Cevaplandı'**
+  String get callStatusAnswered;
+
+  /// No description provided for @callStatusMissed.
+  ///
+  /// In tr, this message translates to:
+  /// **'Cevapsız'**
+  String get callStatusMissed;
+
+  /// No description provided for @callStatusRejected.
+  ///
+  /// In tr, this message translates to:
+  /// **'Reddedildi'**
+  String get callStatusRejected;
+
+  /// No description provided for @callStatusEnded.
+  ///
+  /// In tr, this message translates to:
+  /// **'Sonlandı'**
+  String get callStatusEnded;
+
+  /// No description provided for @callStatusFailed.
+  ///
+  /// In tr, this message translates to:
+  /// **'Gönderilemedi'**
+  String get callStatusFailed;
+
+  /// No description provided for @callUnknownNumber.
+  ///
+  /// In tr, this message translates to:
+  /// **'Bilinmeyen numara'**
+  String get callUnknownNumber;
 
   /// No description provided for @callsEmpty.
   ///
@@ -697,6 +805,42 @@ abstract class AppLocalizations {
   /// In tr, this message translates to:
   /// **'{count} arama kalıcı olarak silinecek.'**
   String callsDeleteOne(int count);
+
+  /// No description provided for @smsStatusReceived.
+  ///
+  /// In tr, this message translates to:
+  /// **'Alındı'**
+  String get smsStatusReceived;
+
+  /// No description provided for @smsStatusSent.
+  ///
+  /// In tr, this message translates to:
+  /// **'Gönderildi'**
+  String get smsStatusSent;
+
+  /// No description provided for @smsStatusDelivered.
+  ///
+  /// In tr, this message translates to:
+  /// **'İletildi'**
+  String get smsStatusDelivered;
+
+  /// No description provided for @smsStatusSending.
+  ///
+  /// In tr, this message translates to:
+  /// **'Gönderiliyor'**
+  String get smsStatusSending;
+
+  /// No description provided for @smsStatusFailed.
+  ///
+  /// In tr, this message translates to:
+  /// **'Gönderilemedi'**
+  String get smsStatusFailed;
+
+  /// No description provided for @smsUnknownSender.
+  ///
+  /// In tr, this message translates to:
+  /// **'Bilinmeyen gönderen'**
+  String get smsUnknownSender;
 
   /// No description provided for @smsEmpty.
   ///

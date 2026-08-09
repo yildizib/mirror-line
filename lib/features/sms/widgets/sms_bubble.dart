@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:mirrorline/core/data/models/sms_message.dart';
 import 'package:mirrorline/core/theme/theme.dart';
+import 'package:mirrorline/l10n/app_localizations.dart';
 
 class SmsBubble extends StatelessWidget {
   final SmsMessage message;
@@ -10,6 +11,7 @@ class SmsBubble extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final l = AppLocalizations.of(context);
     final isOutgoing = message.direction == 'outgoing';
     final isFailed = message.status == 'failed';
 
@@ -43,7 +45,7 @@ class SmsBubble extends StatelessWidget {
             const SizedBox(height: 4),
             Text(
               isOutgoing
-                  ? '${_formatTime(message.timestamp)} · ${message.statusLabel}'
+                  ? '${_formatTime(message.timestamp)} · ${message.statusLabel(l)}'
                   : _formatTime(message.timestamp),
               style: TextStyle(fontSize: 11, color: textColor.withValues(alpha: 0.75)),
             ),

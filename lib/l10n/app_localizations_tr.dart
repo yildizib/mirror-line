@@ -143,6 +143,23 @@ class AppLocalizationsTr extends AppLocalizations {
   String get pairingUnknownDevice => 'Bilinmeyen Cihaz';
 
   @override
+  String get pairingErrorConnectionFailed => 'Bağlantı kurulamadı.';
+
+  @override
+  String get pairingErrorRejectedOrTimedOut =>
+      'Eşleşme reddedildi veya zaman aşımına uğradı.';
+
+  @override
+  String get pairingErrorHandshake => 'Eşleşme hatası';
+
+  @override
+  String get pairingErrorRejected => 'Eşleşme reddedildi.';
+
+  @override
+  String get pairingErrorAckTimeout =>
+      'Eşleşme tamamlanamadı (karşı taraftan onay gelmedi). Tekrar deneyin.';
+
+  @override
   String get settingsThisDevice => 'Bu Cihaz';
 
   @override
@@ -192,22 +209,40 @@ class AppLocalizationsTr extends AppLocalizations {
   String get settingsNoPairedDevices => 'Henüz eşleşmiş cihaz yok.';
 
   @override
-  String get settingsActions => 'Eylemler';
-
-  @override
-  String get settingsRetry => 'Yeniden Dene';
-
-  @override
-  String get settingsManualIp => 'Karşı cihaz IP (manuel)';
-
-  @override
-  String get settingsIpHint => 'örn. 192.168.1.20';
-
-  @override
   String get settingsPort => 'Port';
 
   @override
-  String get settingsConnect => 'Bağlan';
+  String get settingsIpLabel => 'IP';
+
+  @override
+  String get settingsPublicKeyLabel => 'Public Key';
+
+  @override
+  String get settingsRoleLabel => 'Rol';
+
+  @override
+  String get settingsCounterpartSuffix => ' (karşı)';
+
+  @override
+  String get settingsIpUnknown => 'belirlenemedi';
+
+  @override
+  String get settingsForceReconnect => 'Yeniden Bağlan';
+
+  @override
+  String get settingsForceConnectTitle => 'Bağlanıyor...';
+
+  @override
+  String get settingsForceConnectNoPeer => 'Eşleştirilmiş cihaz yok';
+
+  @override
+  String get settingsForceConnectDone => 'Bağlandı';
+
+  @override
+  String get settingsForceConnectFailed => 'Bağlanamadı';
+
+  @override
+  String get settingsForceConnectClose => 'Kapat';
 
   @override
   String get settingsPairDevice => 'Cihaz Eşleştir';
@@ -277,15 +312,6 @@ class AppLocalizationsTr extends AppLocalizations {
   String get settingsResetDone => 'Cihaz sıfırlandı';
 
   @override
-  String get settingsEnterIp => 'IP adresi girin';
-
-  @override
-  String get settingsConnected => 'Bağlantı kuruldu';
-
-  @override
-  String get settingsConnectFailed => 'Bağlantı kurulamadı';
-
-  @override
   String get settingsLanguage => 'Dil';
 
   @override
@@ -303,6 +329,38 @@ class AppLocalizationsTr extends AppLocalizations {
   @override
   String get connBannerOffline =>
       'Bağlantı yok. Eş cihaz aranıyor; aynı WiFi ağında olduğunuzdan emin olun.';
+
+  @override
+  String get connErrorServerStartFailed => 'Sunucu başlatılamadı';
+
+  @override
+  String get connErrorPeerIpUnknown =>
+      'Eş cihaz IP bilinmiyor (beacon bekleniyor)';
+
+  @override
+  String get connErrorConnectFailed =>
+      'Bağlantı başarısız (sunucu kapalı veya ulaşılamıyor)';
+
+  @override
+  String get callStatusRinging => 'Çalıyor';
+
+  @override
+  String get callStatusAnswered => 'Cevaplandı';
+
+  @override
+  String get callStatusMissed => 'Cevapsız';
+
+  @override
+  String get callStatusRejected => 'Reddedildi';
+
+  @override
+  String get callStatusEnded => 'Sonlandı';
+
+  @override
+  String get callStatusFailed => 'Gönderilemedi';
+
+  @override
+  String get callUnknownNumber => 'Bilinmeyen numara';
 
   @override
   String get callsEmpty => 'Henüz gelen arama yok';
@@ -338,6 +396,24 @@ class AppLocalizationsTr extends AppLocalizations {
   String callsDeleteOne(int count) {
     return '$count arama kalıcı olarak silinecek.';
   }
+
+  @override
+  String get smsStatusReceived => 'Alındı';
+
+  @override
+  String get smsStatusSent => 'Gönderildi';
+
+  @override
+  String get smsStatusDelivered => 'İletildi';
+
+  @override
+  String get smsStatusSending => 'Gönderiliyor';
+
+  @override
+  String get smsStatusFailed => 'Gönderilemedi';
+
+  @override
+  String get smsUnknownSender => 'Bilinmeyen gönderen';
 
   @override
   String get smsEmpty => 'Henüz mesaj yok';

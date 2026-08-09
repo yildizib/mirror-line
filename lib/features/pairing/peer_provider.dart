@@ -13,8 +13,15 @@ final peerProvider = StateNotifierProvider<PeerNotifier, Peer?>((ref) {
   return PeerNotifier();
 });
 
-// List of all paired peers (for settings display)
+// List of all paired peers (for settings display). Watches peerProvider so
+// it automatically refreshes whenever the active peer record changes
+// (pairing completes, peer deleted, reset, etc.) -- without this the list
+// would show stale data after pairing since FutureProvider doesn't
+// auto-refresh on DB writes.
 final pairedPeersProvider = FutureProvider<List<Peer>>((ref) async {
+  // Depend on peerProvider so any state change (applyPairedPeer,
+  // deletePeer, reset, ...) invalidates this provider.
+  ref.watch(peerProvider);
   return PeerDao().getAllPeers();
 });
 
@@ -29,14 +36,18 @@ class PeerNotifier extends StateNotifier<Peer?> {
     state = await _dao.getPeer();
   }
 
+  /// Not routed through AppLocalizations: this becomes the persisted/
+  /// transmitted device identity shown on the *other* paired device (whose
+  /// app language may differ from this one's), so it needs a locale-neutral
+  /// fallback rather than this device's own language.
   Future<String> _getDeviceName() async {
     try {
       final deviceInfo = DeviceInfoPlugin();
       final androidInfo = await deviceInfo.androidInfo;
       final model = androidInfo.model;
-      return model.isEmpty ? 'Android Cihaz' : model;
+      return model.isEmpty ? 'Android Device' : model;
     } catch (_) {
-      return 'Bilinmeyen Cihaz';
+      return 'Unknown Device';
     }
   }
 
@@ -135,6 +146,12 @@ class PeerNotifier extends StateNotifier<Peer?> {
   /// key -- so that afterwards `peer` consistently represents the paired
   /// other device on both sides, regardless of who scanned whom. Preserves
   /// this device's own role/key/port.
+  ///
+  /// The [ip] is the scanner's real IP, claimed by the scanner itself in
+  /// its pairingRequest (preferred over the TCP remote address, which can
+  /// be wrong on NAT/VLAN setups). Beacon discovery will further refine it
+  /// if the scanner later roams to a new address -- see
+  /// ConnectionNotifier._recordDiscoveredAddress.
   Future<void> applyPairedPeer({
     required String id,
     required String deviceName,
@@ -147,7 +164,7 @@ class PeerNotifier extends StateNotifier<Peer?> {
       id: id,
       deviceName: deviceName,
       publicKey: publicKey,
-      ip: ip ?? current.ip,
+      ip: (ip != null && ip.isNotEmpty) ? ip : current.ip,
     );
     await _dao.replaceId(current.id, updated);
     await KeyStore.setPeerId(updated.id);
@@ -160,10 +177,15 @@ class PeerNotifier extends StateNotifier<Peer?> {
   }
 
   /// Re-detects the local IP (used before displaying the QR code so the
-  /// QR always carries the current address).
+  /// QR always carries the current address). Only meaningful while the peer
+  /// row still represents *this* device (pre-pairing): once paired, the row
+  /// holds the other device's identity, and overwriting its ip with our own
+  /// local address is what made Settings' diagnostics show the same IP for
+  /// both "This Device" and "Peer Device".
   Future<void> refreshLocalIp() async {
     final current = state;
     if (current == null) return;
+    if (current.publicKey.isNotEmpty) return;
     final ip = await PeerDiscovery().getLocalIp();
     if (ip != null && ip != current.ip) {
       final updated = current.copyWith(ip: ip);

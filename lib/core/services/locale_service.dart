@@ -1,6 +1,7 @@
 import 'dart:ui';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:mirrorline/l10n/app_localizations.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 const _kLocaleKey = 'app_locale';
@@ -57,7 +58,12 @@ class LocaleNotifier extends StateNotifier<Locale?> {
   Locale resolve(Iterable<Locale> systemLocales) {
     final explicit = state;
     if (explicit != null) return explicit;
+    return resolveSystem(systemLocales);
+  }
 
+  /// Same matching rule as [resolve], minus the explicit-override check --
+  /// shared with [appL10n], which needs it outside the widget tree.
+  static Locale resolveSystem(Iterable<Locale> systemLocales) {
     for (final sys in systemLocales) {
       for (final supported in supportedLocales) {
         if (sys.languageCode == supported.languageCode) return supported;
@@ -70,4 +76,15 @@ class LocaleNotifier extends StateNotifier<Locale?> {
     final parts = tag.split('-');
     return Locale(parts[0], parts.length > 1 ? parts[1] : null);
   }
+}
+
+/// Resolves [AppLocalizations] outside the widget tree -- background
+/// handlers (CallEventHandler/SmsEventHandler building notification text)
+/// and providers (call/SMS grouping) that have a [Ref] but no
+/// [BuildContext]. Follows the same locale-resolution rule as the widget
+/// tree's [LocalizationsDelegate] (see [LocaleNotifier.resolve]).
+AppLocalizations appL10n(Ref ref) {
+  final explicit = ref.read(localeProvider);
+  final locale = explicit ?? LocaleNotifier.resolveSystem(PlatformDispatcher.instance.locales);
+  return lookupAppLocalizations(locale);
 }

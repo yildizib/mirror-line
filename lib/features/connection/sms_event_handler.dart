@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logger/logger.dart';
 import 'package:mirrorline/core/data/models/sms_message.dart';
 import 'package:mirrorline/core/network/message_protocol.dart' show MessageTypes, MirrorMessage;
+import 'package:mirrorline/core/services/locale_service.dart';
 import 'package:mirrorline/core/services/notification_service.dart';
 import 'package:mirrorline/core/telephony/telephony_channel.dart';
 import 'package:mirrorline/features/connection/call_event_handler.dart' show SendOrQueue, ShowNotification;
@@ -97,7 +98,7 @@ class SmsEventHandler {
         await _ref.read(smsListProvider.notifier).add(smsEvent);
         await _notify(
           id: int.tryParse(id) ?? 2,
-          title: smsEvent.displayName,
+          title: smsEvent.displayName(appL10n(_ref)),
           body: body,
           payload: NotificationPayload(type: 'sms', id: id, address: address),
         );

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:mirrorline/core/data/models/call_event.dart';
 import 'package:mirrorline/core/theme/theme.dart';
+import 'package:mirrorline/l10n/app_localizations.dart';
 
 class CallCard extends StatelessWidget {
   final CallEvent event;
@@ -27,6 +28,7 @@ class CallCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final l = AppLocalizations.of(context);
 
     final card = Card(
       color: isSelected ? colorScheme.primaryContainer.withValues(alpha: 0.4) : null,
@@ -53,7 +55,7 @@ class CallCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    event.displayName,
+                    event.displayName(l),
                     style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
                   ),
                   const SizedBox(height: 2),
@@ -109,6 +111,7 @@ class _StatusChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final statusColors = theme.status;
+    final l = AppLocalizations.of(context);
 
     final color = switch (event.status) {
       'answered' => statusColors.success,
@@ -116,7 +119,7 @@ class _StatusChip extends StatelessWidget {
       'rejected' => theme.colorScheme.error,
       _ => theme.colorScheme.onSurfaceVariant,
     };
-    final label = event.statusLabel;
+    final label = event.statusLabel(l);
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),

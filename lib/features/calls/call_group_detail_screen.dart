@@ -170,6 +170,7 @@ class _CallDetailTile extends StatelessWidget {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final statusColors = theme.status;
+    final l = AppLocalizations.of(context);
 
     final statusColor = switch (event.status) {
       'answered' => statusColors.success,
@@ -201,7 +202,7 @@ class _CallDetailTile extends StatelessWidget {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    event.statusLabel,
+                    event.statusLabel(l),
                     style: TextStyle(fontSize: 12, color: statusColor, fontWeight: FontWeight.w600),
                   ),
                 ],

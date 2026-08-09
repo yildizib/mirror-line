@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mirrorline/core/data/models/sms_message.dart';
+import 'package:mirrorline/core/services/locale_service.dart';
 import 'package:mirrorline/features/sms/sms_list_provider.dart';
 
 /// Every message exchanged with a single address, grouped so the SMS
@@ -10,15 +11,18 @@ class SmsThread {
   final String contactName;
   final List<SmsMessage> messages; // chronological, oldest first
 
-  SmsThread({required this.address, required this.contactName, required this.messages});
+  /// Display name (contact name if resolved, else address, else
+  /// placeholder), already localized at thread-build time.
+  final String displayName;
+
+  SmsThread({
+    required this.address,
+    required this.contactName,
+    required this.messages,
+    required this.displayName,
+  });
 
   SmsMessage get lastMessage => messages.last;
-
-  String get displayName {
-    if (contactName.isNotEmpty) return contactName;
-    if (address.isNotEmpty) return address;
-    return 'Bilinmeyen gönderen';
-  }
 }
 
 /// Derives conversations from smsListProvider's flat list, grouped by
@@ -28,6 +32,7 @@ class SmsThread {
 /// most-recently-active conversation first.
 final smsThreadsProvider = Provider<List<SmsThread>>((ref) {
   final messages = ref.watch(smsListProvider);
+  final l = appL10n(ref);
   final byAddress = <String, List<SmsMessage>>{};
   for (final m in messages) {
     (byAddress[m.address] ??= []).add(m);
@@ -38,7 +43,14 @@ final smsThreadsProvider = Provider<List<SmsThread>>((ref) {
     final contactName = sorted.reversed
         .map((m) => m.contactName)
         .firstWhere((name) => name.isNotEmpty, orElse: () => '');
-    return SmsThread(address: entry.key, contactName: contactName, messages: sorted);
+    return SmsThread(
+      address: entry.key,
+      contactName: contactName,
+      messages: sorted,
+      displayName: contactName.isNotEmpty
+          ? contactName
+          : (entry.key.isNotEmpty ? entry.key : l.smsUnknownSender),
+    );
   }).toList();
 
   threads.sort((a, b) => b.lastMessage.timestamp.compareTo(a.lastMessage.timestamp));

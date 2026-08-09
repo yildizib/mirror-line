@@ -1,3 +1,5 @@
+import 'package:mirrorline/l10n/app_localizations.dart';
+
 class SmsMessage {
   final String id;
   final String threadId;
@@ -62,21 +64,24 @@ class SmsMessage {
         createdAt: createdAt,
       );
 
+  /// Locale-independent grouping identity, mirroring [CallEvent.groupKey].
+  String get groupKey => contactName.isNotEmpty ? contactName : address;
+
   /// Display name for UI/notifications: contact name if resolved, else the
   /// raw address, else a placeholder when neither is known.
-  String get displayName {
+  String displayName(AppLocalizations l) {
     if (contactName.isNotEmpty) return contactName;
     if (address.isNotEmpty) return address;
-    return 'Bilinmeyen gönderen';
+    return l.smsUnknownSender;
   }
 
-  /// Turkish status label for the SMS list UI.
-  String get statusLabel => switch (status) {
-        'received' => 'Alındı',
-        'sent' => 'Gönderildi',
-        'delivered' => 'İletildi',
-        'pending' => 'Gönderiliyor',
-        'failed' => 'Gönderilemedi',
+  /// Status label for the SMS list UI.
+  String statusLabel(AppLocalizations l) => switch (status) {
+        'received' => l.smsStatusReceived,
+        'sent' => l.smsStatusSent,
+        'delivered' => l.smsStatusDelivered,
+        'pending' => l.smsStatusSending,
+        'failed' => l.smsStatusFailed,
         _ => status,
       };
 }

@@ -6,7 +6,7 @@ import 'package:sqflite/sqflite.dart';
 class AppDatabase {
   static final AppDatabase instance = AppDatabase._internal();
   static Database? _database;
-  static const int schemaVersion = 4;
+  static const int schemaVersion = 5;
 
   AppDatabase._internal();
 
@@ -41,6 +41,18 @@ class AppDatabase {
     if (oldVersion < 4) {
       await db.execute('ALTER TABLE call_event ADD COLUMN contact_name TEXT NOT NULL DEFAULT "";');
       await db.execute('ALTER TABLE sms_message ADD COLUMN contact_name TEXT NOT NULL DEFAULT "";');
+    }
+    if (oldVersion < 5) {
+      await db.execute('''
+        CREATE TABLE known_network (
+          peer_id TEXT NOT NULL,
+          subnet_prefix TEXT NOT NULL,
+          ip TEXT NOT NULL,
+          port INTEGER NOT NULL,
+          last_seen_at INTEGER NOT NULL,
+          PRIMARY KEY (peer_id, subnet_prefix)
+        )
+      ''');
     }
   }
 
@@ -98,6 +110,17 @@ class AppDatabase {
         created_at INTEGER NOT NULL
       )
     ''');
+
+    await db.execute('''
+      CREATE TABLE known_network (
+        peer_id TEXT NOT NULL,
+        subnet_prefix TEXT NOT NULL,
+        ip TEXT NOT NULL,
+        port INTEGER NOT NULL,
+        last_seen_at INTEGER NOT NULL,
+        PRIMARY KEY (peer_id, subnet_prefix)
+      )
+    ''');
   }
 
   Future<void> close() async {
@@ -111,5 +134,6 @@ class AppDatabase {
     await db.delete('call_event');
     await db.delete('sms_message');
     await db.delete('offline_queue');
+    await db.delete('known_network');
   }
 }
