@@ -1030,24 +1030,7 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
         break;
 
       case MessageTypes.notificationMirrored:
-        final packageName = payload['packageName'] as String? ?? 'unknown';
-        final appName = payload['appName'] as String? ?? packageName;
-        final title = payload['title'] as String? ?? '';
-        final text = payload['text'] as String? ?? '';
-        // Native's stable per-notification key (see
-        // MirrorLineNotificationListener), not a timestamp -- so a
-        // reposted/updated notification replaces the previous one here
-        // instead of stacking up as a duplicate.
-        final nativeId = payload['nativeId'] as String? ?? message.id;
-        await NotificationService.showMirrored(
-          id: nativeId.hashCode & 0x7fffffff,
-          title: appName,
-          // The original notification's own title is usually "who it's
-          // from" (e.g. a WhatsApp sender name); keep it as context ahead
-          // of the message body when it says more than the app name does.
-          body: (title.isNotEmpty && title != appName) ? '$title: $text' : text,
-          packageName: packageName,
-        );
+        await _handleNotificationMirrored(payload, message);
         break;
 
       case MessageTypes.pairingRequest:
@@ -1071,6 +1054,20 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
       default:
         _logger.i('Unknown message type: ${message.type}');
     }
+  }
+
+  Future<void> _handleNotificationMirrored(Map<String, dynamic> payload, MirrorMessage message) async {
+    final packageName = payload['packageName'] as String? ?? 'unknown';
+    final appName = payload['appName'] as String? ?? packageName;
+    final title = payload['title'] as String? ?? '';
+    final text = payload['text'] as String? ?? '';
+    final nativeId = payload['nativeId'] as String? ?? message.id;
+    await NotificationService.showMirrored(
+      id: nativeId.hashCode & 0x7fffffff,
+      title: appName,
+      body: (title.isNotEmpty && title != appName) ? '$title: $text' : text,
+      packageName: packageName,
+    );
   }
 
   Future<void> _notify({
