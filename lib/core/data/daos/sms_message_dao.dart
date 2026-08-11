@@ -9,7 +9,11 @@ class SmsMessageDao {
 
   Future<void> insert(SmsMessage message) async {
     final db = await _database;
-    await db.insert('sms_message', message.toJson(), conflictAlgorithm: ConflictAlgorithm.replace);
+    await db.insert(
+      'sms_message',
+      message.toJson(),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
   }
 
   Future<List<SmsMessage>> getAll() async {
@@ -31,7 +35,12 @@ class SmsMessageDao {
 
   Future<void> updateStatus(String id, String status) async {
     final db = await _database;
-    await db.update('sms_message', {'status': status}, where: 'id = ?', whereArgs: [id]);
+    await db.update(
+      'sms_message',
+      {'status': status},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
   }
 
   Future<void> delete(String id) async {

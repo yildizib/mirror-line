@@ -21,13 +21,17 @@ mixin _BeaconTransportMixin {
   Future<List<InternetAddress>> broadcastTargets() async {
     final targets = <InternetAddress>{InternetAddress('255.255.255.255')};
     try {
-      final interfaces = await NetworkInterface.list(type: InternetAddressType.IPv4);
+      final interfaces = await NetworkInterface.list(
+        type: InternetAddressType.IPv4,
+      );
       for (final interface in interfaces) {
         for (final addr in interface.addresses) {
           if (addr.isLoopback) continue;
           final parts = addr.address.split('.');
           if (parts.length == 4) {
-            targets.add(InternetAddress('${parts[0]}.${parts[1]}.${parts[2]}.255'));
+            targets.add(
+              InternetAddress('${parts[0]}.${parts[1]}.${parts[2]}.255'),
+            );
           }
         }
       }
@@ -43,6 +47,7 @@ class BeaconInfo {
   final int tcpPort;
   final String deviceName;
   final String ip;
+
   /// All IPs the sender claims to have (WiFi + VPN TUN + etc.). The
   /// receiver tries each in order if the datagram source IP (`ip`) is
   /// unreachable. Empty if the sender didn't include them (old version).
@@ -57,7 +62,8 @@ class BeaconInfo {
   });
 
   @override
-  String toString() => 'BeaconInfo($peerId, $ip:$tcpPort, $deviceName, ips=$ips)';
+  String toString() =>
+      'BeaconInfo($peerId, $ip:$tcpPort, $deviceName, ips=$ips)';
 }
 
 class BeaconCodec {
@@ -66,15 +72,14 @@ class BeaconCodec {
     required int tcpPort,
     required String deviceName,
     List<String>? ips,
-  }) =>
-      jsonEncode({
-        'app': BeaconConfig.app,
-        'v': 2,
-        'id': peerId,
-        'port': tcpPort,
-        'name': deviceName,
-        if (ips != null && ips.isNotEmpty) 'ips': ips,
-      });
+  }) => jsonEncode({
+    'app': BeaconConfig.app,
+    'v': 2,
+    'id': peerId,
+    'port': tcpPort,
+    'name': deviceName,
+    if (ips != null && ips.isNotEmpty) 'ips': ips,
+  });
 
   static BeaconInfo? decode(String raw, String senderIp) {
     try {
@@ -131,7 +136,9 @@ class BeaconBroadcaster with _BeaconTransportMixin {
   /// tearing down and rebinding the socket. No-op if already at the
   /// requested cadence.
   void setThrottle(bool connected) {
-    final target = connected ? BeaconConfig.intervalSlow : BeaconConfig.intervalFast;
+    final target = connected
+        ? BeaconConfig.intervalSlow
+        : BeaconConfig.intervalFast;
     if (target == _interval) return;
     _interval = target;
     _timer?.cancel();
@@ -168,12 +175,21 @@ class BeaconBroadcaster with _BeaconTransportMixin {
       _socket = socket;
 
       _payload = Uint8List.fromList(
-        utf8.encode(BeaconCodec.encode(peerId: peerId, tcpPort: tcpPort, deviceName: deviceName, ips: ips)),
+        utf8.encode(
+          BeaconCodec.encode(
+            peerId: peerId,
+            tcpPort: tcpPort,
+            deviceName: deviceName,
+            ips: ips,
+          ),
+        ),
       );
 
       _sendOnce(_payload!);
       _timer = Timer.periodic(_interval, (_) => _sendOnce(_payload!));
-      _logger.i('Beacon broadcaster started (peerId=$peerId, tcpPort=$tcpPort)');
+      _logger.i(
+        'Beacon broadcaster started (peerId=$peerId, tcpPort=$tcpPort)',
+      );
     } catch (e) {
       _logger.e('Failed to start beacon broadcaster: $e');
       await stop();
@@ -198,10 +214,22 @@ class BeaconBroadcaster with _BeaconTransportMixin {
     final tcpPort = _myTcpPort;
     final deviceName = _myDeviceName;
     final socket = _socket;
-    if (peerId == null || tcpPort == null || deviceName == null || socket == null) return;
+    if (peerId == null ||
+        tcpPort == null ||
+        deviceName == null ||
+        socket == null) {
+      return;
+    }
 
     _payload = Uint8List.fromList(
-      utf8.encode(BeaconCodec.encode(peerId: peerId, tcpPort: tcpPort, deviceName: deviceName, ips: _myIps)),
+      utf8.encode(
+        BeaconCodec.encode(
+          peerId: peerId,
+          tcpPort: tcpPort,
+          deviceName: deviceName,
+          ips: _myIps,
+        ),
+      ),
     );
 
     _sendOnce(_payload!);
@@ -230,7 +258,9 @@ class BeaconListener with _BeaconTransportMixin {
   /// tearing down the listener socket. No-op if already at the requested
   /// cadence or if broadcasting isn't running.
   void setThrottle(bool connected) {
-    final target = connected ? BeaconConfig.intervalSlow : BeaconConfig.intervalFast;
+    final target = connected
+        ? BeaconConfig.intervalSlow
+        : BeaconConfig.intervalFast;
     if (target == _interval) return;
     _interval = target;
     if (_myPeerId != null && _myTcpPort != null && _myDeviceName != null) {
@@ -269,7 +299,9 @@ class BeaconListener with _BeaconTransportMixin {
           _logger.d('Received beacon from ${datagram.address.address}: $raw');
           final info = BeaconCodec.decode(raw, datagram.address.address);
           if (info != null) {
-            _logger.i('Beacon received from ${info.deviceName} at ${info.ip}:${info.tcpPort}');
+            _logger.i(
+              'Beacon received from ${info.deviceName} at ${info.ip}:${info.tcpPort}',
+            );
             _onBeacon?.call(info);
           } else {
             _logger.w('Invalid beacon format from ${datagram.address.address}');
@@ -287,9 +319,21 @@ class BeaconListener with _BeaconTransportMixin {
     }
   }
 
-  void _startBroadcasting(String peerId, int tcpPort, String deviceName, [List<String>? ips]) {
+  void _startBroadcasting(
+    String peerId,
+    int tcpPort,
+    String deviceName, [
+    List<String>? ips,
+  ]) {
     final payload = Uint8List.fromList(
-      utf8.encode(BeaconCodec.encode(peerId: peerId, tcpPort: tcpPort, deviceName: deviceName, ips: ips)),
+      utf8.encode(
+        BeaconCodec.encode(
+          peerId: peerId,
+          tcpPort: tcpPort,
+          deviceName: deviceName,
+          ips: ips,
+        ),
+      ),
     );
 
     _broadcastOnce(payload);
@@ -309,13 +353,21 @@ class BeaconListener with _BeaconTransportMixin {
     }
   }
 
-  void updateBroadcastInfo({String? peerId, int? tcpPort, String? deviceName, List<String>? ips}) {
+  void updateBroadcastInfo({
+    String? peerId,
+    int? tcpPort,
+    String? deviceName,
+    List<String>? ips,
+  }) {
     if (peerId != null) _myPeerId = peerId;
     if (tcpPort != null) _myTcpPort = tcpPort;
     if (deviceName != null) _myDeviceName = deviceName;
     if (ips != null) _myIps = ips;
 
-    if (_broadcastTimer != null && _myPeerId != null && _myTcpPort != null && _myDeviceName != null) {
+    if (_broadcastTimer != null &&
+        _myPeerId != null &&
+        _myTcpPort != null &&
+        _myDeviceName != null) {
       _broadcastTimer?.cancel();
       _startBroadcasting(_myPeerId!, _myTcpPort!, _myDeviceName!, _myIps);
     }

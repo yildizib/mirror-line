@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:mirrorline/features/connection/connection_status_provider.dart';
 
 /// Orchestrates parallel discovery and connection attempts for force-connect.
@@ -15,22 +17,26 @@ class ForceConnectStrategy {
   final Future<bool> Function(
     String ip,
     int port,
-    ConnectionStatusNotifier statusNotifier,
-    {required String label, Duration? connectTimeout}
-  ) connectWithProgress;
+    ConnectionStatusNotifier statusNotifier, {
+    required String label,
+    Duration? connectTimeout,
+  })
+  connectWithProgress;
 
   /// Called to look up cached IPs for the current subnet.
   final Future<List<String>> Function(
     ConnectionStatusNotifier statusNotifier,
     String peerId,
-  ) lookupKnownNetworkIp;
+  )
+  lookupKnownNetworkIp;
 
   /// Called to scan subnets for the peer.
   final Future<String?> Function(
     List<String> scanIps,
     int port,
     ConnectionStatusNotifier statusNotifier,
-  ) scanSubnetsWithProgress;
+  )
+  scanSubnetsWithProgress;
 
   /// Called to record a successfully discovered address.
   final Function(String ip, int port) recordDiscoveredAddress;
@@ -66,11 +72,18 @@ class ForceConnectStrategy {
 
     // Path 1: stored IP + beacon IPs.
     if (storedIp!.isNotEmpty && storedIp != 'unknown') {
-      final candidates = <String>[storedIp!, ...beaconIps.where((ip) => ip != storedIp)];
-      statusNotifier.logDiscovery('Trying stored/beacon IPs: ${candidates.join(', ')}...');
+      final candidates = <String>[
+        storedIp!,
+        ...beaconIps.where((ip) => ip != storedIp),
+      ];
+      statusNotifier.logDiscovery(
+        'Trying stored/beacon IPs: ${candidates.join(', ')}...',
+      );
       candidateFutures.add(Future.value(candidates));
     } else if (beaconIps.isNotEmpty) {
-      statusNotifier.logDiscovery('Trying beacon IPs: ${beaconIps.join(', ')}...');
+      statusNotifier.logDiscovery(
+        'Trying beacon IPs: ${beaconIps.join(', ')}...',
+      );
       candidateFutures.add(Future.value(beaconIps));
     }
 
@@ -78,13 +91,20 @@ class ForceConnectStrategy {
     candidateFutures.add(lookupKnownNetworkIp(statusNotifier, peerId));
 
     // Path 3: subnet scan (parallel with paths 1+2).
-    final scanIps = allLocalIps.isNotEmpty ? allLocalIps : (localIp != null ? [localIp!] : <String>[]);
+    final scanIps = allLocalIps.isNotEmpty
+        ? allLocalIps
+        : (localIp != null ? [localIp!] : <String>[]);
     final scanCandidates = <String>{};
     if (scanIps.isNotEmpty) {
       candidateFutures.add(
-        scanSubnetsWithProgress(scanIps, peerPort, statusNotifier).then((found) {
+        scanSubnetsWithProgress(scanIps, peerPort, statusNotifier).then((
+          found,
+        ) {
           if (found != null) {
-            statusNotifier.logDiscovery('Scan found host: $found', isSuccess: true);
+            statusNotifier.logDiscovery(
+              'Scan found host: $found',
+              isSuccess: true,
+            );
             scanCandidates.add(found);
             return [found];
           }
@@ -93,53 +113,54 @@ class ForceConnectStrategy {
       );
     }
 
-    // Collect candidates as they arrive.
-    final allCandidates = <String>{};
+    // Phase 2: connect to candidates as they arrive (reactive via StreamController).
+    final candidateController = StreamController<String>();
     var discoveryDone = false;
+    var completedCount = 0;
+    final totalCount = candidateFutures.length;
 
     for (final f in candidateFutures) {
       f.then((ips) {
         for (final ip in ips) {
           if (!discoveryDone && !isConnected()) {
-            allCandidates.add(ip);
+            candidateController.add(ip);
           }
+        }
+        completedCount++;
+        if (completedCount >= totalCount && !candidateController.isClosed) {
+          candidateController.close();
         }
       });
     }
 
-    // Phase 2: connect to candidates as they arrive.
-    await Future.delayed(const Duration(milliseconds: 200));
+    // Listen for candidates as they arrive from any source (stored, beacon, scan).
+    await for (final ip in candidateController.stream) {
+      if (isConnected() || isConnecting()) break;
 
-    var completedCount = 0;
-    final totalCount = candidateFutures.length;
-    for (final f in candidateFutures) {
-      f.then((_) => completedCount++);
+      final isScanCandidate = scanCandidates.contains(ip);
+      final timeout =
+          isScanCandidate ? null : const Duration(milliseconds: 1500);
+      final ok = await connectWithProgress(
+        ip,
+        peerPort,
+        statusNotifier,
+        label: ip,
+        connectTimeout: timeout,
+      );
+      if (ok) {
+        recordDiscoveredAddress(ip, peerPort);
+        statusNotifier.logDiscovery('Connected to $ip!', isSuccess: true);
+        discoveryDone = true;
+        if (!candidateController.isClosed) {
+          await candidateController.close();
+        }
+        return true;
+      }
+      statusNotifier.logDiscovery('Failed to connect to $ip.', isError: true);
     }
 
-    while (!isConnected() && !isConnecting()) {
-      if (allCandidates.isNotEmpty) {
-        final ip = allCandidates.first;
-        allCandidates.remove(ip);
-        final isScanCandidate = scanCandidates.contains(ip);
-        final timeout = isScanCandidate ? null : const Duration(milliseconds: 1500);
-        final ok = await connectWithProgress(
-          ip,
-          peerPort,
-          statusNotifier,
-          label: ip,
-          connectTimeout: timeout,
-        );
-        if (ok) {
-          recordDiscoveredAddress(ip, peerPort);
-          statusNotifier.logDiscovery('Connected to $ip!', isSuccess: true);
-          discoveryDone = true;
-          return true;
-        }
-        statusNotifier.logDiscovery('Failed to connect to $ip.', isError: true);
-      } else {
-        if (completedCount >= totalCount) break;
-        await Future.delayed(const Duration(milliseconds: 100));
-      }
+    if (!candidateController.isClosed) {
+      await candidateController.close();
     }
 
     if (isConnected()) {

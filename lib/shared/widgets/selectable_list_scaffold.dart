@@ -1,15 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:mirrorline/l10n/app_localizations.dart';
 
-typedef SelectableItemBuilder<T> = Widget Function(
-  BuildContext context,
-  T item,
-  bool isSelecting,
-  bool isSelected,
-  VoidCallback onTapSelect,
-);
+typedef SelectableItemBuilder<T> =
+    Widget Function(
+      BuildContext context,
+      T item,
+      bool isSelecting,
+      bool isSelected,
+      VoidCallback onTapSelect,
+    );
 
-typedef OnDeleteSelected<T> = Future<void> Function(BuildContext context, List<T> selected);
+typedef OnDeleteSelected<T> =
+    Future<void> Function(BuildContext context, List<T> selected);
 
 class SelectableListScaffold<T> extends StatefulWidget {
   final List<T> items;
@@ -40,7 +42,8 @@ class SelectableListScaffold<T> extends StatefulWidget {
   });
 
   @override
-  State<SelectableListScaffold<T>> createState() => _SelectableListScaffoldState<T>();
+  State<SelectableListScaffold<T>> createState() =>
+      _SelectableListScaffoldState<T>();
 }
 
 class _SelectableListScaffoldState<T> extends State<SelectableListScaffold<T>> {
@@ -50,9 +53,7 @@ class _SelectableListScaffoldState<T> extends State<SelectableListScaffold<T>> {
   @override
   Widget build(BuildContext context) {
     if (widget.items.isEmpty) {
-      return Center(
-        child: Text(widget.emptyMessage),
-      );
+      return Center(child: Text(widget.emptyMessage));
     }
 
     return Scaffold(
@@ -84,7 +85,9 @@ class _SelectableListScaffoldState<T> extends State<SelectableListScaffold<T>> {
                 IconButton(
                   icon: const Icon(Icons.delete_rounded),
                   tooltip: widget.deleteTooltip,
-                  onPressed: _selected.isEmpty ? null : () => _showDeleteDialog(context),
+                  onPressed: _selected.isEmpty
+                      ? null
+                      : () => _showDeleteDialog(context),
                 ),
               ],
             )
@@ -137,9 +140,9 @@ class _SelectableListScaffoldState<T> extends State<SelectableListScaffold<T>> {
               await widget.onDeleteSelected(context, selectedItems);
               if (context.mounted) {
                 Navigator.pop(dialogContext);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text(widget.deletedMessage)),
-                );
+                ScaffoldMessenger.of(
+                  context,
+                ).showSnackBar(SnackBar(content: Text(widget.deletedMessage)));
               }
               _exitSelectionMode();
             },

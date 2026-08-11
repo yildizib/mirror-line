@@ -31,7 +31,9 @@ import 'package:mirrorline/features/sms/sms_list_provider.dart';
 import 'package:uuid/uuid.dart';
 import 'dart:io';
 
-final connectionProvider = StateNotifierProvider<ConnectionNotifier, bool>((ref) {
+final connectionProvider = StateNotifierProvider<ConnectionNotifier, bool>((
+  ref,
+) {
   return ConnectionNotifier(ref);
 });
 
@@ -39,7 +41,8 @@ final connectionConnectingProvider = Provider<bool>((ref) {
   return ref.watch(connectionProvider.notifier).isConnecting;
 });
 
-class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver {
+class ConnectionNotifier extends StateNotifier<bool>
+    with WidgetsBindingObserver {
   static const Duration _retryInterval = Duration(seconds: 30);
   // How long an outgoing SMS may sit on 'pending' before it's given up on
   // and shown as 'failed'. The queue's own 5-attempt retry only advances
@@ -146,7 +149,9 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
         refresh();
         _scheduleReconnect();
       } else {
-        _logger.i('Network offline. Dropping stale connection, pausing attempts.');
+        _logger.i(
+          'Network offline. Dropping stale connection, pausing attempts.',
+        );
         state = false;
         _disconnectedSince ??= DateTime.now();
         // Actually tear down the client-side connection, not just the UI
@@ -277,8 +282,12 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
         _ref.read(connectionStatusProvider.notifier).setServer(peer.port, true);
       } catch (e) {
         _logger.e('Server start failed: $e');
-        _ref.read(connectionStatusProvider.notifier)
-            .recordConnectAttempt(ConnectionErrorCode.serverStartFailed, errorDetail: '$e');
+        _ref
+            .read(connectionStatusProvider.notifier)
+            .recordConnectAttempt(
+              ConnectionErrorCode.serverStartFailed,
+              errorDetail: '$e',
+            );
       }
     }
 
@@ -307,7 +316,9 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
     } catch (e) {
       _logger.e('Telephony startListening failed: $e');
     }
-    _logger.i('Source mode active: server on ${peer.port}, beacon broadcasting.');
+    _logger.i(
+      'Source mode active: server on ${peer.port}, beacon broadcasting.',
+    );
   }
 
   Future<void> _startAsMain() async {
@@ -327,7 +338,9 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
       if (_socketManager!.isConnected == false) {
         try {
           await _socketManager!.startServer(peer.port, key);
-          _ref.read(connectionStatusProvider.notifier).setServer(peer.port, true);
+          _ref
+              .read(connectionStatusProvider.notifier)
+              .setServer(peer.port, true);
         } catch (e) {
           _logger.e('Pairing-time server start failed: $e');
         }
@@ -386,7 +399,9 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
       onDisconnected: () {
         state = false;
         _disconnectedSince ??= DateTime.now();
-        _logger.w('Socket disconnected. Will auto-reconnect when peer is reachable.');
+        _logger.w(
+          'Socket disconnected. Will auto-reconnect when peer is reachable.',
+        );
         _broadcaster.setThrottle(false);
         _listener.setThrottle(false);
         _scheduleReconnect();
@@ -431,8 +446,12 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
     if (isSource) return; // Source never dials out
     if (state || _connecting) return;
     final delay = _reconnectInitialDelay * (1 << _reconnectAttempts);
-    final clampedDelay = delay > _reconnectMaxDelay ? _reconnectMaxDelay : delay;
-    _logger.i('Scheduling reconnect in ${clampedDelay.inSeconds}s (attempt ${_reconnectAttempts + 1}).');
+    final clampedDelay = delay > _reconnectMaxDelay
+        ? _reconnectMaxDelay
+        : delay;
+    _logger.i(
+      'Scheduling reconnect in ${clampedDelay.inSeconds}s (attempt ${_reconnectAttempts + 1}).',
+    );
     Future.delayed(clampedDelay, () {
       if (!state && !_connecting) {
         _tryConnectToStoredPeer();
@@ -449,7 +468,8 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
 
     final ip = _lastDiscoveredIp ?? peer.ip;
     if (ip.isEmpty || ip == 'unknown') {
-      _ref.read(connectionStatusProvider.notifier)
+      _ref
+          .read(connectionStatusProvider.notifier)
           .recordConnectAttempt(ConnectionErrorCode.peerIpUnknown);
       return;
     }
@@ -457,40 +477,57 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
     await _connectTo(ip, peer.port);
   }
 
-  Future<bool> _connectTo(String ip, int port, {Duration? connectTimeout}) async {
+  Future<bool> _connectTo(
+    String ip,
+    int port, {
+    Duration? connectTimeout,
+  }) async {
     final key = _key;
     if (key == null || _connecting || state) return false;
 
     final generation = ++_connectGeneration;
     _connecting = true;
-    _ref.read(connectionStatusProvider.notifier).setDiscoveryState(
-      DiscoveryState.connecting,
-      detail: 'Connecting to $ip:$port...',
-    );
+    _ref
+        .read(connectionStatusProvider.notifier)
+        .setDiscoveryState(
+          DiscoveryState.connecting,
+          detail: 'Connecting to $ip:$port...',
+        );
     try {
       _socketManager ??= _createSocketManager();
       await _configureAuth(_socketManager!);
-      final ok = await _socketManager!.connect(ip, port, key, connectTimeout: connectTimeout);
+      final ok = await _socketManager!.connect(
+        ip,
+        port,
+        key,
+        connectTimeout: connectTimeout,
+      );
       if (generation != _connectGeneration) {
         // A forced reconnect abandoned this attempt while it was in flight;
         // the newer attempt it triggered now owns _connecting/scheduling.
         return ok;
       }
-      _ref.read(connectionStatusProvider.notifier).recordConnectAttempt(
+      _ref
+          .read(connectionStatusProvider.notifier)
+          .recordConnectAttempt(
             ok ? null : ConnectionErrorCode.connectFailed,
             errorDetail: ok ? null : '$ip:$port',
           );
       if (ok) {
-        _ref.read(connectionStatusProvider.notifier).setDiscoveryState(
-          DiscoveryState.connected,
-          detail: 'Connected to $ip:$port',
-        );
+        _ref
+            .read(connectionStatusProvider.notifier)
+            .setDiscoveryState(
+              DiscoveryState.connected,
+              detail: 'Connected to $ip:$port',
+            );
         _rememberKnownNetwork(ip, port);
       } else {
-        _ref.read(connectionStatusProvider.notifier).setDiscoveryState(
-          DiscoveryState.failed,
-          detail: 'Failed to connect to $ip:$port',
-        );
+        _ref
+            .read(connectionStatusProvider.notifier)
+            .setDiscoveryState(
+              DiscoveryState.failed,
+              detail: 'Failed to connect to $ip:$port',
+            );
         _reconnectAttempts++;
         _scheduleReconnect();
       }
@@ -510,12 +547,14 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
     final localIp = _ref.read(connectionStatusProvider).localIp;
     final prefix = subnetPrefixOf(localIp ?? '');
     if (peer == null || prefix == null) return;
-    unawaited(_knownNetworkDao.recordSuccess(
-      peerId: peer.id,
-      subnetPrefix: prefix,
-      ip: ip,
-      port: port,
-    ));
+    unawaited(
+      _knownNetworkDao.recordSuccess(
+        peerId: peer.id,
+        subnetPrefix: prefix,
+        ip: ip,
+        port: port,
+      ),
+    );
   }
 
   /// Fallback discovery: if the beacon and last-known-IP haven't gotten us
@@ -537,7 +576,10 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
   /// the user-facing "Force reconnect" action, which must actually scan even
   /// if a routine fallback scan ran moments ago (that's what made the old
   /// button feel like it did nothing).
-  Future<void> _maybeRunFallbackScan({bool immediate = false, bool force = false}) async {
+  Future<void> _maybeRunFallbackScan({
+    bool immediate = false,
+    bool force = false,
+  }) async {
     if (isSource) return; // only Main ever dials out
     if (state || _connecting || _scanning) return;
 
@@ -547,12 +589,17 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
     if (!immediate) {
       final disconnectedSince = _disconnectedSince;
       if (disconnectedSince == null) return;
-      if (DateTime.now().difference(disconnectedSince) < _scanGraceDuration) return;
+      if (DateTime.now().difference(disconnectedSince) < _scanGraceDuration) {
+        return;
+      }
     }
 
     if (!force) {
       final lastScan = _lastScanAt;
-      if (lastScan != null && DateTime.now().difference(lastScan) < _scanBackoff) return;
+      if (lastScan != null &&
+          DateTime.now().difference(lastScan) < _scanBackoff) {
+        return;
+      }
     }
 
     final peer = _peer;
@@ -564,9 +611,14 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
     _scanning = true;
     _lastScanAt = DateTime.now();
     try {
-      final found = await _scanner.findHostWithOpenPortMulti(localIps: scanIps, port: peer.port);
+      final found = await _scanner.findHostWithOpenPortMulti(
+        localIps: scanIps,
+        port: peer.port,
+      );
       if (found != null && !state) {
-        _logger.i('Fallback scan located peer at $found; attempting connection.');
+        _logger.i(
+          'Fallback scan located peer at $found; attempting connection.',
+        );
         _lastDiscoveredIp = found;
         // Persist the freshly-discovered address so diagnostics and future
         // reconnect attempts agree on where the peer actually is -- the scan
@@ -757,9 +809,14 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
     final localIp = await PeerDiscovery().getLocalIp();
     final prefix = subnetPrefixOf(localIp ?? '');
     if (prefix == null) return false;
-    final cachedIp = await _knownNetworkDao.lookupIp(peerId: peer.id, subnetPrefix: prefix);
+    final cachedIp = await _knownNetworkDao.lookupIp(
+      peerId: peer.id,
+      subnetPrefix: prefix,
+    );
     if (cachedIp == null || state || _connecting) return false;
-    _logger.i('Known-network cache hit for $prefix.0/24 -> $cachedIp; trying fast reconnect.');
+    _logger.i(
+      'Known-network cache hit for $prefix.0/24 -> $cachedIp; trying fast reconnect.',
+    );
     return _connectTo(cachedIp, peer.port);
   }
 
@@ -797,7 +854,9 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
     statusNotifier.beginForceConnect();
 
     if (isSource) {
-      statusNotifier.logDiscovery('Re-initializing source device (server + beacon)...');
+      statusNotifier.logDiscovery(
+        'Re-initializing source device (server + beacon)...',
+      );
       _lastDiscoveredIp = null;
       await _socketManager?.disconnectClient();
       await _broadcaster.stop();
@@ -834,7 +893,9 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
   /// the old sequential path because the slow subnet scan runs in
   /// parallel with the stored-IP and known-network lookups instead of
   /// only starting after they fail.
-  Future<void> _parallelForceConnect(ConnectionStatusNotifier statusNotifier) async {
+  Future<void> _parallelForceConnect(
+    ConnectionStatusNotifier statusNotifier,
+  ) async {
     final peer = _peer;
     final key = _key;
     if (peer == null || key == null) {
@@ -857,23 +918,25 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
       recordDiscoveredAddress: _recordDiscoveredAddress,
     );
 
-    await strategy.execute(
-      statusNotifier,
-      () => state,
-      () => _connecting,
-    );
+    await strategy.execute(statusNotifier, () => state, () => _connecting);
   }
 
   /// Looks up the known-network cached IP for this subnet.
   Future<List<String>> _lookupKnownNetworkIp(
-    ConnectionStatusNotifier statusNotifier, String peerId,
+    ConnectionStatusNotifier statusNotifier,
+    String peerId,
   ) async {
     final localIp = await PeerDiscovery().getLocalIp();
     final prefix = subnetPrefixOf(localIp ?? '');
     if (prefix == null) return [];
-    final cachedIp = await _knownNetworkDao.lookupIp(peerId: peerId, subnetPrefix: prefix);
+    final cachedIp = await _knownNetworkDao.lookupIp(
+      peerId: peerId,
+      subnetPrefix: prefix,
+    );
     if (cachedIp == null) {
-      statusNotifier.logDiscovery('Known-network: no cached IP for $prefix.0/24.');
+      statusNotifier.logDiscovery(
+        'Known-network: no cached IP for $prefix.0/24.',
+      );
       return [];
     }
     statusNotifier.logDiscovery('Known-network cache hit: $cachedIp');
@@ -885,15 +948,23 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
   /// force-connect to avoid waiting 5s on a stale stored IP before trying
   /// the next candidate from the scan.
   Future<bool> _connectWithProgress(
-    String ip, int port, ConnectionStatusNotifier statusNotifier, {
+    String ip,
+    int port,
+    ConnectionStatusNotifier statusNotifier, {
     required String label,
     Duration? connectTimeout,
   }) async {
-    statusNotifier.setDiscoveryState(DiscoveryState.connecting, detail: 'Trying $label...');
+    statusNotifier.setDiscoveryState(
+      DiscoveryState.connecting,
+      detail: 'Trying $label...',
+    );
     statusNotifier.logDiscovery('Trying $label...');
     final ok = await _connectTo(ip, port, connectTimeout: connectTimeout);
     if (ok) {
-      statusNotifier.setDiscoveryState(DiscoveryState.connected, detail: 'Connected to $ip');
+      statusNotifier.setDiscoveryState(
+        DiscoveryState.connected,
+        detail: 'Connected to $ip',
+      );
     }
     return ok;
   }
@@ -901,7 +972,9 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
   /// Multi-subnet scan (VPN support): scans all local subnets in parallel.
   /// Returns the first responsive host across all subnets.
   Future<String?> _scanSubnetsWithProgress(
-    List<String> localIps, int port, ConnectionStatusNotifier statusNotifier,
+    List<String> localIps,
+    int port,
+    ConnectionStatusNotifier statusNotifier,
   ) async {
     if (isSource || state || _connecting || _scanning) return null;
     if (localIps.isEmpty) return null;
@@ -911,7 +984,9 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
       DiscoveryState.scanningSubnet,
       detail: 'Scanning ${localIps.length} subnets...',
     );
-    statusNotifier.logDiscovery('Scanning ${localIps.length} subnets: ${localIps.join(', ')}');
+    statusNotifier.logDiscovery(
+      'Scanning ${localIps.length} subnets: ${localIps.join(', ')}',
+    );
     try {
       final found = await _scanner.findHostWithOpenPortMulti(
         localIps: localIps,
@@ -922,7 +997,9 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
             detail: 'Scanning $subnet.0/24 (batch $batch/$total)',
           );
           if (batch == 1 || batch % 3 == 0) {
-            statusNotifier.logDiscovery('Scanning $subnet.0/24 ($batch/$total)...');
+            statusNotifier.logDiscovery(
+              'Scanning $subnet.0/24 ($batch/$total)...',
+            );
           }
         },
       );
@@ -961,7 +1038,8 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
         final appName = (data['appName'] as String?) ?? packageName;
         final title = (data['title'] as String?) ?? '';
         final text = (data['text'] as String?) ?? '';
-        final timestamp = (data['timestamp'] as int?) ?? now.millisecondsSinceEpoch;
+        final timestamp =
+            (data['timestamp'] as int?) ?? now.millisecondsSinceEpoch;
         // Native's own stable per-notification key (see
         // MirrorLineNotificationListener), not the generated message id --
         // this is what lets Main replace a reposted notification instead
@@ -1003,7 +1081,9 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
     // is never mistaken for a replay.
     final lastAccepted = _lastAcceptedMessageTimestamp;
     if (lastAccepted != null && message.timestamp < lastAccepted) {
-      _logger.w('Rejected likely-replayed message: ${message.id} (type=${message.type})');
+      _logger.w(
+        'Rejected likely-replayed message: ${message.id} (type=${message.type})',
+      );
       return;
     }
     _lastAcceptedMessageTimestamp = message.timestamp;
@@ -1016,13 +1096,23 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
       case MessageTypes.callRejected:
       case MessageTypes.callStatus:
       case MessageTypes.callInfo:
-        await _callHandler.handleIncomingMessage(message.type, payload, message, now);
+        await _callHandler.handleIncomingMessage(
+          message.type,
+          payload,
+          message,
+          now,
+        );
         break;
 
       case MessageTypes.smsIncoming:
       case MessageTypes.smsOutgoing:
       case MessageTypes.smsStatus:
-        await _smsHandler.handleIncomingMessage(message.type, payload, message, now);
+        await _smsHandler.handleIncomingMessage(
+          message.type,
+          payload,
+          message,
+          now,
+        );
         break;
 
       case MessageTypes.ack:
@@ -1030,24 +1120,7 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
         break;
 
       case MessageTypes.notificationMirrored:
-        final packageName = payload['packageName'] as String? ?? 'unknown';
-        final appName = payload['appName'] as String? ?? packageName;
-        final title = payload['title'] as String? ?? '';
-        final text = payload['text'] as String? ?? '';
-        // Native's stable per-notification key (see
-        // MirrorLineNotificationListener), not a timestamp -- so a
-        // reposted/updated notification replaces the previous one here
-        // instead of stacking up as a duplicate.
-        final nativeId = payload['nativeId'] as String? ?? message.id;
-        await NotificationService.showMirrored(
-          id: nativeId.hashCode & 0x7fffffff,
-          title: appName,
-          // The original notification's own title is usually "who it's
-          // from" (e.g. a WhatsApp sender name); keep it as context ahead
-          // of the message body when it says more than the app name does.
-          body: (title.isNotEmpty && title != appName) ? '$title: $text' : text,
-          packageName: packageName,
-        );
+        await _handleNotificationMirrored(payload, message);
         break;
 
       case MessageTypes.pairingRequest:
@@ -1071,6 +1144,23 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
       default:
         _logger.i('Unknown message type: ${message.type}');
     }
+  }
+
+  Future<void> _handleNotificationMirrored(
+    Map<String, dynamic> payload,
+    MirrorMessage message,
+  ) async {
+    final packageName = payload['packageName'] as String? ?? 'unknown';
+    final appName = payload['appName'] as String? ?? packageName;
+    final title = payload['title'] as String? ?? '';
+    final text = payload['text'] as String? ?? '';
+    final nativeId = payload['nativeId'] as String? ?? message.id;
+    await NotificationService.showMirrored(
+      id: nativeId.hashCode & 0x7fffffff,
+      title: appName,
+      body: (title.isNotEmpty && title != appName) ? '$title: $text' : text,
+      packageName: packageName,
+    );
   }
 
   Future<void> _notify({
@@ -1106,16 +1196,35 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
     return sent;
   }
 
-  Future<bool> sendCallNotification(String number, {String? id, String? contactName}) =>
-      _callHandler.sendCallNotification(number, id: id, contactName: contactName);
+  Future<bool> sendCallNotification(
+    String number, {
+    String? id,
+    String? contactName,
+  }) => _callHandler.sendCallNotification(
+    number,
+    id: id,
+    contactName: contactName,
+  );
 
-  Future<bool> sendCallRejected(String callId) => _callHandler.sendCallRejected(callId);
+  Future<bool> sendCallRejected(String callId) =>
+      _callHandler.sendCallRejected(callId);
 
   Future<bool> sendSmsNotification(String address, String body, {String? id}) =>
       _smsHandler.sendSmsNotification(address, body, id: id);
 
-  Future<bool> sendReplySms(String address, String body, {String? id, String? contactName, String? threadId}) =>
-      _smsHandler.sendReplySms(address, body, id: id, contactName: contactName, threadId: threadId);
+  Future<bool> sendReplySms(
+    String address,
+    String body, {
+    String? id,
+    String? contactName,
+    String? threadId,
+  }) => _smsHandler.sendReplySms(
+    address,
+    body,
+    id: id,
+    contactName: contactName,
+    threadId: threadId,
+  );
 
   Future<void> _flushQueue() async {
     final items = await _queue.pendingItems();
@@ -1124,7 +1233,8 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
     for (final item in items) {
       try {
         final payload = jsonDecode(item.payload) as Map<String, dynamic>;
-        final sent = await _socketManager?.sendMessage(item.type, payload) ?? false;
+        final sent =
+            await _socketManager?.sendMessage(item.type, payload) ?? false;
         if (sent) {
           if (item.id != null) await _queue.markSent(item.id!);
         } else {
@@ -1142,7 +1252,10 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
   /// permanently dropped), reflects it back onto the originating SMS/call
   /// entry as 'failed' instead of the item just silently vanishing --
   /// otherwise the sender has no way to know their message never arrived.
-  Future<void> _onQueueItemFailed(QueueItem item, Map<String, dynamic>? payload) async {
+  Future<void> _onQueueItemFailed(
+    QueueItem item,
+    Map<String, dynamic>? payload,
+  ) async {
     final dropped = await _queue.markFailed(item.id!, item.retryCount);
     if (!dropped) return;
 
@@ -1154,10 +1267,14 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
       case MessageTypes.smsIncoming:
       case MessageTypes.smsOutgoing:
       case MessageTypes.smsStatus:
-        await _ref.read(smsListProvider.notifier).updateStatus(entryId, 'failed');
+        await _ref
+            .read(smsListProvider.notifier)
+            .updateStatus(entryId, 'failed');
         break;
       case MessageTypes.callIncoming:
-        await _ref.read(callListProvider.notifier).updateStatus(entryId, 'failed');
+        await _ref
+            .read(callListProvider.notifier)
+            .updateStatus(entryId, 'failed');
         break;
     }
   }

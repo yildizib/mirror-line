@@ -20,7 +20,12 @@ class ConnectionBanner extends StatelessWidget {
           ? const SizedBox(width: double.infinity)
           : Container(
               width: double.infinity,
-              margin: const EdgeInsets.fromLTRB(AppSpacing.md, AppSpacing.sm, AppSpacing.md, 0),
+              margin: const EdgeInsets.fromLTRB(
+                AppSpacing.md,
+                AppSpacing.sm,
+                AppSpacing.md,
+                0,
+              ),
               padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 14),
               decoration: BoxDecoration(
                 color: status.warningContainer,
@@ -28,7 +33,11 @@ class ConnectionBanner extends StatelessWidget {
               ),
               child: Row(
                 children: [
-                  Icon(Icons.wifi_off_rounded, size: 18, color: status.onWarningContainer),
+                  Icon(
+                    Icons.wifi_off_rounded,
+                    size: 18,
+                    color: status.onWarningContainer,
+                  ),
                   const SizedBox(width: AppSpacing.sm),
                   Expanded(
                     child: Text(

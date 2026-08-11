@@ -15,7 +15,8 @@ class SplashScreen extends StatefulWidget {
   State<SplashScreen> createState() => _SplashScreenState();
 }
 
-class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderStateMixin {
+class _SplashScreenState extends State<SplashScreen>
+    with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
   late final Animation<double> _scale;
   late final Animation<double> _opacity;
@@ -28,14 +29,18 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
       vsync: this,
       duration: const Duration(milliseconds: 700),
     );
-    _scale = Tween<double>(begin: 0.85, end: 1).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeOutBack),
-    );
+    _scale = Tween<double>(
+      begin: 0.85,
+      end: 1,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutBack));
     _opacity = CurvedAnimation(parent: _controller, curve: Curves.easeOut);
     _controller.forward();
     // A real, cancelable Timer (not Future.delayed) so dispose() can stop
     // it cleanly if this screen goes away before it fires.
-    _navigationTimer = Timer(const Duration(milliseconds: 1100), _navigateToHome);
+    _navigationTimer = Timer(
+      const Duration(milliseconds: 1100),
+      _navigateToHome,
+    );
   }
 
   void _navigateToHome() {
@@ -43,10 +48,8 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
     Navigator.of(context).pushReplacement(
       PageRouteBuilder(
         transitionDuration: const Duration(milliseconds: 400),
-        pageBuilder: (_, animation, _) => FadeTransition(
-          opacity: animation,
-          child: const HomeScreen(),
-        ),
+        pageBuilder: (_, animation, _) =>
+            FadeTransition(opacity: animation, child: const HomeScreen()),
       ),
     );
   }

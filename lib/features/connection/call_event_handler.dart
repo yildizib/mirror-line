@@ -1,7 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logger/logger.dart';
 import 'package:mirrorline/core/data/models/call_event.dart';
-import 'package:mirrorline/core/network/message_protocol.dart' show MessageTypes, MirrorMessage;
+import 'package:mirrorline/core/network/message_protocol.dart'
+    show MessageTypes, MirrorMessage;
 import 'package:mirrorline/core/services/locale_service.dart';
 import 'package:mirrorline/core/services/notification_service.dart';
 import 'package:mirrorline/core/telephony/telephony_channel.dart';
@@ -11,15 +12,17 @@ import 'package:uuid/uuid.dart';
 /// Sends a single mirrored/peer message, queuing it locally if the socket
 /// isn't currently writable. Implemented by ConnectionNotifier so this
 /// handler (and SmsEventHandler) never need their own view of the socket.
-typedef SendOrQueue = Future<bool> Function(String type, Map<String, dynamic> payload);
+typedef SendOrQueue =
+    Future<bool> Function(String type, Map<String, dynamic> payload);
 
 /// Shows (or replaces, by id) a local notification.
-typedef ShowNotification = Future<void> Function({
-  required int id,
-  required String title,
-  required String body,
-  NotificationPayload? payload,
-});
+typedef ShowNotification =
+    Future<void> Function({
+      required int id,
+      required String title,
+      required String body,
+      NotificationPayload? payload,
+    });
 
 /// Everything about interpreting native call events (on the Source device)
 /// and incoming call_* peer messages (call_incoming/call_rejected/
@@ -85,11 +88,9 @@ class CallEventHandler {
       if (callId == null) return;
       final number = data['number'] as String?;
       final contactName = data['contactName'] as String?;
-      await _ref.read(callListProvider.notifier).updateCallerInfo(
-            callId,
-            number: number,
-            contactName: contactName,
-          );
+      await _ref
+          .read(callListProvider.notifier)
+          .updateCallerInfo(callId, number: number, contactName: contactName);
       await _sendOrQueue(MessageTypes.callInfo, {
         'id': callId,
         'number': ?number,
@@ -123,11 +124,9 @@ class CallEventHandler {
     final number = data['number'] as String?;
     final contactName = data['contactName'] as String?;
     if (number != null || contactName != null) {
-      await _ref.read(callListProvider.notifier).updateCallerInfo(
-            callId,
-            number: number,
-            contactName: contactName,
-          );
+      await _ref
+          .read(callListProvider.notifier)
+          .updateCallerInfo(callId, number: number, contactName: contactName);
       await _sendOrQueue(MessageTypes.callInfo, {
         'id': callId,
         'number': ?number,
@@ -136,7 +135,10 @@ class CallEventHandler {
     }
 
     await _ref.read(callListProvider.notifier).updateStatus(callId, newStatus);
-    await _sendOrQueue(MessageTypes.callStatus, {'id': callId, 'status': newStatus});
+    await _sendOrQueue(MessageTypes.callStatus, {
+      'id': callId,
+      'status': newStatus,
+    });
     if (callState != 'ANSWERED') {
       _activeCallId = null;
     }
@@ -169,7 +171,8 @@ class CallEventHandler {
           number: number,
           contactName: contactName,
           timestamp: DateTime.fromMillisecondsSinceEpoch(
-              payload['timestamp'] as int? ?? now.millisecondsSinceEpoch),
+            payload['timestamp'] as int? ?? now.millisecondsSinceEpoch,
+          ),
           encrypted: message.payload,
           status: 'ringing',
           createdAt: now,
@@ -195,7 +198,9 @@ class CallEventHandler {
           _activeCallId = null;
         }
         if (id != null) {
-          await _ref.read(callListProvider.notifier).updateStatus(id, 'rejected');
+          await _ref
+              .read(callListProvider.notifier)
+              .updateStatus(id, 'rejected');
         }
         break;
 
@@ -223,7 +228,9 @@ class CallEventHandler {
       case MessageTypes.callInfo:
         final id = payload['id'] as String?;
         if (id == null) break;
-        await _ref.read(callListProvider.notifier).updateCallerInfo(
+        await _ref
+            .read(callListProvider.notifier)
+            .updateCallerInfo(
               id,
               number: payload['number'] as String?,
               contactName: payload['contact_name'] as String?,
@@ -246,22 +253,25 @@ class CallEventHandler {
   }
 
   CallEvent? _findCall(String id) {
-    for (final c in _ref.read(callListProvider)) {
-      if (c.id == id) return c;
-    }
-    return null;
+    final callMap = _ref.read(callEventMapProvider);
+    return callMap[id];
   }
 
   // -----------------------------------------------------------------------
   // Outgoing (with offline queue, via the injected sendOrQueue)
   // -----------------------------------------------------------------------
 
-  Future<bool> sendCallNotification(String number, {String? id, String? contactName}) {
+  Future<bool> sendCallNotification(
+    String number, {
+    String? id,
+    String? contactName,
+  }) {
     final callId = id ?? const Uuid().v4();
     return _sendOrQueue(MessageTypes.callIncoming, {
       'id': callId,
       'number': number,
-      if (contactName != null && contactName.isNotEmpty) 'contact_name': contactName,
+      if (contactName != null && contactName.isNotEmpty)
+        'contact_name': contactName,
       'timestamp': DateTime.now().millisecondsSinceEpoch,
     });
   }

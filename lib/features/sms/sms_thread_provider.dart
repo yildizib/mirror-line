@@ -39,7 +39,8 @@ final smsThreadsProvider = Provider<List<SmsThread>>((ref) {
   }
 
   final threads = byAddress.entries.map((entry) {
-    final sorted = entry.value.toList()..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+    final sorted = entry.value.toList()
+      ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
     final contactName = sorted.reversed
         .map((m) => m.contactName)
         .firstWhere((name) => name.isNotEmpty, orElse: () => '');
@@ -53,6 +54,8 @@ final smsThreadsProvider = Provider<List<SmsThread>>((ref) {
     );
   }).toList();
 
-  threads.sort((a, b) => b.lastMessage.timestamp.compareTo(a.lastMessage.timestamp));
+  threads.sort(
+    (a, b) => b.lastMessage.timestamp.compareTo(a.lastMessage.timestamp),
+  );
   return threads;
 });

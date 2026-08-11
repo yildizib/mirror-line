@@ -31,7 +31,9 @@ class CallCard extends StatelessWidget {
     final l = AppLocalizations.of(context);
 
     final card = Card(
-      color: isSelected ? colorScheme.primaryContainer.withValues(alpha: 0.4) : null,
+      color: isSelected
+          ? colorScheme.primaryContainer.withValues(alpha: 0.4)
+          : null,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         child: Row(
@@ -40,7 +42,9 @@ class CallCard extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.only(right: AppSpacing.sm),
                 child: Icon(
-                  isSelected ? Icons.check_circle_rounded : Icons.circle_outlined,
+                  isSelected
+                      ? Icons.check_circle_rounded
+                      : Icons.circle_outlined,
                   color: isSelected ? colorScheme.primary : colorScheme.outline,
                 ),
               ),
@@ -56,12 +60,18 @@ class CallCard extends StatelessWidget {
                 children: [
                   Text(
                     event.displayName(l),
-                    style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 15,
+                    ),
                   ),
                   const SizedBox(height: 2),
                   Text(
                     _formatTime(event.timestamp),
-                    style: TextStyle(fontSize: 12, color: colorScheme.onSurfaceVariant),
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: colorScheme.onSurfaceVariant,
+                    ),
                   ),
                 ],
               ),
@@ -70,7 +80,9 @@ class CallCard extends StatelessWidget {
               IconButton.filledTonal(
                 icon: const Icon(Icons.call_end_rounded),
                 style: IconButton.styleFrom(
-                  backgroundColor: colorScheme.errorContainer.withValues(alpha: 0.6),
+                  backgroundColor: colorScheme.errorContainer.withValues(
+                    alpha: 0.6,
+                  ),
                   foregroundColor: colorScheme.error,
                 ),
                 onPressed: onReject,
@@ -93,7 +105,8 @@ class CallCard extends StatelessWidget {
 
   String _formatTime(DateTime time) {
     final now = DateTime.now();
-    final sameDay = time.year == now.year && time.month == now.month && time.day == now.day;
+    final sameDay =
+        time.year == now.year && time.month == now.month && time.day == now.day;
     if (sameDay) {
       return '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
     }
@@ -129,7 +142,11 @@ class _StatusChip extends StatelessWidget {
       ),
       child: Text(
         label,
-        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: color),
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w700,
+          color: color,
+        ),
       ),
     );
   }

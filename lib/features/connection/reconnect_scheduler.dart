@@ -50,7 +50,9 @@ class ReconnectScheduler {
     _reconnectTimer?.cancel();
     var delay = _reconnectInitialDelay * (1 << _reconnectAttempts);
     if (delay > _reconnectMaxDelay) delay = _reconnectMaxDelay;
-    _logger.i('Scheduling reconnect in ${delay.inSeconds}s (attempt ${_reconnectAttempts + 1}).');
+    _logger.i(
+      'Scheduling reconnect in ${delay.inSeconds}s (attempt ${_reconnectAttempts + 1}).',
+    );
     _reconnectTimer = Timer(delay, () async {
       await _tryConnect();
     });
@@ -76,7 +78,9 @@ class ReconnectScheduler {
       // Connection succeeded; markConnected() is called by ConnectionNotifier
     } catch (e) {
       if (generation != _connectGeneration) {
-        _logger.d('Stale connection attempt (gen=$generation), ignoring result.');
+        _logger.d(
+          'Stale connection attempt (gen=$generation), ignoring result.',
+        );
         return;
       }
       _logger.e('Connection attempt failed: $e');

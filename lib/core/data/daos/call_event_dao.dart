@@ -9,7 +9,11 @@ class CallEventDao {
 
   Future<void> insert(CallEvent event) async {
     final db = await _database;
-    await db.insert('call_event', event.toJson(), conflictAlgorithm: ConflictAlgorithm.replace);
+    await db.insert(
+      'call_event',
+      event.toJson(),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
   }
 
   Future<List<CallEvent>> getAll() async {
@@ -20,14 +24,25 @@ class CallEventDao {
 
   Future<void> updateStatus(String id, String status) async {
     final db = await _database;
-    await db.update('call_event', {'status': status}, where: 'id = ?', whereArgs: [id]);
+    await db.update(
+      'call_event',
+      {'status': status},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
   }
 
   /// Patches number/contact_name in place (see CallListNotifier.updateCallerInfo).
-  Future<void> updateCallerInfo(String id, {String? number, String? contactName}) async {
+  Future<void> updateCallerInfo(
+    String id, {
+    String? number,
+    String? contactName,
+  }) async {
     final values = <String, Object?>{};
     if (number != null && number.isNotEmpty) values['number'] = number;
-    if (contactName != null && contactName.isNotEmpty) values['contact_name'] = contactName;
+    if (contactName != null && contactName.isNotEmpty) {
+      values['contact_name'] = contactName;
+    }
     if (values.isEmpty) return;
     final db = await _database;
     await db.update('call_event', values, where: 'id = ?', whereArgs: [id]);

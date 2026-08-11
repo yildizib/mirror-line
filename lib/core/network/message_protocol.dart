@@ -14,22 +14,23 @@ class MirrorMessage {
   });
 
   Map<String, dynamic> toJson() => {
-        'type': type,
-        'id': id,
-        'timestamp': timestamp,
-        'payload': payload,
-      };
+    'type': type,
+    'id': id,
+    'timestamp': timestamp,
+    'payload': payload,
+  };
 
   factory MirrorMessage.fromJson(Map<String, dynamic> json) => MirrorMessage(
-        type: json['type'] as String,
-        id: json['id'] as String,
-        timestamp: json['timestamp'] as int,
-        payload: json['payload'] as String,
-      );
+    type: json['type'] as String,
+    id: json['id'] as String,
+    timestamp: json['timestamp'] as int,
+    payload: json['payload'] as String,
+  );
 
   String encode() => jsonEncode(toJson());
 
-  static MirrorMessage decode(String raw) => MirrorMessage.fromJson(jsonDecode(raw));
+  static MirrorMessage decode(String raw) =>
+      MirrorMessage.fromJson(jsonDecode(raw));
 }
 
 abstract class MessageTypes {

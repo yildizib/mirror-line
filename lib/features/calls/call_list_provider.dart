@@ -2,8 +2,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mirrorline/core/data/daos/call_event_dao.dart';
 import 'package:mirrorline/core/data/models/call_event.dart';
 
-final callListProvider = StateNotifierProvider<CallListNotifier, List<CallEvent>>((ref) {
-  return CallListNotifier();
+final callListProvider =
+    StateNotifierProvider<CallListNotifier, List<CallEvent>>((ref) {
+      return CallListNotifier();
+    });
+
+/// Derived provider: O(1) lookup by call ID instead of linear search.
+final callEventMapProvider = Provider<Map<String, CallEvent>>((ref) {
+  final calls = ref.watch(callListProvider);
+  return {for (final call in calls) call.id: call};
 });
 
 class CallListNotifier extends StateNotifier<List<CallEvent>> {
@@ -25,20 +32,32 @@ class CallListNotifier extends StateNotifier<List<CallEvent>> {
   Future<void> add(CallEvent event) async {
     await _dao.insert(event);
     final exists = state.any((e) => e.id == event.id);
-    state = exists ? state.map((e) => e.id == event.id ? event : e).toList() : [...state, event];
+    state = exists
+        ? state.map((e) => e.id == event.id ? event : e).toList()
+        : [...state, event];
   }
 
   Future<void> updateStatus(String id, String status) async {
     await _dao.updateStatus(id, status);
-    state = state.map((e) => e.id == id ? e.copyWith(status: status) : e).toList();
+    state = state
+        .map((e) => e.id == id ? e.copyWith(status: status) : e)
+        .toList();
   }
 
   /// Patches the caller's number/contact name on an already-tracked call
   /// (see RINGING_UPDATE) without treating it as a new event.
-  Future<void> updateCallerInfo(String id, {String? number, String? contactName}) async {
+  Future<void> updateCallerInfo(
+    String id, {
+    String? number,
+    String? contactName,
+  }) async {
     await _dao.updateCallerInfo(id, number: number, contactName: contactName);
     state = state
-        .map((e) => e.id == id ? e.copyWith(number: number, contactName: contactName) : e)
+        .map(
+          (e) => e.id == id
+              ? e.copyWith(number: number, contactName: contactName)
+              : e,
+        )
         .toList();
   }
 

@@ -115,7 +115,9 @@ class SocketManager {
           // without a clean TCP close). Drop it and accept the new one —
           // otherwise a single silent disconnect would permanently block all
           // future reconnect attempts until this device's app is restarted.
-          _logger.w('Replacing previous connection with new incoming connection.');
+          _logger.w(
+            'Replacing previous connection with new incoming connection.',
+          );
           _handleClosed();
         }
         _accept(socket);
@@ -126,7 +128,12 @@ class SocketManager {
     }
   }
 
-  Future<bool> connect(String ip, int port, SecretKey key, {Duration? connectTimeout}) async {
+  Future<bool> connect(
+    String ip,
+    int port,
+    SecretKey key, {
+    Duration? connectTimeout,
+  }) async {
     if (_isConnected) return true;
     if (ip.isEmpty || ip == 'unknown') return false;
     // Don't let an outward connect() call clobber a running server. This
@@ -137,15 +144,21 @@ class SocketManager {
     // is a defensive backstop so a misconfigured caller can't break the
     // server again.
     if (_isServer && _server != null) {
-      _logger.w('connect() called on a server-mode socket manager; refusing to '
-          'clobber the server. Caller should use a separate socket manager.');
+      _logger.w(
+        'connect() called on a server-mode socket manager; refusing to '
+        'clobber the server. Caller should use a separate socket manager.',
+      );
       return false;
     }
     _key = key;
     _isServer = false;
     final generation = ++_connectGeneration;
     try {
-      final socket = await Socket.connect(ip, port, timeout: connectTimeout ?? const Duration(seconds: 5));
+      final socket = await Socket.connect(
+        ip,
+        port,
+        timeout: connectTimeout ?? const Duration(seconds: 5),
+      );
       if (generation != _connectGeneration) {
         // A newer connect()/disconnect() call superseded this one while the
         // TCP handshake was in flight (e.g. a forced reconnect) -- discard
@@ -188,14 +201,18 @@ class SocketManager {
       if (_peerPublicKeyBase64 != null && _peerPublicKeyBase64!.isNotEmpty) {
         _startServerAuth(socket);
       } else {
-        _logger.i('Server: no peer public key set — pairing mode, skipping auth.');
+        _logger.i(
+          'Server: no peer public key set — pairing mode, skipping auth.',
+        );
         _onAuthSuccess();
       }
     } else {
       if (_localKeyPair != null) {
         _startClientAuth();
       } else {
-        _logger.i('Client: no local key pair set — pairing mode, skipping auth.');
+        _logger.i(
+          'Client: no local key pair set — pairing mode, skipping auth.',
+        );
         _onAuthSuccess();
       }
     }
@@ -234,11 +251,15 @@ class SocketManager {
 
   void _startHeartbeat() {
     _stopHeartbeat();
-    final interval = _backgroundMode ? _heartbeatIntervalBackground : _heartbeatInterval;
+    final interval = _backgroundMode
+        ? _heartbeatIntervalBackground
+        : _heartbeatInterval;
     _heartbeatTimer = Timer.periodic(interval, (_) async {
       if (!_isConnected) return;
       if (DateTime.now().difference(_lastDataAt) > _receiveTimeout) {
-        _logger.w('Peer unresponsive (no data for ${_receiveTimeout.inSeconds}s). Closing.');
+        _logger.w(
+          'Peer unresponsive (no data for ${_receiveTimeout.inSeconds}s). Closing.',
+        );
         _handleClosed();
         return;
       }
@@ -296,7 +317,9 @@ class SocketManager {
 
         // ---- Past auth: normal messages ----
         if (!_authed) {
-          _logger.w('Received non-auth message before auth completed: ${message.type}');
+          _logger.w(
+            'Received non-auth message before auth completed: ${message.type}',
+          );
           continue;
         }
 
@@ -358,7 +381,9 @@ class SocketManager {
     _stopServerAuthTimer();
     _serverAuthTimer = Timer(_authTimeout, () {
       if (!_authed) {
-        _logger.w('Server auth timeout: client never completed authentication.');
+        _logger.w(
+          'Server auth timeout: client never completed authentication.',
+        );
         _handleClosed();
       }
     });
@@ -443,7 +468,9 @@ class SocketManager {
     );
 
     if (ok) {
-      _logger.i('Client authenticated successfully. Sent authOk, awaiting ack.');
+      _logger.i(
+        'Client authenticated successfully. Sent authOk, awaiting ack.',
+      );
       await sendMessage(MessageTypes.authOk, {});
       // Don't call _onAuthSuccess() yet: if this authOk never reaches the
       // client (dropped packet, client already gave up), we'd otherwise

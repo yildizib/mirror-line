@@ -1,11 +1,13 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logger/logger.dart';
 import 'package:mirrorline/core/data/models/sms_message.dart';
-import 'package:mirrorline/core/network/message_protocol.dart' show MessageTypes, MirrorMessage;
+import 'package:mirrorline/core/network/message_protocol.dart'
+    show MessageTypes, MirrorMessage;
 import 'package:mirrorline/core/services/locale_service.dart';
 import 'package:mirrorline/core/services/notification_service.dart';
 import 'package:mirrorline/core/telephony/telephony_channel.dart';
-import 'package:mirrorline/features/connection/call_event_handler.dart' show SendOrQueue, ShowNotification;
+import 'package:mirrorline/features/connection/call_event_handler.dart'
+    show SendOrQueue, ShowNotification;
 import 'package:mirrorline/features/sms/sms_list_provider.dart';
 import 'package:uuid/uuid.dart';
 
@@ -79,7 +81,8 @@ class SmsEventHandler {
         final address = payload['address'] as String? ?? '';
         var contactName = payload['contact_name'] as String? ?? '';
         if (contactName.isEmpty) {
-          contactName = await TelephonyChannel.resolveContactName(address) ?? '';
+          contactName =
+              await TelephonyChannel.resolveContactName(address) ?? '';
         }
         final body = payload['body'] as String? ?? '';
         final id = payload['id'] as String? ?? message.id;
@@ -93,7 +96,8 @@ class SmsEventHandler {
           direction: 'incoming',
           status: 'received',
           timestamp: DateTime.fromMillisecondsSinceEpoch(
-              payload['timestamp'] as int? ?? now.millisecondsSinceEpoch),
+            payload['timestamp'] as int? ?? now.millisecondsSinceEpoch,
+          ),
           createdAt: now,
         );
         await _ref.read(smsListProvider.notifier).add(smsEvent);
@@ -117,19 +121,24 @@ class SmsEventHandler {
             _logger.e('SMS send failed: $e');
             status = 'failed';
           }
-          await _ref.read(smsListProvider.notifier).add(SmsMessage(
-                id: id,
-                threadId: payload['thread_id'] as String? ?? '',
-                address: address,
-                contactName: payload['contact_name'] as String? ?? '',
-                body: body,
-                encrypted: message.payload,
-                direction: 'outgoing',
-                status: status,
-                timestamp: DateTime.fromMillisecondsSinceEpoch(
-                    payload['timestamp'] as int? ?? now.millisecondsSinceEpoch),
-                createdAt: now,
-              ));
+          await _ref
+              .read(smsListProvider.notifier)
+              .add(
+                SmsMessage(
+                  id: id,
+                  threadId: payload['thread_id'] as String? ?? '',
+                  address: address,
+                  contactName: payload['contact_name'] as String? ?? '',
+                  body: body,
+                  encrypted: message.payload,
+                  direction: 'outgoing',
+                  status: status,
+                  timestamp: DateTime.fromMillisecondsSinceEpoch(
+                    payload['timestamp'] as int? ?? now.millisecondsSinceEpoch,
+                  ),
+                  createdAt: now,
+                ),
+              );
           // Queued (not fire-and-forget): if the connection drops between
           // sending the SMS and acking it, a direct socket write would be
           // silently lost, leaving the Main device's copy stuck on
@@ -170,13 +179,20 @@ class SmsEventHandler {
     });
   }
 
-  Future<bool> sendReplySms(String address, String body, {String? id, String? contactName, String? threadId}) {
+  Future<bool> sendReplySms(
+    String address,
+    String body, {
+    String? id,
+    String? contactName,
+    String? threadId,
+  }) {
     final smsId = id ?? const Uuid().v4();
     return _sendOrQueue(MessageTypes.smsOutgoing, {
       'id': smsId,
       'address': address,
       'body': body,
-      if (contactName != null && contactName.isNotEmpty) 'contact_name': contactName,
+      if (contactName != null && contactName.isNotEmpty)
+        'contact_name': contactName,
       if (threadId != null && threadId.isNotEmpty) 'thread_id': threadId,
       'timestamp': DateTime.now().millisecondsSinceEpoch,
     });

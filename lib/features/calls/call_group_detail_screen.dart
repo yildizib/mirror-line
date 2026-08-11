@@ -20,7 +20,8 @@ class CallGroupDetailScreen extends ConsumerStatefulWidget {
   const CallGroupDetailScreen({required this.groupKey, super.key});
 
   @override
-  ConsumerState<CallGroupDetailScreen> createState() => _CallGroupDetailScreenState();
+  ConsumerState<CallGroupDetailScreen> createState() =>
+      _CallGroupDetailScreenState();
 }
 
 class _CallGroupDetailScreenState extends ConsumerState<CallGroupDetailScreen> {
@@ -78,7 +79,9 @@ class _CallGroupDetailScreenState extends ConsumerState<CallGroupDetailScreen> {
                 IconButton(
                   icon: const Icon(Icons.delete_rounded),
                   tooltip: l.commonDeleteSelected,
-                  onPressed: _selected.isEmpty ? null : () => _deleteSelected(context),
+                  onPressed: _selected.isEmpty
+                      ? null
+                      : () => _deleteSelected(context),
                 ),
               ]
             : [
@@ -135,16 +138,21 @@ class _CallGroupDetailScreenState extends ConsumerState<CallGroupDetailScreen> {
           ),
           TextButton(
             onPressed: () async {
-              await ref.read(callListProvider.notifier).removeMany(_selected.toList());
+              await ref
+                  .read(callListProvider.notifier)
+                  .removeMany(_selected.toList());
               if (context.mounted) {
                 Navigator.pop(dialogContext);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text(l.callsDeleted)),
-                );
+                ScaffoldMessenger.of(
+                  context,
+                ).showSnackBar(SnackBar(content: Text(l.callsDeleted)));
               }
               _exitSelectionMode();
             },
-            child: Text(l.commonDelete, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+            child: Text(
+              l.commonDelete,
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
           ),
         ],
       ),
@@ -181,13 +189,17 @@ class _CallDetailTile extends StatelessWidget {
     };
 
     final tile = Card(
-      color: isSelected ? colorScheme.primaryContainer.withValues(alpha: 0.4) : null,
+      color: isSelected
+          ? colorScheme.primaryContainer.withValues(alpha: 0.4)
+          : null,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         child: Row(
           children: [
             Icon(
-              event.direction == 'incoming' ? Icons.call_received_rounded : Icons.call_made_rounded,
+              event.direction == 'incoming'
+                  ? Icons.call_received_rounded
+                  : Icons.call_made_rounded,
               color: statusColor,
               size: 20,
             ),
@@ -198,12 +210,19 @@ class _CallDetailTile extends StatelessWidget {
                 children: [
                   Text(
                     _formatFullTime(event.timestamp, context),
-                    style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
+                    ),
                   ),
                   const SizedBox(height: 2),
                   Text(
                     event.statusLabel(l),
-                    style: TextStyle(fontSize: 12, color: statusColor, fontWeight: FontWeight.w600),
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: statusColor,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ],
               ),
@@ -228,7 +247,8 @@ class _CallDetailTile extends StatelessWidget {
 
   String _formatFullTime(DateTime time, BuildContext context) {
     final now = DateTime.now();
-    final sameDay = time.year == now.year && time.month == now.month && time.day == now.day;
+    final sameDay =
+        time.year == now.year && time.month == now.month && time.day == now.day;
     final hh = time.hour.toString().padLeft(2, '0');
     final mm = time.minute.toString().padLeft(2, '0');
     final l = AppLocalizations.of(context);

@@ -14,26 +14,26 @@ class QueueItem {
   });
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'type': type,
-        'payload': payload,
-        'retry_count': retryCount,
-        'created_at': createdAt.millisecondsSinceEpoch,
-      };
+    'id': id,
+    'type': type,
+    'payload': payload,
+    'retry_count': retryCount,
+    'created_at': createdAt.millisecondsSinceEpoch,
+  };
 
   factory QueueItem.fromJson(Map<String, dynamic> json) => QueueItem(
-        id: json['id'] as int?,
-        type: json['type'] as String,
-        payload: json['payload'] as String,
-        retryCount: json['retry_count'] as int,
-        createdAt: DateTime.fromMillisecondsSinceEpoch(json['created_at'] as int),
-      );
+    id: json['id'] as int?,
+    type: json['type'] as String,
+    payload: json['payload'] as String,
+    retryCount: json['retry_count'] as int,
+    createdAt: DateTime.fromMillisecondsSinceEpoch(json['created_at'] as int),
+  );
 
   QueueItem copyWith({int? retryCount}) => QueueItem(
-        id: id,
-        type: type,
-        payload: payload,
-        retryCount: retryCount ?? this.retryCount,
-        createdAt: createdAt,
-      );
+    id: id,
+    type: type,
+    payload: payload,
+    retryCount: retryCount ?? this.retryCount,
+    createdAt: createdAt,
+  );
 }

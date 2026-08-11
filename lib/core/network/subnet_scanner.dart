@@ -52,7 +52,10 @@ class SubnetScanner {
     for (var start = 0; start < candidates.length; start += concurrency) {
       batchIndex++;
       onProgress?.call(batchIndex, totalBatches, base);
-      final batch = candidates.skip(start).take(concurrency).where((n) => n != selfLastOctet);
+      final batch = candidates
+          .skip(start)
+          .take(concurrency)
+          .where((n) => n != selfLastOctet);
       final results = await Future.wait(
         batch.map((n) => _probe('$base.$n', port, perHostTimeout)),
       );
@@ -98,7 +101,9 @@ class SubnetScanner {
       );
     }
 
-    _logger.i('Scanning ${localIps.length} subnets in parallel for port $port...');
+    _logger.i(
+      'Scanning ${localIps.length} subnets in parallel for port $port...',
+    );
 
     // Race all subnet scans in parallel. First hit wins.
     final completer = Completer<String?>();

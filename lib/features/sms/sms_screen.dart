@@ -25,10 +25,7 @@ class _SmsScreenState extends ConsumerState<SmsScreen> {
     final l = AppLocalizations.of(context);
 
     if (threads.isEmpty) {
-      return EmptyState(
-        icon: Icons.message_rounded,
-        message: l.smsEmpty,
-      );
+      return EmptyState(icon: Icons.message_rounded, message: l.smsEmpty);
     }
 
     return Scaffold(
@@ -46,7 +43,9 @@ class _SmsScreenState extends ConsumerState<SmsScreen> {
             onTapSelect: () => _toggleSelect(thread.address),
             onTap: () => Navigator.push(
               context,
-              MaterialPageRoute(builder: (_) => SmsThreadScreen(address: thread.address)),
+              MaterialPageRoute(
+                builder: (_) => SmsThreadScreen(address: thread.address),
+              ),
             ),
           );
         },
@@ -62,7 +61,9 @@ class _SmsScreenState extends ConsumerState<SmsScreen> {
                 IconButton(
                   icon: const Icon(Icons.delete_rounded),
                   tooltip: l.commonDeleteSelected,
-                  onPressed: _selected.isEmpty ? null : () => _deleteSelected(context),
+                  onPressed: _selected.isEmpty
+                      ? null
+                      : () => _deleteSelected(context),
                 ),
               ],
             )
@@ -115,13 +116,16 @@ class _SmsScreenState extends ConsumerState<SmsScreen> {
               }
               if (context.mounted) {
                 Navigator.pop(dialogContext);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text(l.smsDeleted)),
-                );
+                ScaffoldMessenger.of(
+                  context,
+                ).showSnackBar(SnackBar(content: Text(l.smsDeleted)));
               }
               _exitSelectionMode();
             },
-            child: Text(l.commonDelete, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+            child: Text(
+              l.commonDelete,
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
           ),
         ],
       ),
