@@ -30,7 +30,9 @@ class SmsThreadTile extends StatelessWidget {
     final isPending = last.status == 'pending';
 
     return Card(
-      color: isSelected ? colorScheme.primaryContainer.withValues(alpha: 0.4) : null,
+      color: isSelected
+          ? colorScheme.primaryContainer.withValues(alpha: 0.4)
+          : null,
       child: InkWell(
         borderRadius: BorderRadius.circular(AppRadius.md),
         onTap: isSelecting ? onTapSelect : onTap,
@@ -43,8 +45,12 @@ class SmsThreadTile extends StatelessWidget {
                 Padding(
                   padding: const EdgeInsets.only(right: AppSpacing.sm),
                   child: Icon(
-                    isSelected ? Icons.check_circle_rounded : Icons.circle_outlined,
-                    color: isSelected ? colorScheme.primary : colorScheme.outline,
+                    isSelected
+                        ? Icons.check_circle_rounded
+                        : Icons.circle_outlined,
+                    color: isSelected
+                        ? colorScheme.primary
+                        : colorScheme.outline,
                   ),
                 ),
               CircleAvatar(
@@ -52,7 +58,10 @@ class SmsThreadTile extends StatelessWidget {
                 backgroundColor: colorScheme.primaryContainer,
                 child: Text(
                   _initial(thread.displayName),
-                  style: TextStyle(fontWeight: FontWeight.w700, color: colorScheme.primary),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: colorScheme.primary,
+                  ),
                 ),
               ),
               const SizedBox(width: AppSpacing.md),
@@ -65,7 +74,10 @@ class SmsThreadTile extends StatelessWidget {
                         Expanded(
                           child: Text(
                             thread.displayName,
-                            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 15,
+                            ),
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
@@ -74,7 +86,9 @@ class SmsThreadTile extends StatelessWidget {
                           _formatTime(last.timestamp),
                           style: TextStyle(
                             fontSize: 12,
-                            color: colorScheme.onSurfaceVariant.withValues(alpha: 0.8),
+                            color: colorScheme.onSurfaceVariant.withValues(
+                              alpha: 0.8,
+                            ),
                           ),
                         ),
                       ],
@@ -83,7 +97,11 @@ class SmsThreadTile extends StatelessWidget {
                     Row(
                       children: [
                         if (last.direction == 'outgoing') ...[
-                          Icon(Icons.reply_rounded, size: 14, color: colorScheme.onSurfaceVariant),
+                          Icon(
+                            Icons.reply_rounded,
+                            size: 14,
+                            color: colorScheme.onSurfaceVariant,
+                          ),
                           const SizedBox(width: 4),
                         ],
                         Expanded(
@@ -92,7 +110,9 @@ class SmsThreadTile extends StatelessWidget {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
-                              color: isFailed ? theme.colorScheme.error : colorScheme.onSurfaceVariant,
+                              color: isFailed
+                                  ? theme.colorScheme.error
+                                  : colorScheme.onSurfaceVariant,
                               fontWeight: isFailed ? FontWeight.w700 : null,
                             ),
                           ),
@@ -111,14 +131,22 @@ class SmsThreadTile extends StatelessWidget {
                         if (thread.messages.length > 1) ...[
                           const SizedBox(width: 6),
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
                             decoration: BoxDecoration(
                               color: colorScheme.surfaceContainerHighest,
-                              borderRadius: BorderRadius.circular(AppRadius.pill),
+                              borderRadius: BorderRadius.circular(
+                                AppRadius.pill,
+                              ),
                             ),
                             child: Text(
                               '${thread.messages.length}',
-                              style: TextStyle(fontSize: 11, color: colorScheme.onSurfaceVariant),
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: colorScheme.onSurfaceVariant,
+                              ),
                             ),
                           ),
                         ],
@@ -138,7 +166,8 @@ class SmsThreadTile extends StatelessWidget {
 
   String _formatTime(DateTime time) {
     final now = DateTime.now();
-    final sameDay = time.year == now.year && time.month == now.month && time.day == now.day;
+    final sameDay =
+        time.year == now.year && time.month == now.month && time.day == now.day;
     if (sameDay) {
       return '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
     }

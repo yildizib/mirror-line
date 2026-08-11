@@ -6,11 +6,7 @@ class QrDisplay extends StatelessWidget {
   final String data;
   final double size;
 
-  const QrDisplay({
-    required this.data,
-    this.size = 220,
-    super.key,
-  });
+  const QrDisplay({required this.data, this.size = 220, super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -29,11 +25,7 @@ class QrDisplay extends StatelessWidget {
         ],
       ),
       padding: const EdgeInsets.all(AppSpacing.md),
-      child: QrImageView(
-        data: data,
-        size: size,
-        backgroundColor: Colors.white,
-      ),
+      child: QrImageView(data: data, size: size, backgroundColor: Colors.white),
     );
   }
 }

@@ -22,31 +22,31 @@ class Peer {
   });
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'device_name': deviceName,
-        'role': role,
-        'ip': ip,
-        'port': port,
-        'key': key,
-        'public_key': publicKey,
-        'created_at': createdAt.millisecondsSinceEpoch,
-      };
+    'id': id,
+    'device_name': deviceName,
+    'role': role,
+    'ip': ip,
+    'port': port,
+    'key': key,
+    'public_key': publicKey,
+    'created_at': createdAt.millisecondsSinceEpoch,
+  };
 
   factory Peer.fromJson(Map<String, dynamic> json) => Peer(
-        id: json['id'] as String,
-        // Not routed through AppLocalizations: this is identity data that
-        // gets persisted and shown on *both* devices (which may run
-        // different app languages), so it needs a locale-neutral fallback
-        // rather than whichever language the writer's device happened to
-        // be in -- same reasoning as peer_provider.dart's _getDeviceName().
-        deviceName: json['device_name'] as String? ?? 'Unknown Device',
-        role: json['role'] as String,
-        ip: json['ip'] as String,
-        port: json['port'] as int,
-        key: json['key'] as String,
-        publicKey: json['public_key'] as String? ?? '',
-        createdAt: DateTime.fromMillisecondsSinceEpoch(json['created_at'] as int),
-      );
+    id: json['id'] as String,
+    // Not routed through AppLocalizations: this is identity data that
+    // gets persisted and shown on *both* devices (which may run
+    // different app languages), so it needs a locale-neutral fallback
+    // rather than whichever language the writer's device happened to
+    // be in -- same reasoning as peer_provider.dart's _getDeviceName().
+    deviceName: json['device_name'] as String? ?? 'Unknown Device',
+    role: json['role'] as String,
+    ip: json['ip'] as String,
+    port: json['port'] as int,
+    key: json['key'] as String,
+    publicKey: json['public_key'] as String? ?? '',
+    createdAt: DateTime.fromMillisecondsSinceEpoch(json['created_at'] as int),
+  );
 
   Peer copyWith({
     String? id,
@@ -57,8 +57,7 @@ class Peer {
     String? key,
     String? publicKey,
     DateTime? createdAt,
-  }) =>
-  Peer(
+  }) => Peer(
     id: id ?? this.id,
     deviceName: deviceName ?? this.deviceName,
     role: role ?? this.role,

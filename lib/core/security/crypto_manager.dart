@@ -29,10 +29,17 @@ class CryptoManager {
       nonce: nonceBytes,
     );
 
-    final combined = Uint8List(nonceBytes.length + secretBox.cipherText.length + secretBox.mac.bytes.length);
+    final combined = Uint8List(
+      nonceBytes.length +
+          secretBox.cipherText.length +
+          secretBox.mac.bytes.length,
+    );
     combined.setAll(0, nonceBytes);
     combined.setAll(nonceBytes.length, secretBox.cipherText);
-    combined.setAll(nonceBytes.length + secretBox.cipherText.length, secretBox.mac.bytes);
+    combined.setAll(
+      nonceBytes.length + secretBox.cipherText.length,
+      secretBox.mac.bytes,
+    );
 
     return base64Encode(combined);
   }
@@ -47,11 +54,7 @@ class CryptoManager {
       final cipherText = combined.sublist(12, macStart);
       final macBytes = combined.sublist(macStart);
 
-      final secretBox = SecretBox(
-        cipherText,
-        nonce: nonce,
-        mac: Mac(macBytes),
-      );
+      final secretBox = SecretBox(cipherText, nonce: nonce, mac: Mac(macBytes));
 
       final decrypted = await _algorithm.decrypt(secretBox, secretKey: key);
       return utf8.decode(decrypted);

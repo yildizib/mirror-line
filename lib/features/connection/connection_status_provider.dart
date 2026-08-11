@@ -12,13 +12,21 @@ enum ConnectionErrorCode {
 
 /// Renders a [ConnectionErrorCode] into user-facing text for the Settings
 /// diagnostics card.
-String connectionErrorText(AppLocalizations l, ConnectionErrorCode code, String? detail) {
+String connectionErrorText(
+  AppLocalizations l,
+  ConnectionErrorCode code,
+  String? detail,
+) {
   return switch (code) {
     ConnectionErrorCode.serverStartFailed =>
-      detail == null ? l.connErrorServerStartFailed : '${l.connErrorServerStartFailed}: $detail',
+      detail == null
+          ? l.connErrorServerStartFailed
+          : '${l.connErrorServerStartFailed}: $detail',
     ConnectionErrorCode.peerIpUnknown => l.connErrorPeerIpUnknown,
     ConnectionErrorCode.connectFailed =>
-      detail == null ? l.connErrorConnectFailed : '${l.connErrorConnectFailed}: $detail',
+      detail == null
+          ? l.connErrorConnectFailed
+          : '${l.connErrorConnectFailed}: $detail',
   };
 }
 
@@ -109,28 +117,27 @@ class ConnectionStatus {
     String? discoveryDetail,
     bool? forceConnectActive,
     List<DiscoveryLogEntry>? discoveryLog,
-  }) =>
-      ConnectionStatus(
-        localIp: localIp ?? this.localIp,
-        peerIp: peerIp ?? this.peerIp,
-        lastBeaconIp: lastBeaconIp ?? this.lastBeaconIp,
-        lastBeaconAt: lastBeaconAt ?? this.lastBeaconAt,
-        lastErrorCode: lastErrorCode ?? this.lastErrorCode,
-        lastErrorDetail: lastErrorDetail ?? this.lastErrorDetail,
-        connectAttempts: connectAttempts ?? this.connectAttempts,
-        serverRunning: serverRunning ?? this.serverRunning,
-        serverPort: serverPort ?? this.serverPort,
-        discoveryState: discoveryState ?? this.discoveryState,
-        discoveryDetail: discoveryDetail ?? this.discoveryDetail,
-        forceConnectActive: forceConnectActive ?? this.forceConnectActive,
-        discoveryLog: discoveryLog ?? this.discoveryLog,
-      );
+  }) => ConnectionStatus(
+    localIp: localIp ?? this.localIp,
+    peerIp: peerIp ?? this.peerIp,
+    lastBeaconIp: lastBeaconIp ?? this.lastBeaconIp,
+    lastBeaconAt: lastBeaconAt ?? this.lastBeaconAt,
+    lastErrorCode: lastErrorCode ?? this.lastErrorCode,
+    lastErrorDetail: lastErrorDetail ?? this.lastErrorDetail,
+    connectAttempts: connectAttempts ?? this.connectAttempts,
+    serverRunning: serverRunning ?? this.serverRunning,
+    serverPort: serverPort ?? this.serverPort,
+    discoveryState: discoveryState ?? this.discoveryState,
+    discoveryDetail: discoveryDetail ?? this.discoveryDetail,
+    forceConnectActive: forceConnectActive ?? this.forceConnectActive,
+    discoveryLog: discoveryLog ?? this.discoveryLog,
+  );
 }
 
 final connectionStatusProvider =
     StateNotifierProvider<ConnectionStatusNotifier, ConnectionStatus>((ref) {
-  return ConnectionStatusNotifier();
-});
+      return ConnectionStatusNotifier();
+    });
 
 class ConnectionStatusNotifier extends StateNotifier<ConnectionStatus> {
   ConnectionStatusNotifier() : super(const ConnectionStatus());
@@ -145,7 +152,10 @@ class ConnectionStatusNotifier extends StateNotifier<ConnectionStatus> {
   void recordBeacon(String ip) =>
       state = state.copyWith(lastBeaconIp: ip, lastBeaconAt: DateTime.now());
 
-  void recordConnectAttempt(ConnectionErrorCode? errorCode, {String? errorDetail}) {
+  void recordConnectAttempt(
+    ConnectionErrorCode? errorCode, {
+    String? errorDetail,
+  }) {
     // Clearing vs setting: when errorCode is null (success) we must
     // *replace* lastErrorCode, not preserve it. copyWith's `??` fallback
     // would keep the old error, so we rebuild the status explicitly.
@@ -167,10 +177,7 @@ class ConnectionStatusNotifier extends StateNotifier<ConnectionStatus> {
   }
 
   void clearError() {
-    final next = state.copyWith(
-      lastErrorCode: null,
-      lastErrorDetail: null,
-    );
+    final next = state.copyWith(lastErrorCode: null, lastErrorDetail: null);
     // copyWith uses ?? which preserves old values on null; manually clear
     // error fields by reconstructing with nulls.
     state = ConnectionStatus(
@@ -197,50 +204,54 @@ class ConnectionStatusNotifier extends StateNotifier<ConnectionStatus> {
   /// Marks the start of a force-connect session. Clears the log so the UI
   /// panel shows only this session's entries.
   void beginForceConnect() => state = ConnectionStatus(
-        localIp: state.localIp,
-        peerIp: state.peerIp,
-        lastBeaconIp: state.lastBeaconIp,
-        lastBeaconAt: state.lastBeaconAt,
-        lastErrorCode: state.lastErrorCode,
-        lastErrorDetail: state.lastErrorDetail,
-        connectAttempts: state.connectAttempts,
-        serverRunning: state.serverRunning,
-        serverPort: state.serverPort,
-        discoveryState: DiscoveryState.idle,
-        discoveryDetail: null,
-        forceConnectActive: true,
-        discoveryLog: const [],
-      );
+    localIp: state.localIp,
+    peerIp: state.peerIp,
+    lastBeaconIp: state.lastBeaconIp,
+    lastBeaconAt: state.lastBeaconAt,
+    lastErrorCode: state.lastErrorCode,
+    lastErrorDetail: state.lastErrorDetail,
+    connectAttempts: state.connectAttempts,
+    serverRunning: state.serverRunning,
+    serverPort: state.serverPort,
+    discoveryState: DiscoveryState.idle,
+    discoveryDetail: null,
+    forceConnectActive: true,
+    discoveryLog: const [],
+  );
 
   /// Marks the end of a force-connect session (success or give-up).
   void endForceConnect() => state = ConnectionStatus(
-        localIp: state.localIp,
-        peerIp: state.peerIp,
-        lastBeaconIp: state.lastBeaconIp,
-        lastBeaconAt: state.lastBeaconAt,
-        lastErrorCode: state.lastErrorCode,
-        lastErrorDetail: state.lastErrorDetail,
-        connectAttempts: state.connectAttempts,
-        serverRunning: state.serverRunning,
-        serverPort: state.serverPort,
-        // If we were in the middle of connecting when force ended, the
-        // connection succeeded -- flip to connected. Otherwise keep
-        // whatever state we were in (failed, idle, etc.).
-        discoveryState: state.discoveryState == DiscoveryState.connecting
-            ? DiscoveryState.connected
-            : state.discoveryState,
-        discoveryDetail: null, // cleared on session end
-        forceConnectActive: false,
-        discoveryLog: state.discoveryLog,
-      );
+    localIp: state.localIp,
+    peerIp: state.peerIp,
+    lastBeaconIp: state.lastBeaconIp,
+    lastBeaconAt: state.lastBeaconAt,
+    lastErrorCode: state.lastErrorCode,
+    lastErrorDetail: state.lastErrorDetail,
+    connectAttempts: state.connectAttempts,
+    serverRunning: state.serverRunning,
+    serverPort: state.serverPort,
+    // If we were in the middle of connecting when force ended, the
+    // connection succeeded -- flip to connected. Otherwise keep
+    // whatever state we were in (failed, idle, etc.).
+    discoveryState: state.discoveryState == DiscoveryState.connecting
+        ? DiscoveryState.connected
+        : state.discoveryState,
+    discoveryDetail: null, // cleared on session end
+    forceConnectActive: false,
+    discoveryLog: state.discoveryLog,
+  );
 
   /// Updates the live discovery state + detail string.
-  void setDiscoveryState(DiscoveryState state, {String? detail}) =>
-      this.state = this.state.copyWith(discoveryState: state, discoveryDetail: detail);
+  void setDiscoveryState(DiscoveryState state, {String? detail}) => this.state =
+      this.state.copyWith(discoveryState: state, discoveryDetail: detail);
 
   /// Appends a line to the discovery log (shown in the UI force-connect
   /// panel). Trims to the last 50 entries to bound memory.
-  void logDiscovery(String message, {bool isSuccess = false, bool isError = false}) {
+  void logDiscovery(
+    String message, {
+    bool isSuccess = false,
+    bool isError = false,
+  }) {
     final entry = DiscoveryLogEntry(
       timestamp: DateTime.now(),
       message: message,

@@ -43,7 +43,9 @@ class PeerDiscovery {
 
     // 2) dart:io fallback: first private IPv4, else first non-loopback IPv4.
     try {
-      final interfaces = await NetworkInterface.list(type: InternetAddressType.IPv4);
+      final interfaces = await NetworkInterface.list(
+        type: InternetAddressType.IPv4,
+      );
       String? fallback;
       for (final interface in interfaces) {
         for (final addr in interface.addresses) {
@@ -94,7 +96,9 @@ class PeerDiscovery {
     //    interfaces that the native ConnectivityManager might not
     //    report as the "active" network.
     try {
-      final interfaces = await NetworkInterface.list(type: InternetAddressType.IPv4);
+      final interfaces = await NetworkInterface.list(
+        type: InternetAddressType.IPv4,
+      );
       for (final interface in interfaces) {
         for (final addr in interface.addresses) {
           if (addr.isLoopback) continue;
@@ -114,8 +118,9 @@ class PeerDiscovery {
     // whereas the 5G/WiFi IP may be behind carrier NAT or on a different
     // subnet. Callers that pick the first entry (Settings display, QR
     // encoding) will then prefer the VPN IP.
-    final vpnIndex = result.indexWhere((e) =>
-        e.interfaceName.contains('tun') || e.interfaceName.contains('tap'));
+    final vpnIndex = result.indexWhere(
+      (e) => e.interfaceName.contains('tun') || e.interfaceName.contains('tap'),
+    );
     if (vpnIndex > 0) {
       final vpn = result.removeAt(vpnIndex);
       result.insert(0, vpn);

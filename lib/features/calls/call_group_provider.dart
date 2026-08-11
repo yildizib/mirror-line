@@ -21,7 +21,11 @@ class CallGroup {
   /// Every call in this group, newest first.
   final List<CallEvent> calls;
 
-  CallGroup({required this.key, required this.displayName, required this.calls});
+  CallGroup({
+    required this.key,
+    required this.displayName,
+    required this.calls,
+  });
 
   CallEvent get lastCall => calls.first;
 
@@ -52,7 +56,8 @@ final callGroupsProvider = Provider<List<CallGroup>>((ref) {
   }
 
   final groups = byKey.entries.map((entry) {
-    final sorted = entry.value.toList()..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    final sorted = entry.value.toList()
+      ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
     return CallGroup(
       key: entry.key,
       displayName: sorted.first.displayName(l),

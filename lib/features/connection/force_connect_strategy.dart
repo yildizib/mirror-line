@@ -15,22 +15,26 @@ class ForceConnectStrategy {
   final Future<bool> Function(
     String ip,
     int port,
-    ConnectionStatusNotifier statusNotifier,
-    {required String label, Duration? connectTimeout}
-  ) connectWithProgress;
+    ConnectionStatusNotifier statusNotifier, {
+    required String label,
+    Duration? connectTimeout,
+  })
+  connectWithProgress;
 
   /// Called to look up cached IPs for the current subnet.
   final Future<List<String>> Function(
     ConnectionStatusNotifier statusNotifier,
     String peerId,
-  ) lookupKnownNetworkIp;
+  )
+  lookupKnownNetworkIp;
 
   /// Called to scan subnets for the peer.
   final Future<String?> Function(
     List<String> scanIps,
     int port,
     ConnectionStatusNotifier statusNotifier,
-  ) scanSubnetsWithProgress;
+  )
+  scanSubnetsWithProgress;
 
   /// Called to record a successfully discovered address.
   final Function(String ip, int port) recordDiscoveredAddress;
@@ -66,11 +70,18 @@ class ForceConnectStrategy {
 
     // Path 1: stored IP + beacon IPs.
     if (storedIp!.isNotEmpty && storedIp != 'unknown') {
-      final candidates = <String>[storedIp!, ...beaconIps.where((ip) => ip != storedIp)];
-      statusNotifier.logDiscovery('Trying stored/beacon IPs: ${candidates.join(', ')}...');
+      final candidates = <String>[
+        storedIp!,
+        ...beaconIps.where((ip) => ip != storedIp),
+      ];
+      statusNotifier.logDiscovery(
+        'Trying stored/beacon IPs: ${candidates.join(', ')}...',
+      );
       candidateFutures.add(Future.value(candidates));
     } else if (beaconIps.isNotEmpty) {
-      statusNotifier.logDiscovery('Trying beacon IPs: ${beaconIps.join(', ')}...');
+      statusNotifier.logDiscovery(
+        'Trying beacon IPs: ${beaconIps.join(', ')}...',
+      );
       candidateFutures.add(Future.value(beaconIps));
     }
 
@@ -78,13 +89,20 @@ class ForceConnectStrategy {
     candidateFutures.add(lookupKnownNetworkIp(statusNotifier, peerId));
 
     // Path 3: subnet scan (parallel with paths 1+2).
-    final scanIps = allLocalIps.isNotEmpty ? allLocalIps : (localIp != null ? [localIp!] : <String>[]);
+    final scanIps = allLocalIps.isNotEmpty
+        ? allLocalIps
+        : (localIp != null ? [localIp!] : <String>[]);
     final scanCandidates = <String>{};
     if (scanIps.isNotEmpty) {
       candidateFutures.add(
-        scanSubnetsWithProgress(scanIps, peerPort, statusNotifier).then((found) {
+        scanSubnetsWithProgress(scanIps, peerPort, statusNotifier).then((
+          found,
+        ) {
           if (found != null) {
-            statusNotifier.logDiscovery('Scan found host: $found', isSuccess: true);
+            statusNotifier.logDiscovery(
+              'Scan found host: $found',
+              isSuccess: true,
+            );
             scanCandidates.add(found);
             return [found];
           }
@@ -121,7 +139,9 @@ class ForceConnectStrategy {
         final ip = allCandidates.first;
         allCandidates.remove(ip);
         final isScanCandidate = scanCandidates.contains(ip);
-        final timeout = isScanCandidate ? null : const Duration(milliseconds: 1500);
+        final timeout = isScanCandidate
+            ? null
+            : const Duration(milliseconds: 1500);
         final ok = await connectWithProgress(
           ip,
           peerPort,

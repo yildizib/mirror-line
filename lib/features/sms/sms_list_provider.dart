@@ -2,9 +2,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mirrorline/core/data/daos/sms_message_dao.dart';
 import 'package:mirrorline/core/data/models/sms_message.dart';
 
-final smsListProvider = StateNotifierProvider<SmsListNotifier, List<SmsMessage>>((ref) {
-  return SmsListNotifier();
-});
+final smsListProvider =
+    StateNotifierProvider<SmsListNotifier, List<SmsMessage>>((ref) {
+      return SmsListNotifier();
+    });
 
 class SmsListNotifier extends StateNotifier<List<SmsMessage>> {
   final SmsMessageDao _dao = SmsMessageDao();
@@ -31,7 +32,9 @@ class SmsListNotifier extends StateNotifier<List<SmsMessage>> {
 
   Future<void> updateStatus(String id, String status) async {
     await _dao.updateStatus(id, status);
-    state = state.map((m) => m.id == id ? m.copyWith(status: status) : m).toList();
+    state = state
+        .map((m) => m.id == id ? m.copyWith(status: status) : m)
+        .toList();
   }
 
   /// Marks any outgoing SMS still stuck on 'pending' as 'failed' once
@@ -43,7 +46,10 @@ class SmsListNotifier extends StateNotifier<List<SmsMessage>> {
   Future<void> failStalePending(Duration threshold) async {
     final cutoff = DateTime.now().subtract(threshold);
     final stale = state.where(
-      (m) => m.status == 'pending' && m.direction == 'outgoing' && m.timestamp.isBefore(cutoff),
+      (m) =>
+          m.status == 'pending' &&
+          m.direction == 'outgoing' &&
+          m.timestamp.isBefore(cutoff),
     );
     for (final m in stale) {
       await updateStatus(m.id, 'failed');
@@ -67,7 +73,10 @@ class SmsListNotifier extends StateNotifier<List<SmsMessage>> {
   /// Deletes every message exchanged with [address] -- i.e. an entire
   /// thread, used from the SMS list's per-thread swipe-to-delete.
   Future<void> removeThread(String address) async {
-    final toRemove = state.where((m) => m.address == address).map((m) => m.id).toSet();
+    final toRemove = state
+        .where((m) => m.address == address)
+        .map((m) => m.id)
+        .toSet();
     if (toRemove.isEmpty) return;
     for (final id in toRemove) {
       await _dao.delete(id);

@@ -24,7 +24,11 @@ class NotificationPayload {
 
   String? encode() {
     if (type == 'mirrored') return null;
-    return jsonEncode({'type': type, if (id != null) 'id': id, if (address != null) 'address': address});
+    return jsonEncode({
+      'type': type,
+      if (id != null) 'id': id,
+      if (address != null) 'address': address,
+    });
   }
 
   static NotificationPayload? decode(String? raw) {
@@ -72,7 +76,8 @@ class NotificationRouter {
 }
 
 class NotificationService {
-  static final FlutterLocalNotificationsPlugin _plugin = FlutterLocalNotificationsPlugin();
+  static final FlutterLocalNotificationsPlugin _plugin =
+      FlutterLocalNotificationsPlugin();
 
   /// Called by the platform when the user taps a notification. Forwards the
   /// payload (if we recognize it) to [NotificationRouter] so the running app
@@ -85,9 +90,14 @@ class NotificationService {
   }
 
   static Future<void> init() async {
-    const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+    const androidSettings = AndroidInitializationSettings(
+      '@mipmap/ic_launcher',
+    );
     const iosSettings = DarwinInitializationSettings();
-    const initSettings = InitializationSettings(android: androidSettings, iOS: iosSettings);
+    const initSettings = InitializationSettings(
+      android: androidSettings,
+      iOS: iosSettings,
+    );
 
     await _plugin.initialize(
       settings: initSettings,
@@ -111,7 +121,10 @@ class NotificationService {
     );
 
     const iosDetails = DarwinNotificationDetails();
-    const details = NotificationDetails(android: androidDetails, iOS: iosDetails);
+    const details = NotificationDetails(
+      android: androidDetails,
+      iOS: iosDetails,
+    );
 
     await _plugin.show(
       id: id,
@@ -142,7 +155,10 @@ class NotificationService {
     );
 
     const iosDetails = DarwinNotificationDetails();
-    const details = NotificationDetails(android: androidDetails, iOS: iosDetails);
+    const details = NotificationDetails(
+      android: androidDetails,
+      iOS: iosDetails,
+    );
 
     await _plugin.show(
       id: id,

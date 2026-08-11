@@ -31,8 +31,8 @@ class PeerDiscoveryCoordinator {
     required this._getPeerPort,
     required this._getDeviceName,
     required this._getAllLocalIps,
-  })  : _listener = BeaconListener(),
-        _scanner = SubnetScanner();
+  }) : _listener = BeaconListener(),
+       _scanner = SubnetScanner();
 
   List<String> get beaconIps => List.unmodifiable(_beaconIps);
   bool get isDisconnected => _disconnectedSince != null;
@@ -91,7 +91,9 @@ class PeerDiscoveryCoordinator {
     _lastScanAt = now;
 
     try {
-      final scanIps = _getAllLocalIps().isNotEmpty ? _getAllLocalIps() : <String>[];
+      final scanIps = _getAllLocalIps().isNotEmpty
+          ? _getAllLocalIps()
+          : <String>[];
       if (scanIps.isEmpty) {
         _logger.i('No local IPs for subnet scan.');
         return;
@@ -113,7 +115,9 @@ class PeerDiscoveryCoordinator {
   }
 
   Future<void> _onBeacon(BeaconInfo info) async {
-    _logger.i('Beacon received: ${info.deviceName} at ${info.ip}:${info.tcpPort}');
+    _logger.i(
+      'Beacon received: ${info.deviceName} at ${info.ip}:${info.tcpPort}',
+    );
     if (!_beaconIps.contains(info.ip)) {
       _beaconIps.add(info.ip);
     }

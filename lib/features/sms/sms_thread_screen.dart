@@ -27,7 +27,9 @@ class _SmsThreadScreenState extends ConsumerState<SmsThreadScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom(animate: false));
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _scrollToBottom(animate: false),
+    );
   }
 
   @override
@@ -41,7 +43,11 @@ class _SmsThreadScreenState extends ConsumerState<SmsThreadScreen> {
     if (!_scrollController.hasClients) return;
     final target = _scrollController.position.maxScrollExtent;
     if (animate) {
-      _scrollController.animateTo(target, duration: const Duration(milliseconds: 200), curve: Curves.easeOut);
+      _scrollController.animateTo(
+        target,
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeOut,
+      );
     } else {
       _scrollController.jumpTo(target);
     }
@@ -65,7 +71,9 @@ class _SmsThreadScreenState extends ConsumerState<SmsThreadScreen> {
       createdAt: DateTime.now(),
     );
     ref.read(smsListProvider.notifier).add(reply);
-    ref.read(connectionProvider.notifier).sendReplySms(
+    ref
+        .read(connectionProvider.notifier)
+        .sendReplySms(
           widget.address,
           text,
           id: reply.id,
@@ -80,8 +88,12 @@ class _SmsThreadScreenState extends ConsumerState<SmsThreadScreen> {
   @override
   Widget build(BuildContext context) {
     final connected = ref.watch(connectionProvider);
-    final messages = ref.watch(smsListProvider).where((m) => m.address == widget.address).toList()
-      ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+    final messages =
+        ref
+            .watch(smsListProvider)
+            .where((m) => m.address == widget.address)
+            .toList()
+          ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
 
     if (messages.isEmpty) {
       // Every message in this thread got removed elsewhere; nothing left
@@ -105,10 +117,15 @@ class _SmsThreadScreenState extends ConsumerState<SmsThreadScreen> {
               controller: _scrollController,
               padding: const EdgeInsets.all(AppSpacing.md),
               itemCount: messages.length,
-              itemBuilder: (context, index) => SmsBubble(message: messages[index]),
+              itemBuilder: (context, index) =>
+                  SmsBubble(message: messages[index]),
             ),
           ),
-          _ComposeBar(controller: _controller, onSend: () => _send(messages.last), enabled: connected),
+          _ComposeBar(
+            controller: _controller,
+            onSend: () => _send(messages.last),
+            enabled: connected,
+          ),
         ],
       ),
     );
@@ -120,7 +137,11 @@ class _ComposeBar extends StatelessWidget {
   final VoidCallback onSend;
   final bool enabled;
 
-  const _ComposeBar({required this.controller, required this.onSend, required this.enabled});
+  const _ComposeBar({
+    required this.controller,
+    required this.onSend,
+    required this.enabled,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -129,10 +150,19 @@ class _ComposeBar extends StatelessWidget {
     return SafeArea(
       top: false,
       child: Container(
-        padding: const EdgeInsets.fromLTRB(AppSpacing.md, AppSpacing.sm, AppSpacing.md, AppSpacing.sm),
+        padding: const EdgeInsets.fromLTRB(
+          AppSpacing.md,
+          AppSpacing.sm,
+          AppSpacing.md,
+          AppSpacing.sm,
+        ),
         decoration: BoxDecoration(
           color: colorScheme.surface,
-          border: Border(top: BorderSide(color: colorScheme.outlineVariant.withValues(alpha: 0.5))),
+          border: Border(
+            top: BorderSide(
+              color: colorScheme.outlineVariant.withValues(alpha: 0.5),
+            ),
+          ),
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.end,

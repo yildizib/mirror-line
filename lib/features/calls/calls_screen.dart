@@ -26,10 +26,7 @@ class _CallsScreenState extends ConsumerState<CallsScreen> {
     final l = AppLocalizations.of(context);
 
     if (groups.isEmpty) {
-      return EmptyState(
-        icon: Icons.call_end_rounded,
-        message: l.callsEmpty,
-      );
+      return EmptyState(icon: Icons.call_end_rounded, message: l.callsEmpty);
     }
 
     return Scaffold(
@@ -50,7 +47,9 @@ class _CallsScreenState extends ConsumerState<CallsScreen> {
               if (group.count > 1) {
                 Navigator.push(
                   context,
-                  MaterialPageRoute(builder: (_) => CallGroupDetailScreen(groupKey: group.key)),
+                  MaterialPageRoute(
+                    builder: (_) => CallGroupDetailScreen(groupKey: group.key),
+                  ),
                 );
               }
             },
@@ -68,7 +67,9 @@ class _CallsScreenState extends ConsumerState<CallsScreen> {
                 IconButton(
                   icon: const Icon(Icons.delete_rounded),
                   tooltip: l.commonDeleteSelected,
-                  onPressed: _selected.isEmpty ? null : () => _deleteSelected(context, groups),
+                  onPressed: _selected.isEmpty
+                      ? null
+                      : () => _deleteSelected(context, groups),
                 ),
               ],
             )
@@ -102,7 +103,9 @@ class _CallsScreenState extends ConsumerState<CallsScreen> {
   }
 
   void _deleteSelected(BuildContext context, List<CallGroup> groups) {
-    final selectedGroups = groups.where((g) => _selected.contains(g.key)).toList();
+    final selectedGroups = groups
+        .where((g) => _selected.contains(g.key))
+        .toList();
     final ids = <String>{};
     for (final g in selectedGroups) {
       ids.addAll(g.calls.map((c) => c.id));
@@ -112,7 +115,9 @@ class _CallsScreenState extends ConsumerState<CallsScreen> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: Text(l.callsDeleteSelected),
-        content: Text(l.callsDeleteConfirmBody(selectedGroups.length, ids.length)),
+        content: Text(
+          l.callsDeleteConfirmBody(selectedGroups.length, ids.length),
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext),
@@ -120,16 +125,21 @@ class _CallsScreenState extends ConsumerState<CallsScreen> {
           ),
           TextButton(
             onPressed: () async {
-              await ref.read(callListProvider.notifier).removeMany(ids.toList());
+              await ref
+                  .read(callListProvider.notifier)
+                  .removeMany(ids.toList());
               if (context.mounted) {
                 Navigator.pop(dialogContext);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text(l.callsDeleted)),
-                );
+                ScaffoldMessenger.of(
+                  context,
+                ).showSnackBar(SnackBar(content: Text(l.callsDeleted)));
               }
               _exitSelectionMode();
             },
-            child: Text(l.commonDelete, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+            child: Text(
+              l.commonDelete,
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
           ),
         ],
       ),
@@ -176,7 +186,9 @@ class _GroupedCallCard extends StatelessWidget {
     final multi = group.count > 1;
 
     final card = Card(
-      color: isSelected ? colorScheme.primaryContainer.withValues(alpha: 0.4) : null,
+      color: isSelected
+          ? colorScheme.primaryContainer.withValues(alpha: 0.4)
+          : null,
       child: InkWell(
         borderRadius: BorderRadius.circular(AppRadius.md),
         onTap: isSelecting ? onTapSelect : (multi ? onTap : null),
@@ -188,8 +200,12 @@ class _GroupedCallCard extends StatelessWidget {
                 Padding(
                   padding: const EdgeInsets.only(right: AppSpacing.sm),
                   child: Icon(
-                    isSelected ? Icons.check_circle_rounded : Icons.circle_outlined,
-                    color: isSelected ? colorScheme.primary : colorScheme.outline,
+                    isSelected
+                        ? Icons.check_circle_rounded
+                        : Icons.circle_outlined,
+                    color: isSelected
+                        ? colorScheme.primary
+                        : colorScheme.outline,
                   ),
                 ),
               CircleAvatar(
@@ -204,12 +220,18 @@ class _GroupedCallCard extends StatelessWidget {
                   children: [
                     Text(
                       group.displayName,
-                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 15,
+                      ),
                     ),
                     const SizedBox(height: 2),
                     Text(
                       _formatTime(last.timestamp),
-                      style: TextStyle(fontSize: 12, color: colorScheme.onSurfaceVariant),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: colorScheme.onSurfaceVariant,
+                      ),
                     ),
                   ],
                 ),
@@ -218,7 +240,10 @@ class _GroupedCallCard extends StatelessWidget {
                 Padding(
                   padding: const EdgeInsets.only(right: AppSpacing.sm),
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 3,
+                    ),
                     decoration: BoxDecoration(
                       color: colorScheme.surfaceContainerHighest,
                       borderRadius: BorderRadius.circular(AppRadius.pill),
@@ -237,13 +262,18 @@ class _GroupedCallCard extends StatelessWidget {
                 IconButton.filledTonal(
                   icon: const Icon(Icons.call_end_rounded),
                   style: IconButton.styleFrom(
-                    backgroundColor: colorScheme.errorContainer.withValues(alpha: 0.6),
+                    backgroundColor: colorScheme.errorContainer.withValues(
+                      alpha: 0.6,
+                    ),
                     foregroundColor: colorScheme.error,
                   ),
                   onPressed: onReject,
                 )
               else if (!isSelecting)
-                _StatusChip(label: group.statusLabel(l), color: _statusColor(theme, last.status)),
+                _StatusChip(
+                  label: group.statusLabel(l),
+                  color: _statusColor(theme, last.status),
+                ),
             ],
           ),
         ),
@@ -266,7 +296,8 @@ class _GroupedCallCard extends StatelessWidget {
 
   String _formatTime(DateTime time) {
     final now = DateTime.now();
-    final sameDay = time.year == now.year && time.month == now.month && time.day == now.day;
+    final sameDay =
+        time.year == now.year && time.month == now.month && time.day == now.day;
     if (sameDay) {
       return '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
     }
@@ -291,7 +322,11 @@ class _StatusChip extends StatelessWidget {
       ),
       child: Text(
         label,
-        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: color),
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w700,
+          color: color,
+        ),
       ),
     );
   }

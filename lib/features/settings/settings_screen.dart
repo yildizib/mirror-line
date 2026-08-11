@@ -84,7 +84,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       children: [
                         _avatar(
                           theme,
-                          icon: peer.role == 'main' ? Icons.phone_android_rounded : Icons.sim_card_rounded,
+                          icon: peer.role == 'main'
+                              ? Icons.phone_android_rounded
+                              : Icons.sim_card_rounded,
                           color: theme.colorScheme.primary,
                           background: theme.colorScheme.primaryContainer,
                         ),
@@ -95,11 +97,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                             children: [
                               Text(
                                 _selfDeviceName ?? peer.deviceName,
-                                style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                                style: theme.textTheme.titleMedium?.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                ),
                               ),
                               Text(
                                 peer.role == 'main' ? l.roleMain : l.roleSource,
-                                style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 13),
+                                style: TextStyle(
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                  fontSize: 13,
+                                ),
                               ),
                             ],
                           ),
@@ -107,13 +114,24 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       ],
                     ),
                     const SizedBox(height: AppSpacing.md),
-                    _infoRow(context, l.settingsIpLabel, status.localIp ?? peer.ip),
-                    if (_selfPublicKey != null) _infoRow(context, l.settingsPublicKeyLabel, _selfPublicKey!),
+                    _infoRow(
+                      context,
+                      l.settingsIpLabel,
+                      status.localIp ?? peer.ip,
+                    ),
+                    if (_selfPublicKey != null)
+                      _infoRow(
+                        context,
+                        l.settingsPublicKeyLabel,
+                        _selfPublicKey!,
+                      ),
                     if (peer.publicKey.isEmpty) ...[
                       const SizedBox(height: AppSpacing.md),
                       Text(
                         l.settingsNotPairedHint,
-                        style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
+                        style: TextStyle(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
                       ),
                       const SizedBox(height: AppSpacing.sm),
                       Center(
@@ -141,7 +159,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   children: [
                     _avatar(
                       theme,
-                      icon: peer.role == 'main' ? Icons.sim_card_rounded : Icons.phone_android_rounded,
+                      icon: peer.role == 'main'
+                          ? Icons.sim_card_rounded
+                          : Icons.phone_android_rounded,
                       color: theme.status.success,
                       background: theme.status.successContainer,
                     ),
@@ -149,10 +169,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     Expanded(
                       child: Text(
                         peer.deviceName,
-                        style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     ),
-                    _connectionStatusChip(context, isConnected: isConnected, isConnecting: isConnecting),
+                    _connectionStatusChip(
+                      context,
+                      isConnected: isConnected,
+                      isConnecting: isConnecting,
+                    ),
                   ],
                 ),
                 const SizedBox(height: AppSpacing.md),
@@ -186,12 +212,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _infoRow(context, l.settingsLocalIp, status.localIp ?? l.settingsIpUnknown),
+              _infoRow(
+                context,
+                l.settingsLocalIp,
+                status.localIp ?? l.settingsIpUnknown,
+              ),
               _infoRow(context, l.settingsPeerIp, status.peerIp ?? '-'),
               _infoRow(
                 context,
                 l.settingsServer,
-                status.serverRunning ? l.settingsServerRunning(status.serverPort) : l.settingsServerStopped,
+                status.serverRunning
+                    ? l.settingsServerRunning(status.serverPort)
+                    : l.settingsServerStopped,
               ),
               _infoRow(
                 context,
@@ -200,12 +232,23 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     ? l.settingsNoBeacon
                     : '${status.lastBeaconIp} (${_formatTime(status.lastBeaconAt!)})',
               ),
-              _infoRow(context, l.settingsConnectAttempts, '${status.connectAttempts}'),
+              _infoRow(
+                context,
+                l.settingsConnectAttempts,
+                '${status.connectAttempts}',
+              ),
               if (status.lastErrorCode != null) ...[
                 const SizedBox(height: AppSpacing.sm),
                 Text(
-                  connectionErrorText(l, status.lastErrorCode!, status.lastErrorDetail),
-                  style: TextStyle(fontSize: 12, color: theme.colorScheme.error),
+                  connectionErrorText(
+                    l,
+                    status.lastErrorCode!,
+                    status.lastErrorDetail,
+                  ),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: theme.colorScheme.error,
+                  ),
                 ),
               ],
             ],
@@ -221,7 +264,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               return _sectionCard(child: Text(l.settingsNoPairedDevices));
             }
             return Column(
-              children: peers.map((p) => _buildPeerCard(context, ref, p)).toList(),
+              children: peers
+                  .map((p) => _buildPeerCard(context, ref, p))
+                  .toList(),
             );
           },
           loading: () => const Center(child: CircularProgressIndicator()),
@@ -243,7 +288,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ? null
               : () => Navigator.push(
                   context,
-                  MaterialPageRoute(builder: (_) => const RoleSelectionScreen()),
+                  MaterialPageRoute(
+                    builder: (_) => const RoleSelectionScreen(),
+                  ),
                 ),
           icon: const Icon(Icons.swap_horiz_rounded),
           label: Text(l.settingsChangeRole),
@@ -266,14 +313,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       value: null,
                       child: Text(l.settingsLanguageSystem),
                     ),
-                    ...LocaleNotifier.supportedLocales.map((loc) =>
-                      DropdownMenuItem<Locale?>(
+                    ...LocaleNotifier.supportedLocales.map(
+                      (loc) => DropdownMenuItem<Locale?>(
                         value: loc,
                         child: Text(_localeDisplayName(loc)),
                       ),
                     ),
                   ],
-                  onChanged: (loc) => ref.read(localeProvider.notifier).set(loc),
+                  onChanged: (loc) =>
+                      ref.read(localeProvider.notifier).set(loc),
                 ),
               ),
               const Divider(height: 1, indent: 16, endIndent: 16),
@@ -316,7 +364,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 leading: const Icon(Icons.rocket_launch_rounded),
                 title: Text(l.settingsAutoStart),
                 subtitle: Text(
-                  _hasKnownAutoStartScreen ? l.settingsAutoStartKnown : l.settingsAutoStartFallback,
+                  _hasKnownAutoStartScreen
+                      ? l.settingsAutoStartKnown
+                      : l.settingsAutoStartFallback,
                 ),
                 trailing: const Icon(Icons.chevron_right_rounded),
                 onTap: () async {
@@ -337,8 +387,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ],
               const Divider(height: 1, indent: 16, endIndent: 16),
               ListTile(
-                leading: Icon(Icons.delete_forever_rounded, color: theme.colorScheme.error),
-                title: Text(l.settingsResetDevice, style: TextStyle(color: theme.colorScheme.error)),
+                leading: Icon(
+                  Icons.delete_forever_rounded,
+                  color: theme.colorScheme.error,
+                ),
+                title: Text(
+                  l.settingsResetDevice,
+                  style: TextStyle(color: theme.colorScheme.error),
+                ),
                 subtitle: Text(l.settingsResetDesc),
                 onTap: () => _confirmReset(context, ref),
               ),
@@ -367,12 +423,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       padding: const EdgeInsets.only(bottom: AppSpacing.sm),
       child: Text(
         title,
-        style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+        style: Theme.of(
+          context,
+        ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
       ),
     );
   }
 
-  Widget _avatar(ThemeData theme, {required IconData icon, required Color color, required Color background}) {
+  Widget _avatar(
+    ThemeData theme, {
+    required IconData icon,
+    required Color color,
+    required Color background,
+  }) {
     return CircleAvatar(
       radius: 22,
       backgroundColor: background,
@@ -380,14 +443,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
-  Widget _connectionStatusChip(BuildContext context, {required bool isConnected, required bool isConnecting}) {
+  Widget _connectionStatusChip(
+    BuildContext context, {
+    required bool isConnected,
+    required bool isConnecting,
+  }) {
     final status = Theme.of(context).status;
     final l = AppLocalizations.of(context);
     final (icon, color, label) = isConnecting
         ? (Icons.sync_rounded, status.warning, l.connStatusConnecting)
         : isConnected
-            ? (Icons.check_circle_rounded, status.success, l.connStatusConnected)
-            : (Icons.wifi_off_rounded, status.warning, l.connStatusDisconnected);
+        ? (Icons.check_circle_rounded, status.success, l.connStatusConnected)
+        : (Icons.wifi_off_rounded, status.warning, l.connStatusDisconnected);
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
@@ -400,7 +467,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         children: [
           Icon(icon, size: 14, color: color),
           const SizedBox(width: 4),
-          Text(label, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: color)),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: color,
+            ),
+          ),
         ],
       ),
     );
@@ -423,7 +497,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             ),
           ),
           const SizedBox(height: 2),
-          SelectableText(value, style: TextStyle(fontSize: 14, color: colorScheme.onSurface)),
+          SelectableText(
+            value,
+            style: TextStyle(fontSize: 14, color: colorScheme.onSurface),
+          ),
         ],
       ),
     );
@@ -433,7 +510,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   /// watches `connectionStatusProvider` and renders the discovery log +
   /// current state live, so the user sees exactly which IPs/methods are
   /// being tried instead of a silent spinner.
-  Future<void> _showForceConnectDialog(BuildContext context, WidgetRef ref) async {
+  Future<void> _showForceConnectDialog(
+    BuildContext context,
+    WidgetRef ref,
+  ) async {
     // Kick off the force reconnect (fire-and-forget -- the dialog tracks
     // progress via the status provider, not via the returned Future).
     ref.read(connectionProvider.notifier).forceReconnect();
@@ -471,15 +551,21 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     )
                   else
                     Icon(
-                      connected ? Icons.check_circle_rounded : Icons.error_outline_rounded,
-                      color: connected ? theme.status.success : theme.colorScheme.error,
+                      connected
+                          ? Icons.check_circle_rounded
+                          : Icons.error_outline_rounded,
+                      color: connected
+                          ? theme.status.success
+                          : theme.colorScheme.error,
                     ),
                   const SizedBox(width: 12),
-                  Text(connected
-                      ? l.settingsForceConnectDone
-                      : !status.forceConnectActive
-                          ? l.settingsForceConnectFailed
-                          : l.settingsForceConnectTitle),
+                  Text(
+                    connected
+                        ? l.settingsForceConnectDone
+                        : !status.forceConnectActive
+                        ? l.settingsForceConnectFailed
+                        : l.settingsForceConnectTitle,
+                  ),
                 ],
               ),
               content: SizedBox(
@@ -493,8 +579,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         padding: const EdgeInsets.only(bottom: 12),
                         child: Text(
                           status.discoveryDetail!,
-                          style: theme.textTheme.bodySmall
-                              ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
                         ),
                       ),
                     const Divider(height: 1),
@@ -506,19 +593,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           itemCount: status.discoveryLog.length,
                           itemBuilder: (ctx, i) {
                             final entry = status.discoveryLog[i];
-                            final time = '${entry.timestamp.hour.toString().padLeft(2, '0')}'
+                            final time =
+                                '${entry.timestamp.hour.toString().padLeft(2, '0')}'
                                 ':${entry.timestamp.minute.toString().padLeft(2, '0')}'
                                 ':${entry.timestamp.second.toString().padLeft(2, '0')}';
                             final icon = entry.isSuccess
                                 ? '✓'
                                 : entry.isError
-                                    ? '✗'
-                                    : '•';
+                                ? '✗'
+                                : '•';
                             final color = entry.isSuccess
                                 ? theme.status.success
                                 : entry.isError
-                                    ? theme.colorScheme.error
-                                    : theme.colorScheme.onSurfaceVariant;
+                                ? theme.colorScheme.error
+                                : theme.colorScheme.onSurfaceVariant;
                             return Padding(
                               padding: const EdgeInsets.symmetric(vertical: 2),
                               child: Text(
@@ -559,20 +647,34 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         leading: _avatar(
           theme,
-          icon: p.role == 'main' ? Icons.phone_android_rounded : Icons.sim_card_rounded,
-          color: p.role == 'main' ? theme.colorScheme.primary : theme.status.success,
-          background: p.role == 'main' ? theme.colorScheme.primaryContainer : theme.status.successContainer,
+          icon: p.role == 'main'
+              ? Icons.phone_android_rounded
+              : Icons.sim_card_rounded,
+          color: p.role == 'main'
+              ? theme.colorScheme.primary
+              : theme.status.success,
+          background: p.role == 'main'
+              ? theme.colorScheme.primaryContainer
+              : theme.status.successContainer,
         ),
-        title: Text(p.deviceName, style: const TextStyle(fontWeight: FontWeight.w700)),
+        title: Text(
+          p.deviceName,
+          style: const TextStyle(fontWeight: FontWeight.w700),
+        ),
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text('${l.settingsIpLabel}: ${p.ip}:${p.port}'),
-            Text('${l.settingsRoleLabel}: ${p.role == 'main' ? l.roleSource : l.roleMain}'),
+            Text(
+              '${l.settingsRoleLabel}: ${p.role == 'main' ? l.roleSource : l.roleMain}',
+            ),
           ],
         ),
         trailing: IconButton(
-          icon: Icon(Icons.delete_outline_rounded, color: theme.colorScheme.error),
+          icon: Icon(
+            Icons.delete_outline_rounded,
+            color: theme.colorScheme.error,
+          ),
           onPressed: () async {
             await ref.read(peerProvider.notifier).deletePeer(p);
             ref.invalidate(pairedPeersProvider);
@@ -606,12 +708,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ref.invalidate(pairedPeersProvider);
               if (context.mounted) {
                 Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text(l.settingsResetDone)),
-                );
+                ScaffoldMessenger.of(
+                  context,
+                ).showSnackBar(SnackBar(content: Text(l.settingsResetDone)));
               }
             },
-            child: Text(l.commonReset, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+            child: Text(
+              l.commonReset,
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
           ),
         ],
       ),

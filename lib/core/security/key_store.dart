@@ -4,9 +4,7 @@ import 'package:cryptography/cryptography.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 class KeyStore {
-  static const _storage = FlutterSecureStorage(
-    aOptions: AndroidOptions(),
-  );
+  static const _storage = FlutterSecureStorage(aOptions: AndroidOptions());
 
   static const _peerKeyKey = 'peer_aes_key';
   static const _peerIdKey = 'peer_id';
@@ -78,9 +76,13 @@ class KeyStore {
     final pubBytes = pubKey.bytes;
 
     await _storage.write(
-        key: _devicePrivateKeyKey, value: base64Encode(privBytes));
+      key: _devicePrivateKeyKey,
+      value: base64Encode(privBytes),
+    );
     await _storage.write(
-        key: _devicePublicKeyKey, value: base64Encode(pubBytes));
+      key: _devicePublicKeyKey,
+      value: base64Encode(pubBytes),
+    );
 
     return base64Encode(pubBytes);
   }

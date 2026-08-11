@@ -22,11 +22,7 @@ class HomeScreen extends ConsumerStatefulWidget {
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   int _selectedIndex = 0;
 
-  final _pages = const [
-    CallsScreen(),
-    SmsScreen(),
-    SettingsScreen(),
-  ];
+  final _pages = const [CallsScreen(), SmsScreen(), SettingsScreen()];
 
   @override
   void initState() {
@@ -112,7 +108,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               height: 8,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: isConnected ? status.success : theme.colorScheme.outlineVariant,
+                color: isConnected
+                    ? status.success
+                    : theme.colorScheme.outlineVariant,
               ),
             ),
           ],
@@ -122,16 +120,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         children: [
           ConnectionBanner(isConnected: isConnected),
           Expanded(
-            child: IndexedStack(
-              index: _selectedIndex,
-              children: _pages,
-            ),
+            child: IndexedStack(index: _selectedIndex, children: _pages),
           ),
         ],
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _selectedIndex,
-        onDestinationSelected: (index) => setState(() => _selectedIndex = index),
+        onDestinationSelected: (index) =>
+            setState(() => _selectedIndex = index),
         destinations: [
           NavigationDestination(
             icon: const Icon(Icons.call_outlined),

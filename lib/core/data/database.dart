@@ -31,16 +31,28 @@ class AppDatabase {
   /// upgrade path a real device would go through -- see
   /// test/database_migration_test.dart.
   @visibleForTesting
-  Future<void> upgradeTables(Database db, int oldVersion, int newVersion) async {
+  Future<void> upgradeTables(
+    Database db,
+    int oldVersion,
+    int newVersion,
+  ) async {
     if (oldVersion < 2) {
-      await db.execute('ALTER TABLE peer ADD COLUMN device_name TEXT NOT NULL DEFAULT "";');
+      await db.execute(
+        'ALTER TABLE peer ADD COLUMN device_name TEXT NOT NULL DEFAULT "";',
+      );
     }
     if (oldVersion < 3) {
-      await db.execute('ALTER TABLE peer ADD COLUMN public_key TEXT NOT NULL DEFAULT "";');
+      await db.execute(
+        'ALTER TABLE peer ADD COLUMN public_key TEXT NOT NULL DEFAULT "";',
+      );
     }
     if (oldVersion < 4) {
-      await db.execute('ALTER TABLE call_event ADD COLUMN contact_name TEXT NOT NULL DEFAULT "";');
-      await db.execute('ALTER TABLE sms_message ADD COLUMN contact_name TEXT NOT NULL DEFAULT "";');
+      await db.execute(
+        'ALTER TABLE call_event ADD COLUMN contact_name TEXT NOT NULL DEFAULT "";',
+      );
+      await db.execute(
+        'ALTER TABLE sms_message ADD COLUMN contact_name TEXT NOT NULL DEFAULT "";',
+      );
     }
     if (oldVersion < 5) {
       await db.execute('''

@@ -23,10 +23,7 @@ class LocaleNotifier extends StateNotifier<Locale?> {
 
   /// All locales the app ships translations for. Keep in sync with the
   /// ARB files under lib/l10n.
-  static const supportedLocales = [
-    Locale('tr'),
-    Locale('en'),
-  ];
+  static const supportedLocales = [Locale('tr'), Locale('en')];
 
   /// Default fallback when neither the saved preference nor the platform
   /// locale is in [supportedLocales].
@@ -85,6 +82,8 @@ class LocaleNotifier extends StateNotifier<Locale?> {
 /// tree's [LocalizationsDelegate] (see [LocaleNotifier.resolve]).
 AppLocalizations appL10n(Ref ref) {
   final explicit = ref.read(localeProvider);
-  final locale = explicit ?? LocaleNotifier.resolveSystem(PlatformDispatcher.instance.locales);
+  final locale =
+      explicit ??
+      LocaleNotifier.resolveSystem(PlatformDispatcher.instance.locales);
   return lookupAppLocalizations(locale);
 }
