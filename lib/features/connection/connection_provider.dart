@@ -91,6 +91,7 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
   // attacker without the identity key can't replay their way into a new
   // session -- this only needs to cover replay within one live session.
   int? _lastAcceptedMessageTimestamp;
+  bool _disposed = false;
 
   // Call/SMS native-event and peer-message handling live in their own
   // classes (see call_event_handler.dart / sms_event_handler.dart) so this
@@ -186,6 +187,7 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (_disposed) return;
     if (state == AppLifecycleState.resumed) {
       _socketManager?.setBackgroundMode(false);
       refresh();
@@ -1271,6 +1273,7 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
 
   @override
   void dispose() {
+    _disposed = true;
     WidgetsBinding.instance.removeObserver(this);
     _connectivity.stopListening();
     _healthTimer?.cancel();
