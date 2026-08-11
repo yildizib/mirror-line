@@ -23,6 +23,9 @@ import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.thinksolve.mirrorline.MirrorLineService.Companion.RINGING_DEBOUNCE_MS
 import com.thinksolve.mirrorline.MirrorLineService.Companion.SMS_DEBOUNCE_MS
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
+import java.util.concurrent.Future
 
 class MirrorLineService : Service() {
 
@@ -30,6 +33,10 @@ class MirrorLineService : Service() {
     private var smsReceiver: BroadcastReceiver? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
+
+    // Executor for CallLog enrichment thread pool (replaces raw Thread usage)
+    private val callLogExecutor: ExecutorService = Executors.newSingleThreadExecutor()
+    private val pendingCallLogTasks = mutableSetOf<Future<*>>()
 
     // Independent second source for the live incoming number, alongside
     // ACTION_PHONE_STATE_CHANGED below -- see registerCallStateListener.
@@ -100,6 +107,14 @@ class MirrorLineService : Service() {
     override fun onDestroy() {
         unregisterReceivers()
         releaseLocks()
+
+        // Cancel any in-flight CallLog enrichment tasks
+        synchronized(pendingCallLogTasks) {
+            pendingCallLogTasks.forEach { it.cancel(true) }
+            pendingCallLogTasks.clear()
+        }
+        callLogExecutor.shutdownNow()
+
         super.onDestroy()
     }
 
@@ -206,7 +221,7 @@ class MirrorLineService : Service() {
      * written the instant IDLE fires -- some ROMs (observed on HyperOS) run
      * their own caller-ID/spam lookup before writing it, which can take well
      * over a second. A single short delay was missing the write entirely, so
-     * this retries with growing delays (off the main thread) until a fresh
+     * this retries with growing delays (off the executor thread) until a fresh
      * entry (see CallLogResolver's sinceMs bound) shows up or attempts run
      * out, then reports the (MISSED/ENDED) state change together with
      * whatever caller info was found. Dart's CallEvent merge (see
@@ -216,25 +231,38 @@ class MirrorLineService : Service() {
     private fun enrichFromCallLogThenNotify(context: Context, state: String) {
         val mainHandler = Handler(Looper.getMainLooper())
         val callEndedAt = System.currentTimeMillis()
-        Thread {
-            var info: CallLogResolver.Entry? = null
-            for (delayMs in CALL_LOG_RETRY_DELAYS_MS) {
-                try {
-                    Thread.sleep(delayMs)
-                } catch (_: InterruptedException) {
+        val task = callLogExecutor.submit {
+            try {
+                var info: CallLogResolver.Entry? = null
+                for (delayMs in CALL_LOG_RETRY_DELAYS_MS) {
+                    if (Thread.currentThread().isInterrupted) {
+                        Log.w("MirrorLine", "CallLog enrichment interrupted")
+                        return@submit
+                    }
+                    try {
+                        Thread.sleep(delayMs)
+                    } catch (_: InterruptedException) {
+                        Thread.currentThread().interrupt()
+                        return@submit
+                    }
+                    info = CallLogResolver.latestEntry(context, sinceMs = callEndedAt)
+                    if (info != null) break
                 }
-                info = CallLogResolver.latestEntry(context, sinceMs = callEndedAt)
-                if (info != null) break
-            }
-            mainHandler.post {
-                val args = mutableMapOf<String, Any>("state" to state)
-                if (info != null) {
-                    args["number"] = info.number
-                    if (info.name.isNotEmpty()) args["contactName"] = info.name
+                mainHandler.post {
+                    val args = mutableMapOf<String, Any>("state" to state)
+                    if (info != null) {
+                        args["number"] = info.number
+                        if (info.name.isNotEmpty()) args["contactName"] = info.name
+                    }
+                    invokeFlutter("onCall", args)
                 }
-                invokeFlutter("onCall", args)
+            } catch (e: Exception) {
+                Log.e("MirrorLine", "CallLog enrichment failed: ${e.message}", e)
             }
-        }.start()
+        }
+        synchronized(pendingCallLogTasks) {
+            pendingCallLogTasks.add(task)
+        }
     }
 
     /**
