@@ -368,4 +368,18 @@ Located in `.github/workflows/`:
 - **ci.yml:** Runs on every push/PR to main/develop (analyze, test)
 - **android-release.yml:** Triggered by `v*` tag or manual dispatch
 
+## Division of Labor
+
+**Claude** handles implementation:
+```
+develop (pull) → new branch → implement → test → compile → commit → push
+```
+
+**User** handles reviews and merges:
+```
+PR review → approve → merge to develop
+```
+
+This keeps the mainline (`develop`/`main`) clean and ensures all changes are reviewed before landing. No direct commits to `develop`/`main` at any time.
+
 ---
