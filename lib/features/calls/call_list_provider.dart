@@ -6,6 +6,12 @@ final callListProvider = StateNotifierProvider<CallListNotifier, List<CallEvent>
   return CallListNotifier();
 });
 
+/// Derived provider: O(1) lookup by call ID instead of linear search.
+final callEventMapProvider = Provider<Map<String, CallEvent>>((ref) {
+  final calls = ref.watch(callListProvider);
+  return {for (final call in calls) call.id: call};
+});
+
 class CallListNotifier extends StateNotifier<List<CallEvent>> {
   final CallEventDao _dao = CallEventDao();
 

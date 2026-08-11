@@ -246,10 +246,8 @@ class CallEventHandler {
   }
 
   CallEvent? _findCall(String id) {
-    for (final c in _ref.read(callListProvider)) {
-      if (c.id == id) return c;
-    }
-    return null;
+    final callMap = _ref.read(callEventMapProvider);
+    return callMap[id];
   }
 
   // -----------------------------------------------------------------------
