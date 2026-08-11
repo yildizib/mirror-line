@@ -250,9 +250,6 @@ class _GroupedCallCard extends StatelessWidget {
       ),
     );
 
-    if (isSelecting) return card;
-    if (multi) return card;
-    // Single-call groups: no tap target (the card has no onTap). Just return.
     return card;
   }
 
