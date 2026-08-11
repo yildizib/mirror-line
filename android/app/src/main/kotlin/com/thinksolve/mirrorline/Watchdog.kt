@@ -15,10 +15,11 @@ import android.os.SystemClock
  * tied to this process, so it survives that kind of kill and can bring the
  * service back.
  *
- * Deliberately inexact (setAndAllowWhileIdle, not setExactAndAllowWhileIdle):
- * this check doesn't need to-the-second precision, just to bound the outage
- * to roughly CHECK_INTERVAL_MS, and inexact alarms don't require the user to
- * separately grant SCHEDULE_EXACT_ALARM (Android 12+).
+ * On Android 12+, exact alarms are used if the SCHEDULE_EXACT_ALARM
+ * permission is granted and canScheduleExactAlarms() returns true, ensuring
+ * the alarm fires at the intended time rather than being deferred by Doze.
+ * Falls back to inexact (setAndAllowWhileIdle) for older APIs or when the
+ * system denies exact alarm permission.
  */
 object Watchdog {
     private const val CHECK_INTERVAL_MS = 15 * 60 * 1000L // 15 minutes
@@ -36,6 +37,20 @@ object Watchdog {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
             val triggerAt = SystemClock.elapsedRealtime() + CHECK_INTERVAL_MS
+
+            // Try exact alarm on Android 12+ if system permits it
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                if (alarmManager.canScheduleExactAlarms()) {
+                    alarmManager.setExactAndAllowWhileIdle(
+                        AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                        triggerAt,
+                        pendingIntent
+                    )
+                    return
+                }
+            }
+
+            // Fallback to inexact alarm for older APIs or when permission denied
             alarmManager.setAndAllowWhileIdle(
                 AlarmManager.ELAPSED_REALTIME_WAKEUP,
                 triggerAt,
