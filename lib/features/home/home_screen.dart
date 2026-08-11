@@ -122,12 +122,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         children: [
           ConnectionBanner(isConnected: isConnected),
           Expanded(
-            child: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 200),
-              child: KeyedSubtree(
-                key: ValueKey(_selectedIndex),
-                child: _pages[_selectedIndex],
-              ),
+            child: IndexedStack(
+              index: _selectedIndex,
+              children: _pages,
             ),
           ),
         ],
