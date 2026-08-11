@@ -166,19 +166,29 @@ class ConnectionStatusNotifier extends StateNotifier<ConnectionStatus> {
     );
   }
 
-  void clearError() => state = ConnectionStatus(
-        localIp: state.localIp,
-        peerIp: state.peerIp,
-        lastBeaconIp: state.lastBeaconIp,
-        lastBeaconAt: state.lastBeaconAt,
-        connectAttempts: state.connectAttempts,
-        serverRunning: state.serverRunning,
-        serverPort: state.serverPort,
-        discoveryState: state.discoveryState,
-        discoveryDetail: state.discoveryDetail,
-        forceConnectActive: state.forceConnectActive,
-        discoveryLog: state.discoveryLog,
-      );
+  void clearError() {
+    final next = state.copyWith(
+      lastErrorCode: null,
+      lastErrorDetail: null,
+    );
+    // copyWith uses ?? which preserves old values on null; manually clear
+    // error fields by reconstructing with nulls.
+    state = ConnectionStatus(
+      localIp: next.localIp,
+      peerIp: next.peerIp,
+      lastBeaconIp: next.lastBeaconIp,
+      lastBeaconAt: next.lastBeaconAt,
+      lastErrorCode: null,
+      lastErrorDetail: null,
+      connectAttempts: next.connectAttempts,
+      serverRunning: next.serverRunning,
+      serverPort: next.serverPort,
+      discoveryState: next.discoveryState,
+      discoveryDetail: next.discoveryDetail,
+      forceConnectActive: next.forceConnectActive,
+      discoveryLog: next.discoveryLog,
+    );
+  }
 
   // ------------------------------------------------------------------
   // Discovery / force-connect live progress
