@@ -63,7 +63,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final pairedPeers = ref.watch(pairedPeersProvider);
     final isConnected = ref.watch(connectionProvider);
     final isConnecting = ref.watch(connectionConnectingProvider);
-    final status = ref.watch(connectionStatusProvider);
+    final status = ref.watch(connectionStatusProvider.select((s) => s));
     final theme = Theme.of(context);
     final l = AppLocalizations.of(context);
 
