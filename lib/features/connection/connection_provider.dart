@@ -28,6 +28,7 @@ import 'package:mirrorline/features/connection/sms_event_handler.dart';
 import 'package:mirrorline/features/pairing/pairing_provider.dart';
 import 'package:mirrorline/features/pairing/peer_provider.dart';
 import 'package:mirrorline/features/sms/sms_list_provider.dart';
+import 'package:uuid/uuid.dart';
 import 'dart:io';
 
 final connectionProvider = StateNotifierProvider<ConnectionNotifier, bool>((ref) {
@@ -949,7 +950,7 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
       }
       if (!isSource) return;
       final now = DateTime.now();
-      final id = '${now.millisecondsSinceEpoch}';
+      final id = const Uuid().v4();
 
       if (type == 'onCall') {
         await _callHandler.handleNativeEvent(data, id: id, now: now);

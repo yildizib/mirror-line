@@ -6,6 +6,7 @@ import 'package:cryptography/cryptography.dart';
 import 'package:logger/logger.dart';
 import 'package:mirrorline/core/network/message_protocol.dart';
 import 'package:mirrorline/core/security/crypto_manager.dart';
+import 'package:uuid/uuid.dart';
 
 class SocketManager {
   static const Duration _heartbeatInterval = Duration(seconds: 30);
@@ -319,7 +320,7 @@ class SocketManager {
       final encrypted = await CryptoManager.encrypt(key, jsonEncode(payload));
       final message = MirrorMessage(
         type: type,
-        id: '${DateTime.now().millisecondsSinceEpoch}',
+        id: const Uuid().v4(),
         timestamp: DateTime.now().millisecondsSinceEpoch,
         payload: encrypted,
       );

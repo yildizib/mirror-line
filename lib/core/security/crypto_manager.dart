@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart' as crypto;
 import 'package:cryptography/cryptography.dart';
 
 class CryptoManager {
@@ -105,5 +106,20 @@ class CryptoManager {
   /// Reconstructs a SimplePublicKey from a base64 string.
   static SimplePublicKey publicKeyFromBase64(String base64) {
     return SimplePublicKey(base64Decode(base64), type: KeyPairType.ed25519);
+  }
+
+  /// Generates a cryptographically sound 6-digit verification code from a
+  /// shared key and peer ID. Used to derive a code for manual verification
+  /// during pairing that's deterministic and collision-resistant.
+  static String verificationCodeFromKey(String keyBase64, String peerId) {
+    final keyBytes = base64Decode(keyBase64);
+    final peerBytes = utf8.encode(peerId);
+    final combined = Uint8List(keyBytes.length + peerBytes.length)
+      ..setAll(0, keyBytes)
+      ..setAll(keyBytes.length, peerBytes);
+
+    final hash = crypto.sha256.convert(combined).bytes;
+    final value = (hash[0] << 16) | (hash[1] << 8) | hash[2];
+    return (value % 1000000).toString().padLeft(6, '0');
   }
 }
