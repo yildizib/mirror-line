@@ -12,37 +12,37 @@ void main() {
       var attempt = 0;
       var delay = initialDelay * (1 << attempt);
       if (delay > maxDelay) delay = maxDelay;
-      expect(delay, Duration(seconds: 2));
+      expect(delay, const Duration(seconds: 2));
 
       // Attempt 1: 2s * (1 << 1) = 4s
       attempt = 1;
       delay = initialDelay * (1 << attempt);
       if (delay > maxDelay) delay = maxDelay;
-      expect(delay, Duration(seconds: 4));
+      expect(delay, const Duration(seconds: 4));
 
       // Attempt 2: 2s * (1 << 2) = 8s
       attempt = 2;
       delay = initialDelay * (1 << attempt);
       if (delay > maxDelay) delay = maxDelay;
-      expect(delay, Duration(seconds: 8));
+      expect(delay, const Duration(seconds: 8));
 
       // Attempt 3: 2s * (1 << 3) = 16s
       attempt = 3;
       delay = initialDelay * (1 << attempt);
       if (delay > maxDelay) delay = maxDelay;
-      expect(delay, Duration(seconds: 16));
+      expect(delay, const Duration(seconds: 16));
 
       // Attempt 4: 2s * (1 << 4) = 32s → clamped to 30s
       attempt = 4;
       delay = initialDelay * (1 << attempt);
       if (delay > maxDelay) delay = maxDelay;
-      expect(delay, Duration(seconds: 30));
+      expect(delay, const Duration(seconds: 30));
 
       // Attempt 5+: stays at 30s max
       attempt = 5;
       delay = initialDelay * (1 << attempt);
       if (delay > maxDelay) delay = maxDelay;
-      expect(delay, Duration(seconds: 30));
+      expect(delay, const Duration(seconds: 30));
     });
 
     test('Reconnect attempt counter increments correctly', () {
