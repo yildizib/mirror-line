@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.util.Log
 
 /**
  * Fired periodically by Watchdog's self-re-arming alarm. Always
@@ -26,7 +27,8 @@ class WatchdogReceiver : BroadcastReceiver() {
                 } else {
                     appContext.startService(serviceIntent)
                 }
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                Log.e("MirrorLine", "Watchdog failed to (re)start service: ${e.message}", e)
             }
         }
 

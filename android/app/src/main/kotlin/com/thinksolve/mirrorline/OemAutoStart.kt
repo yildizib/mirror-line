@@ -6,6 +6,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import android.util.Log
 import com.thinksolve.mirrorline.OemAutoStart.open
 
 /**
@@ -147,7 +148,8 @@ object OemAutoStart {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             context.startActivity(intent)
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.w("MirrorLine", "Failed to open app details settings: ${e.message}")
         }
     }
 }

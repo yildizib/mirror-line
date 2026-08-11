@@ -4,6 +4,7 @@ import android.app.Notification
 import android.content.pm.PackageManager
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
+import android.util.Log
 
 class MirrorLineNotificationListener : NotificationListenerService() {
 
@@ -81,7 +82,8 @@ object AppLabelResolver {
             val pm = context.packageManager
             val appInfo = pm.getApplicationInfo(packageName, PackageManager.GET_META_DATA)
             pm.getApplicationLabel(appInfo).toString()
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.w("MirrorLine", "Failed to resolve app label for $packageName: ${e.message}")
             packageName
         }
     }
@@ -97,7 +99,8 @@ object DefaultAppResolver {
             val defaultDialer = telecomManager?.defaultDialerPackage
             val defaultSms = android.provider.Telephony.Sms.getDefaultSmsPackage(context)
             packageName == defaultDialer || packageName == defaultSms
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.w("MirrorLine", "Failed to resolve default dialer/SMS app: ${e.message}")
             false
         }
     }
