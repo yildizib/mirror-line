@@ -21,7 +21,7 @@ import android.os.SystemClock
  * separately grant SCHEDULE_EXACT_ALARM (Android 12+).
  */
 object Watchdog {
-    private const val CHECK_INTERVAL_MS = 15 * 60 * 1000L // 15 minutes
+    private const val CHECK_INTERVAL_MS = 5 * 60 * 1000L // 5 minutes
 
     fun schedule(context: Context) {
         try {
