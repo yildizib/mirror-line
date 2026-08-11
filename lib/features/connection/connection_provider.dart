@@ -27,6 +27,7 @@ import 'package:mirrorline/features/connection/sms_event_handler.dart';
 import 'package:mirrorline/features/pairing/pairing_provider.dart';
 import 'package:mirrorline/features/pairing/peer_provider.dart';
 import 'package:mirrorline/features/sms/sms_list_provider.dart';
+import 'dart:io';
 
 final connectionProvider = StateNotifierProvider<ConnectionNotifier, bool>((ref) {
   return ConnectionNotifier(ref);
@@ -675,11 +676,27 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
   /// via the health-timer-less `_tryConnectToStoredPeer` path). The beacon
   /// listener is un-throttled to fast cadence (3s) so a beacon from the
   /// peer lands as quickly as possible.
+  /// Validates that a string is a valid IP address (IPv4 or IPv6).
+  bool _isValidIpAddress(String? ip) {
+    if (ip == null || ip.isEmpty) return false;
+    try {
+      InternetAddress(ip);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   Future<void> _handleNetworkChangedEvent(Map data) async {
     final newIp = data['localIp'] as String?;
     _logger.i('Native reported a network change (new local IP: $newIp).');
+
     if (newIp != null) {
-      _ref.read(connectionStatusProvider.notifier).setLocalIp(newIp);
+      if (!_isValidIpAddress(newIp)) {
+        _logger.w('Ignoring invalid IP from network change: $newIp');
+      } else {
+        _ref.read(connectionStatusProvider.notifier).setLocalIp(newIp);
+      }
     }
 
     // Abandon any connect attempt that's in flight on the old network so
