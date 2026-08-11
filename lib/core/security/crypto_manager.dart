@@ -9,19 +9,20 @@ class CryptoManager {
   static final AesGcm _algorithm = AesGcm.with256bits();
   static final Random _random = Random.secure();
 
-  static SecretKey generateKey() {
-    final bytes = Uint8List(32);
+  static Uint8List _randomBytes(int length) {
+    final bytes = Uint8List(length);
     for (var i = 0; i < bytes.length; i++) {
       bytes[i] = _random.nextInt(256);
     }
-    return SecretKey(bytes);
+    return bytes;
+  }
+
+  static SecretKey generateKey() {
+    return SecretKey(_randomBytes(32));
   }
 
   static Future<String> encrypt(SecretKey key, String plainText) async {
-    final nonceBytes = Uint8List(12);
-    for (var i = 0; i < nonceBytes.length; i++) {
-      nonceBytes[i] = _random.nextInt(256);
-    }
+    final nonceBytes = _randomBytes(12);
 
     final secretBox = await _algorithm.encrypt(
       utf8.encode(plainText),
@@ -99,11 +100,7 @@ class CryptoManager {
 
   /// Generates a random nonce as a base64 string (32 bytes).
   static String generateNonce() {
-    final bytes = Uint8List(32);
-    for (var i = 0; i < bytes.length; i++) {
-      bytes[i] = _random.nextInt(256);
-    }
-    return base64Encode(bytes);
+    return base64Encode(_randomBytes(32));
   }
 
   /// Reconstructs a SimplePublicKey from a base64 string.

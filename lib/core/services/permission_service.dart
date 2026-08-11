@@ -8,21 +8,14 @@ class PermissionService {
     Permission.notification,
   ];
 
-  static Future<bool> requestAll() async {
-    final statuses = await _permissions.request();
-    return statuses.values.every((status) => status.isGranted);
-  }
-
   static Future<bool> requestNotifications() async {
     final status = await Permission.notification.request();
     return status.isGranted;
   }
 
   static Future<bool> areAllGranted() async {
-    for (final permission in _permissions) {
-      if (!await permission.isGranted) return false;
-    }
-    return true;
+    final results = await Future.wait(_permissions.map((p) => p.isGranted));
+    return results.every((isGranted) => isGranted);
   }
 
   static Future<bool> isBatteryOptimizationIgnored() =>

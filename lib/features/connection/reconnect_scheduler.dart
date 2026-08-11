@@ -71,7 +71,7 @@ class ReconnectScheduler {
 
   Future<void> _connectTo(String ip, int port) async {
     final generation = ++_connectGeneration;
-    final timeout = Duration(seconds: 15);
+    const timeout = Duration(seconds: 15);
     try {
       _logger.i('Attempting connection to $ip:$port (gen=$generation)...');
       await _onReconnect(ip, port).timeout(timeout);
