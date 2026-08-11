@@ -8,6 +8,7 @@ import 'package:mirrorline/core/data/models/peer.dart';
 import 'package:mirrorline/core/network/peer_discovery.dart';
 import 'package:mirrorline/core/security/crypto_manager.dart';
 import 'package:mirrorline/core/security/key_store.dart';
+import 'package:uuid/uuid.dart';
 
 final peerProvider = StateNotifierProvider<PeerNotifier, Peer?>((ref) {
   return PeerNotifier();
@@ -52,9 +53,7 @@ class PeerNotifier extends StateNotifier<Peer?> {
   }
 
   static String generateVerificationCode(String keyBase64, String peerId) {
-    final combined = '$keyBase64|$peerId';
-    final hash = combined.hashCode.abs();
-    return (hash % 1000000).toString().padLeft(6, '0');
+    return CryptoManager.verificationCodeFromKey(keyBase64, peerId);
   }
 
   Future<void> createPeer(String role) async {
@@ -78,7 +77,7 @@ class PeerNotifier extends StateNotifier<Peer?> {
     await KeyStore.ensureDeviceKeyPair();
 
     final peer = Peer(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      id: const Uuid().v4(),
       deviceName: deviceName,
       role: role,
       ip: ip,

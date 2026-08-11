@@ -7,6 +7,7 @@ import 'package:mirrorline/core/services/notification_service.dart';
 import 'package:mirrorline/core/telephony/telephony_channel.dart';
 import 'package:mirrorline/features/connection/call_event_handler.dart' show SendOrQueue, ShowNotification;
 import 'package:mirrorline/features/sms/sms_list_provider.dart';
+import 'package:uuid/uuid.dart';
 
 /// Everything about interpreting native SMS events (on the Source device)
 /// and incoming sms_* peer messages (sms_incoming/sms_outgoing/sms_status),
@@ -160,7 +161,7 @@ class SmsEventHandler {
   // -----------------------------------------------------------------------
 
   Future<bool> sendSmsNotification(String address, String body, {String? id}) {
-    final smsId = id ?? '${DateTime.now().millisecondsSinceEpoch}';
+    final smsId = id ?? const Uuid().v4();
     return _sendOrQueue(MessageTypes.smsIncoming, {
       'id': smsId,
       'address': address,
@@ -170,7 +171,7 @@ class SmsEventHandler {
   }
 
   Future<bool> sendReplySms(String address, String body, {String? id, String? contactName, String? threadId}) {
-    final smsId = id ?? '${DateTime.now().millisecondsSinceEpoch}';
+    final smsId = id ?? const Uuid().v4();
     return _sendOrQueue(MessageTypes.smsOutgoing, {
       'id': smsId,
       'address': address,

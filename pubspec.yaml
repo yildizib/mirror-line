@@ -27,6 +27,7 @@ dependencies:
 
   # Security
   cryptography: ^2.7.0
+  crypto: ^3.0.7
   flutter_secure_storage: ^11.0.0
 
   # Network / discovery

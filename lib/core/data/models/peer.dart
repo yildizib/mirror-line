@@ -1,3 +1,5 @@
+import 'package:mirrorline/core/security/crypto_manager.dart';
+
 class Peer {
   final String id;
   final String deviceName;
@@ -68,8 +70,10 @@ class Peer {
   );
 
   String get verificationCode {
-    final combined = '$key|$id';
-    final hash = combined.hashCode.abs();
-    return (hash % 1000000).toString().padLeft(6, '0');
+    // Deprecated: use CryptoManager.verificationCodeFromKey instead.
+    // This getter is kept for compatibility but delegates to the
+    // cryptographically sound SHA-256-based method.
+    // ignore: deprecated_member_use_from_same_package
+    return CryptoManager.verificationCodeFromKey(key, id);
   }
 }

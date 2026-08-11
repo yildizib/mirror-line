@@ -6,6 +6,7 @@ import 'package:mirrorline/core/services/locale_service.dart';
 import 'package:mirrorline/core/services/notification_service.dart';
 import 'package:mirrorline/core/telephony/telephony_channel.dart';
 import 'package:mirrorline/features/calls/call_list_provider.dart';
+import 'package:uuid/uuid.dart';
 
 /// Sends a single mirrored/peer message, queuing it locally if the socket
 /// isn't currently writable. Implemented by ConnectionNotifier so this
@@ -256,7 +257,7 @@ class CallEventHandler {
   // -----------------------------------------------------------------------
 
   Future<bool> sendCallNotification(String number, {String? id, String? contactName}) {
-    final callId = id ?? '${DateTime.now().millisecondsSinceEpoch}';
+    final callId = id ?? const Uuid().v4();
     return _sendOrQueue(MessageTypes.callIncoming, {
       'id': callId,
       'number': number,
