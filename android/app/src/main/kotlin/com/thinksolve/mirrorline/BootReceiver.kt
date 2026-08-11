@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.util.Log
 
 /**
  * Restarts the mirroring service after a device reboot without waiting for
@@ -27,10 +28,14 @@ class BootReceiver : BroadcastReceiver() {
         if (!MirrorLineChannel.hasAllPermissions(appContext)) return
 
         val serviceIntent = Intent(appContext, MirrorLineService::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            appContext.startForegroundService(serviceIntent)
-        } else {
-            appContext.startService(serviceIntent)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                appContext.startForegroundService(serviceIntent)
+            } else {
+                appContext.startService(serviceIntent)
+            }
+        } catch (e: Exception) {
+            Log.e("MirrorLine", "Boot receiver failed to start service: ${e.message}", e)
         }
     }
 }

@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.SystemClock
+import android.util.Log
 
 /**
  * Best-effort recovery for ROMs (observed on HyperOS/MIUI) that kill the
@@ -57,7 +58,8 @@ object Watchdog {
                 triggerAt,
                 pendingIntent
             )
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.e("MirrorLine", "Failed to schedule watchdog alarm: ${e.message}", e)
         }
     }
 }

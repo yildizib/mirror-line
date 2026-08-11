@@ -18,6 +18,7 @@ import android.os.PowerManager
 import android.telephony.PhoneStateListener
 import android.telephony.SmsMessage
 import android.telephony.TelephonyManager
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.thinksolve.mirrorline.MirrorLineService.Companion.RINGING_DEBOUNCE_MS
@@ -122,7 +123,8 @@ class MirrorLineService : Service() {
         try {
             val restartIntent = Intent(applicationContext, MirrorLineService::class.java)
             ContextCompat.startForegroundService(applicationContext, restartIntent)
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.e("MirrorLine", "Failed to restart service from onTaskRemoved: ${e.message}", e)
         }
     }
 
@@ -151,7 +153,8 @@ class MirrorLineService : Service() {
                     setReferenceCounted(false)
                     acquire()
                 }
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                Log.w("MirrorLine", "Failed to acquire wake lock: ${e.message}")
             }
         }
 
@@ -177,7 +180,8 @@ class MirrorLineService : Service() {
                     setReferenceCounted(false)
                     acquire()
                 }
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                Log.w("MirrorLine", "Failed to acquire Wi-Fi lock: ${e.message}")
             }
         }
     }
