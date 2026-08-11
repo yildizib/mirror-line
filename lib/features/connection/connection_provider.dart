@@ -23,6 +23,7 @@ import 'package:mirrorline/core/telephony/telephony_channel.dart';
 import 'package:mirrorline/features/calls/call_list_provider.dart';
 import 'package:mirrorline/features/connection/call_event_handler.dart';
 import 'package:mirrorline/features/connection/connection_status_provider.dart';
+import 'package:mirrorline/features/connection/force_connect_strategy.dart';
 import 'package:mirrorline/features/connection/sms_event_handler.dart';
 import 'package:mirrorline/features/pairing/pairing_provider.dart';
 import 'package:mirrorline/features/pairing/peer_provider.dart';
@@ -841,114 +842,25 @@ class ConnectionNotifier extends StateNotifier<bool> with WidgetsBindingObserver
     }
 
     final localIp = _ref.read(connectionStatusProvider).localIp;
-    final storedIp = peer.ip;
 
-    // Phase 1: Parallel discovery -- collect candidate IPs.
-    final candidateFutures = <Future<List<String>>>[];
+    final strategy = ForceConnectStrategy(
+      storedIp: peer.ip,
+      beaconIps: _beaconIps,
+      allLocalIps: _allLocalIps,
+      localIp: localIp,
+      peerId: peer.id,
+      peerPort: peer.port,
+      connectWithProgress: _connectWithProgress,
+      lookupKnownNetworkIp: _lookupKnownNetworkIp,
+      scanSubnetsWithProgress: _scanSubnetsWithProgress,
+      recordDiscoveredAddress: _recordDiscoveredAddress,
+    );
 
-    // Path 1: stored IP (instant) + beacon IPs (if any).
-    if (storedIp.isNotEmpty && storedIp != 'unknown') {
-      final candidates = <String>[storedIp, ..._beaconIps.where((ip) => ip != storedIp)];
-      statusNotifier.logDiscovery('Trying stored/beacon IPs: ${candidates.join(', ')}...');
-      candidateFutures.add(Future.value(candidates));
-    } else if (_beaconIps.isNotEmpty) {
-      statusNotifier.logDiscovery('Trying beacon IPs: ${_beaconIps.join(', ')}...');
-      candidateFutures.add(Future.value(_beaconIps));
-    }
-
-    // Path 2: known-network cache (fast DB lookup).
-    candidateFutures.add(_lookupKnownNetworkIp(statusNotifier, peer.id));
-
-    // Path 3: subnet scan (slow, runs in parallel with 1+2). Scan ALL local
-    // subnets (WiFi + VPN) in parallel for VPN support.
-    final scanIps = _allLocalIps.isNotEmpty ? _allLocalIps : (localIp != null ? [localIp] : <String>[]);
-    final scanCandidates = <String>{};
-    if (scanIps.isNotEmpty) {
-      candidateFutures.add(_scanSubnetsWithProgress(scanIps, peer.port, statusNotifier).then((found) {
-        if (found != null) {
-          statusNotifier.logDiscovery('Scan found host: $found', isSuccess: true);
-          scanCandidates.add(found);
-          return [found];
-        }
-        return <String>[];
-      }));
-    }
-
-    // Collect candidates as they arrive, but don't block on all of them
-    // -- start trying to connect as soon as the first candidate is available.
-    final allCandidates = <String>{};
-    var discoveryDone = false;
-
-    // Add candidates as they arrive. Don't gate on _connecting -- even
-    // if a connect attempt is in flight, we still want to collect new
-    // candidates (e.g. from the subnet scan) so they're ready when the
-    // current attempt fails.
-    for (final f in candidateFutures) {
-      f.then((ips) {
-        for (final ip in ips) {
-          if (!discoveryDone && !state) {
-            allCandidates.add(ip);
-          }
-        }
-      });
-    }
-
-    // Phase 2: Try connecting to candidates as they become available.
-    // Give discovery a small head start (200ms) so the fast paths (stored
-    // IP, known-network) have a chance to populate before we start trying.
-    await Future.delayed(const Duration(milliseconds: 200));
-
-    // Track whether all discovery futures have completed.
-    var completedCount = 0;
-    final totalCount = candidateFutures.length;
-    for (final f in candidateFutures) {
-      f.then((_) => completedCount++);
-    }
-
-    // Try stored IP and known-network first (they're likely already in
-    // allCandidates by now). Then wait for the scan if needed.
-    // Stored/beacon IPs get a short timeout (1.5s) since they may be
-    // stale (5G IP from beacon, old network). Scan-discovered IPs get
-    // the full 5s since they're freshly confirmed to have the port open.
-    while (!state && !_connecting) {
-      if (allCandidates.isNotEmpty) {
-        final ip = allCandidates.first;
-        allCandidates.remove(ip);
-        // Short timeout for stored/beacon IPs (likely stale), full
-        // timeout for scan-discovered IPs (freshly probed).
-        final isScanCandidate = scanCandidates.contains(ip);
-        final timeout = isScanCandidate ? null : const Duration(milliseconds: 1500);
-        final ok = await _connectWithProgress(
-          ip, peer.port, statusNotifier,
-          label: ip,
-          connectTimeout: timeout,
-        );
-        if (ok) {
-          _recordDiscoveredAddress(ip, peer.port);
-          statusNotifier.logDiscovery('Connected to $ip!', isSuccess: true);
-          discoveryDone = true;
-          return;
-        }
-        statusNotifier.logDiscovery('Failed to connect to $ip.', isError: true);
-      } else {
-        // No candidates yet -- wait for discovery to produce some.
-        if (completedCount >= totalCount) {
-          // All discovery paths finished and we have no more candidates.
-          break;
-        }
-        await Future.delayed(const Duration(milliseconds: 100));
-      }
-    }
-
-    if (state) {
-      // Connected via a parallel path (beacon, etc.) while we were scanning.
-      statusNotifier.logDiscovery('Connected!', isSuccess: true);
-      discoveryDone = true;
-      return;
-    }
-
-    statusNotifier.logDiscovery('All discovery paths failed.', isError: true);
-    discoveryDone = true;
+    await strategy.execute(
+      statusNotifier,
+      () => state,
+      () => _connecting,
+    );
   }
 
   /// Looks up the known-network cached IP for this subnet.
