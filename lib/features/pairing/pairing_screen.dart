@@ -6,7 +6,7 @@ import 'package:mirrorline/core/security/key_store.dart';
 import 'package:mirrorline/core/theme/theme.dart';
 import 'package:mirrorline/features/connection/connection_facade.dart';
 import 'package:mirrorline/features/connection/connection_status_provider.dart';
-import 'package:mirrorline/features/pairing/pairing_provider.dart';
+import 'package:mirrorline/features/pairing/pairing_facade.dart';
 import 'package:mirrorline/features/pairing/peer_provider.dart';
 import 'package:mirrorline/features/pairing/role_selection_screen.dart';
 import 'package:mirrorline/features/pairing/widgets/qr_display.dart';
@@ -42,7 +42,7 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
   @override
   Widget build(BuildContext context) {
     final peer = ref.watch(peerProvider);
-    final pairingState = ref.watch(pairingProvider);
+    final pairingState = ref.watch(pairingFacadeProvider);
     final status = ref.watch(connectionStatusProvider);
     final l = AppLocalizations.of(context);
 
@@ -255,7 +255,7 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
               ),
             const SizedBox(height: 24),
             FilledButton.tonal(
-              onPressed: () => ref.read(pairingProvider.notifier).reset(),
+              onPressed: () => ref.read(pairingFacadeProvider.notifier).reset(),
               child: Text(l.pairingCancel),
             ),
           ],
@@ -287,7 +287,7 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
             const SizedBox(height: AppSpacing.lg),
             FilledButton(
               onPressed: () {
-                ref.read(pairingProvider.notifier).reset();
+                ref.read(pairingFacadeProvider.notifier).reset();
                 setState(() {});
               },
               child: Text(l.pairingRetry),
@@ -422,7 +422,7 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
                     .read(connectionFacadeProvider.notifier)
                     .socketManager;
                 if (socketManager != null) {
-                  final notifier = ref.read(pairingProvider.notifier);
+                  final notifier = ref.read(pairingFacadeProvider.notifier);
                   await notifier.rejectRequest(socketManager: socketManager);
                 }
                 if (mounted) {
@@ -440,7 +440,7 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
                     .read(connectionFacadeProvider.notifier)
                     .socketManager;
                 if (socketManager != null) {
-                  final notifier = ref.read(pairingProvider.notifier);
+                  final notifier = ref.read(pairingFacadeProvider.notifier);
                   final scannerInfo = notifier.pendingScannerInfo ?? {};
                   final status = ref.read(connectionStatusProvider);
                   final myIp = status.localIp ?? '';
@@ -452,10 +452,10 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
                   await ref.read(connectionFacadeProvider.notifier).refresh();
                 }
                 // acceptRequest now waits for the scanner's ack before
-                // committing (see pairing_provider.dart) -- it can come back
+                // committing (see pairing_facade.dart) -- it can come back
                 // with an errorCode if that ack never arrived, so this can
                 // no longer unconditionally claim success.
-                final latest = ref.read(pairingProvider);
+                final latest = ref.read(pairingFacadeProvider);
                 final errorCode = latest.errorCode;
                 final succeeded = socketManager != null && errorCode == null;
                 if (mounted) {
@@ -603,13 +603,13 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
       return;
     }
 
-    // Send pairing request via PairingNotifier.
+    // Send pairing request via PairingFacade.
     final myPublicKey = await KeyStore.ensureDeviceKeyPair();
     final status = ref.read(connectionStatusProvider);
     final myIp = status.localIp ?? '';
 
     await ref
-        .read(pairingProvider.notifier)
+        .read(pairingFacadeProvider.notifier)
         .sendRequest(
           scannedId: scannedId,
           scannedIp: scannedIp,
@@ -627,7 +627,7 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
     await ref.read(connectionFacadeProvider.notifier).refresh();
 
     if (!mounted) return;
-    final pairingState = ref.read(pairingProvider);
+    final pairingState = ref.read(pairingFacadeProvider);
     if (pairingState.errorCode == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(

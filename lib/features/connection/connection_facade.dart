@@ -25,7 +25,7 @@ import 'package:mirrorline/features/connection/connection_status_provider.dart';
 import 'package:mirrorline/features/connection/force_connect_strategy.dart';
 import 'package:mirrorline/features/connection/peer_discovery_coordinator.dart';
 import 'package:mirrorline/features/connection/reconnect_scheduler.dart';
-import 'package:mirrorline/features/pairing/pairing_provider.dart';
+import 'package:mirrorline/features/pairing/pairing_facade.dart';
 import 'package:mirrorline/features/pairing/peer_provider.dart';
 import 'package:mirrorline/features/sms/sms_facade.dart';
 import 'package:uuid/uuid.dart';
@@ -163,7 +163,7 @@ class ConnectionFacade extends StateNotifier<bool>
   bool get isSource => _peer?.role == 'source';
   bool get isConnecting => _connecting;
 
-  /// Exposed so PairingNotifier can reply on the live connection.
+  /// Exposed so PairingFacade can reply on the live connection.
   SocketManager? get socketManager => _socketManager;
 
   void _init() async {
@@ -1050,7 +1050,7 @@ class ConnectionFacade extends StateNotifier<bool>
         break;
 
       case MessageTypes.pairingRequest:
-        _ref.read(pairingProvider.notifier).handleIncomingRequest(payload);
+        _ref.read(pairingFacadeProvider.notifier).handleIncomingRequest(payload);
         break;
 
       case MessageTypes.pairingAck:
@@ -1058,12 +1058,12 @@ class ConnectionFacade extends StateNotifier<bool>
         // arrives on this device's regular socket (unlike pairingAccept/
         // pairingReject below, which the *scanner* receives on its own
         // separate handshake socket, never here).
-        _ref.read(pairingProvider.notifier).handlePairingAck();
+        _ref.read(pairingFacadeProvider.notifier).handlePairingAck();
         break;
 
       case MessageTypes.pairingAccept:
       case MessageTypes.pairingReject:
-        // Handled by PairingNotifier's own socket on the scanner side.
+        // Handled by PairingFacade's own socket on the scanner side.
         // On the scanned side we never receive these (we send them).
         break;
 

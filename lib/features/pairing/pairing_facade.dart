@@ -89,10 +89,10 @@ class PairingState {
   }
 }
 
-final pairingProvider = StateNotifierProvider<PairingNotifier, PairingState>((
+final pairingFacadeProvider = StateNotifierProvider<PairingFacade, PairingState>((
   ref,
 ) {
-  return PairingNotifier(ref);
+  return PairingFacade(ref);
 });
 
 /// Coordinates the two-way QR pairing handshake.
@@ -109,7 +109,7 @@ final pairingProvider = StateNotifierProvider<PairingNotifier, PairingState>((
 ///
 /// If the scanned device rejects, [rejectRequest] sends `pairingReject`
 /// and the scanner shows an error.
-class PairingNotifier extends StateNotifier<PairingState> {
+class PairingFacade extends StateNotifier<PairingState> {
   final Logger _logger = Logger();
   final Ref _ref;
 
@@ -135,7 +135,7 @@ class PairingNotifier extends StateNotifier<PairingState> {
   /// Stashed scanner info on the *scanned* side (set by handleIncomingRequest).
   Map<String, dynamic>? _pendingScannerInfo;
 
-  PairingNotifier(this._ref) : super(const PairingState());
+  PairingFacade(this._ref) : super(const PairingState());
 
   /// Pending scanner info (for UI to pass to acceptRequest).
   Map<String, dynamic>? get pendingScannerInfo => _pendingScannerInfo;
