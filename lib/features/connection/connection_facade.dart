@@ -26,7 +26,7 @@ import 'package:mirrorline/features/connection/force_connect_strategy.dart';
 import 'package:mirrorline/features/connection/peer_discovery_coordinator.dart';
 import 'package:mirrorline/features/connection/reconnect_scheduler.dart';
 import 'package:mirrorline/features/pairing/pairing_facade.dart';
-import 'package:mirrorline/features/pairing/peer_provider.dart';
+import 'package:mirrorline/features/pairing/peer_facade.dart';
 import 'package:mirrorline/features/sms/sms_facade.dart';
 import 'package:uuid/uuid.dart';
 import 'dart:io';
@@ -284,7 +284,7 @@ class ConnectionFacade extends StateNotifier<bool>
   /// Refreshes the reported local IP without touching the peer record.
   /// Used when showing the pairing QR, where the address must be current but
   /// must never be written back into the (possibly already-paired) peer row
-  /// -- unlike PeerNotifier.refreshLocalIp, which used to overwrite the
+  /// -- unlike PeerFacade.refreshLocalIp, which used to overwrite the
   /// paired peer's stored IP with this device's own address.
   ///
   /// Uses [getAllLocalIps] for VPN support: when the device has both WiFi
@@ -638,7 +638,7 @@ class ConnectionFacade extends StateNotifier<bool>
     final updated = peer.copyWith(ip: ip, port: port);
     _peer = updated;
     unawaited(_peerDao.update(updated));
-    _ref.read(peerProvider.notifier).applyUpdate(updated);
+    _ref.read(peerFacadeProvider.notifier).applyUpdate(updated);
     _ref.read(connectionStatusProvider.notifier).setPeerIp(ip);
   }
 

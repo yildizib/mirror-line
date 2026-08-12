@@ -8,7 +8,7 @@ import 'package:mirrorline/core/network/message_protocol.dart';
 import 'package:mirrorline/core/network/socket_manager.dart';
 import 'package:mirrorline/core/security/crypto_manager.dart';
 import 'package:mirrorline/core/security/key_store.dart';
-import 'package:mirrorline/features/pairing/peer_provider.dart';
+import 'package:mirrorline/features/pairing/peer_facade.dart';
 import 'package:mirrorline/l10n/app_localizations.dart';
 
 /// What went wrong during pairing, kept as a code (not a rendered string)
@@ -169,7 +169,7 @@ class PairingFacade extends StateNotifier<PairingState> {
     final key = SecretKey(keyBytes);
     _handshakeKey = key;
 
-    final verificationCode = PeerNotifier.generateVerificationCode(
+    final verificationCode = PeerFacade.generateVerificationCode(
       scannedKeyBase64,
       scannedId,
     );
@@ -239,7 +239,7 @@ class PairingFacade extends StateNotifier<PairingState> {
             ? accept!['deviceName'] as String
             : scannedDeviceName;
         await _ref
-            .read(peerProvider.notifier)
+            .read(peerFacadeProvider.notifier)
             .createPeerFromQr(
               id: scannedId,
               ip: peerIp,
@@ -323,7 +323,7 @@ class PairingFacade extends StateNotifier<PairingState> {
     final publicKey = payload['publicKey'] as String? ?? '';
     final scannerIp = payload['ip'] as String?;
 
-    final peer = _ref.read(peerProvider);
+    final peer = _ref.read(peerFacadeProvider);
     final verificationCode = peer?.verificationCode ?? '';
 
     state = PairingState(
@@ -368,12 +368,12 @@ class PairingFacade extends StateNotifier<PairingState> {
     required Map<String, dynamic> scannerInfo,
     required String myIp,
   }) async {
-    final myPeer = _ref.read(peerProvider);
+    final myPeer = _ref.read(peerFacadeProvider);
     final myPublicKey = await KeyStore.ensureDeviceKeyPair();
 
     await socketManager.sendMessage(MessageTypes.pairingAccept, {
       // Sent to the other device as identity data -- locale-neutral
-      // fallback, same reasoning as peer_provider.dart's _getDeviceName().
+      // fallback, same reasoning as peer_facade.dart's _getDeviceName().
       'deviceName': myPeer?.deviceName ?? 'Unknown Device',
       'peerId': myPeer?.id ?? '',
       'publicKey': myPublicKey,
@@ -402,7 +402,7 @@ class PairingFacade extends StateNotifier<PairingState> {
     // if the scanner didn't claim an IP.
     final scannerId = scannerInfo['peerId'] as String? ?? '';
     // Persisted identity data -- locale-neutral fallback, same reasoning as
-    // peer_provider.dart's _getDeviceName().
+    // peer_facade.dart's _getDeviceName().
     final scannerDeviceName =
         scannerInfo['deviceName'] as String? ?? 'Unknown Device';
     final scannerPublicKey = scannerInfo['publicKey'] as String? ?? '';
@@ -412,7 +412,7 @@ class PairingFacade extends StateNotifier<PairingState> {
         : socketManager.remoteAddress;
     if (scannerId.isNotEmpty && scannerPublicKey.isNotEmpty) {
       await _ref
-          .read(peerProvider.notifier)
+          .read(peerFacadeProvider.notifier)
           .applyPairedPeer(
             id: scannerId,
             deviceName: scannerDeviceName,

@@ -38,7 +38,7 @@ class Peer {
     // gets persisted and shown on *both* devices (which may run
     // different app languages), so it needs a locale-neutral fallback
     // rather than whichever language the writer's device happened to
-    // be in -- same reasoning as peer_provider.dart's _getDeviceName().
+    // be in -- same reasoning as peer_facade.dart's _getDeviceName().
     deviceName: json['device_name'] as String? ?? 'Unknown Device',
     role: json['role'] as String,
     ip: json['ip'] as String,

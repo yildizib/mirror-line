@@ -7,7 +7,7 @@ import 'package:mirrorline/core/theme/theme.dart';
 import 'package:mirrorline/features/connection/connection_facade.dart';
 import 'package:mirrorline/features/connection/connection_status_provider.dart';
 import 'package:mirrorline/features/pairing/pairing_facade.dart';
-import 'package:mirrorline/features/pairing/peer_provider.dart';
+import 'package:mirrorline/features/pairing/peer_facade.dart';
 import 'package:mirrorline/features/pairing/role_selection_screen.dart';
 import 'package:mirrorline/features/pairing/widgets/qr_display.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
@@ -41,7 +41,7 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final peer = ref.watch(peerProvider);
+    final peer = ref.watch(peerFacadeProvider);
     final pairingState = ref.watch(pairingFacadeProvider);
     final status = ref.watch(connectionStatusProvider);
     final l = AppLocalizations.of(context);
@@ -537,7 +537,7 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
                     ? parts.sublist(4).join('|')
                     : l.pairingUnknownDevice));
 
-    final myPeer = ref.read(peerProvider);
+    final myPeer = ref.read(peerFacadeProvider);
     if (myPeer == null) {
       setState(() {
         _isProcessing = false;
@@ -551,7 +551,7 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
 
     final myRole = myPeer.role; // 'main' or 'source'
 
-    final verificationCode = PeerNotifier.generateVerificationCode(
+    final verificationCode = PeerFacade.generateVerificationCode(
       scannedKey,
       scannedId,
     );

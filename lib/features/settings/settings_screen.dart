@@ -10,7 +10,7 @@ import 'package:mirrorline/core/theme/theme.dart';
 import 'package:mirrorline/features/connection/connection_facade.dart';
 import 'package:mirrorline/features/connection/connection_status_provider.dart';
 import 'package:mirrorline/features/pairing/pairing_screen.dart';
-import 'package:mirrorline/features/pairing/peer_provider.dart';
+import 'package:mirrorline/features/pairing/peer_facade.dart';
 import 'package:mirrorline/features/pairing/role_selection_screen.dart';
 import 'package:mirrorline/features/pairing/widgets/qr_display.dart';
 
@@ -59,7 +59,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final peer = ref.watch(peerProvider);
+    final peer = ref.watch(peerFacadeProvider);
     final pairedPeers = ref.watch(pairedPeersProvider);
     final isConnected = ref.watch(connectionFacadeProvider);
     final isConnecting = ref.watch(connectionConnectingProvider);
@@ -676,7 +676,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             color: theme.colorScheme.error,
           ),
           onPressed: () async {
-            await ref.read(peerProvider.notifier).deletePeer(p);
+            await ref.read(peerFacadeProvider.notifier).deletePeer(p);
             ref.invalidate(pairedPeersProvider);
             await ref.read(connectionFacadeProvider.notifier).refresh();
           },
@@ -704,7 +704,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           TextButton(
             onPressed: () async {
               await ref.read(connectionFacadeProvider.notifier).stopAll();
-              await ref.read(peerProvider.notifier).reset();
+              await ref.read(peerFacadeProvider.notifier).reset();
               ref.invalidate(pairedPeersProvider);
               if (context.mounted) {
                 Navigator.pop(context);
