@@ -6,6 +6,7 @@ import 'package:mirrorline/features/calls/call_group_detail_screen.dart';
 import 'package:mirrorline/features/home/home_feed_provider.dart';
 import 'package:mirrorline/features/notifications/notification_group_detail_screen.dart';
 import 'package:mirrorline/features/sms/sms_thread_screen.dart';
+import 'package:mirrorline/shared/widgets/date_header.dart';
 import 'package:mirrorline/shared/widgets/empty_state.dart';
 
 /// Default landing screen: SMS + Call + Notification events merged into
@@ -24,11 +25,26 @@ class HomeFeedScreen extends ConsumerWidget {
       return EmptyState(icon: Icons.dashboard_outlined, message: l.homeFeedEmpty);
     }
 
-    return ListView.separated(
+    // items are already sorted newest first by homeFeedProvider. Walk the
+    // list and insert a DateHeader between rows whenever the calendar day
+    // changes (same HR divider the per-type screens use).
+    final children = <Widget>[];
+    DateTime? previousDay;
+    for (final item in items) {
+      final ts = item.timestamp;
+      final day = DateTime(ts.year, ts.month, ts.day);
+      if (previousDay == null || day != previousDay) {
+        if (children.isNotEmpty) children.add(const SizedBox(height: AppSpacing.sm));
+        children.add(DateHeader(date: day));
+        previousDay = day;
+      }
+      children.add(const SizedBox(height: AppSpacing.sm));
+      children.add(_FeedTile(item: item));
+    }
+
+    return ListView(
       padding: const EdgeInsets.all(AppSpacing.md),
-      itemCount: items.length,
-      separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.sm),
-      itemBuilder: (context, index) => _FeedTile(item: items[index]),
+      children: children,
     );
   }
 }

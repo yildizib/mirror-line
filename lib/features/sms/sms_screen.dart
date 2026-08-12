@@ -19,6 +19,7 @@ class SmsScreen extends ConsumerWidget {
     return SelectableListScaffold(
       items: threads,
       itemKey: (thread) => thread.address,
+      dateHeaderOf: (thread) => thread.lastMessage.timestamp,
       itemBuilder: (context, thread, isSelecting, isSelected, onTapSelect) =>
           SmsThreadTile(
             thread: thread,
