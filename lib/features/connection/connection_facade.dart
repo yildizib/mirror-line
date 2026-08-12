@@ -1230,6 +1230,16 @@ class ConnectionFacade extends StateNotifier<bool>
   /// Stops networking (e.g. after device reset).
   Future<void> stopAll() => _stopMachinery();
 
+  /// Clears the offline queue of pending peer messages. Used by the reset
+  /// flow so stale `call_status` / `sms_status` messages from before the
+  /// reset aren't delivered to the peer after a fresh pairing. Routed
+  /// through the facade (not the QueueService directly) so the UI service
+  /// layer stays decoupled from the queue's implementation.
+  Future<void> clearQueue() async {
+    await _queue.clear();
+    _logger.i('Offline queue cleared.');
+  }
+
   Future<void> disconnect() async {
     await _socketManager?.disconnectClient();
     state = false;
