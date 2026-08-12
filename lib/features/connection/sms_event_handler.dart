@@ -13,7 +13,7 @@ import 'package:uuid/uuid.dart';
 
 /// Everything about interpreting native SMS events (on the Source device)
 /// and incoming sms_* peer messages (sms_incoming/sms_outgoing/sms_status),
-/// extracted out of ConnectionNotifier for the same reason as
+/// extracted out of ConnectionFacade for the same reason as
 /// CallEventHandler. Pure delegation, no behavior change.
 class SmsEventHandler {
   final Ref _ref;

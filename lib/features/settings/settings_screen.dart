@@ -7,7 +7,7 @@ import 'package:mirrorline/core/services/locale_service.dart';
 import 'package:mirrorline/core/services/permission_service.dart';
 import 'package:mirrorline/core/telephony/telephony_channel.dart';
 import 'package:mirrorline/core/theme/theme.dart';
-import 'package:mirrorline/features/connection/connection_provider.dart';
+import 'package:mirrorline/features/connection/connection_facade.dart';
 import 'package:mirrorline/features/connection/connection_status_provider.dart';
 import 'package:mirrorline/features/pairing/pairing_screen.dart';
 import 'package:mirrorline/features/pairing/peer_provider.dart';
@@ -61,7 +61,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   Widget build(BuildContext context) {
     final peer = ref.watch(peerProvider);
     final pairedPeers = ref.watch(pairedPeersProvider);
-    final isConnected = ref.watch(connectionProvider);
+    final isConnected = ref.watch(connectionFacadeProvider);
     final isConnecting = ref.watch(connectionConnectingProvider);
     final status = ref.watch(connectionStatusProvider.select((s) => s));
     final theme = Theme.of(context);
@@ -516,7 +516,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   ) async {
     // Kick off the force reconnect (fire-and-forget -- the dialog tracks
     // progress via the status provider, not via the returned Future).
-    ref.read(connectionProvider.notifier).forceReconnect();
+    ref.read(connectionFacadeProvider.notifier).forceReconnect();
 
     if (!context.mounted) return;
     await showDialog<void>(
@@ -526,7 +526,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         return Consumer(
           builder: (ctx, ref, _) {
             final status = ref.watch(connectionStatusProvider);
-            final connected = ref.watch(connectionProvider);
+            final connected = ref.watch(connectionFacadeProvider);
             final l = AppLocalizations.of(ctx);
             final theme = Theme.of(ctx);
 
@@ -678,7 +678,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           onPressed: () async {
             await ref.read(peerProvider.notifier).deletePeer(p);
             ref.invalidate(pairedPeersProvider);
-            await ref.read(connectionProvider.notifier).refresh();
+            await ref.read(connectionFacadeProvider.notifier).refresh();
           },
         ),
       ),
@@ -703,7 +703,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ),
           TextButton(
             onPressed: () async {
-              await ref.read(connectionProvider.notifier).stopAll();
+              await ref.read(connectionFacadeProvider.notifier).stopAll();
               await ref.read(peerProvider.notifier).reset();
               ref.invalidate(pairedPeersProvider);
               if (context.mounted) {

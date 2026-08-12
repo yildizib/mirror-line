@@ -31,17 +31,17 @@ import 'package:mirrorline/features/sms/sms_list_provider.dart';
 import 'package:uuid/uuid.dart';
 import 'dart:io';
 
-final connectionProvider = StateNotifierProvider<ConnectionNotifier, bool>((
+final connectionFacadeProvider = StateNotifierProvider<ConnectionFacade, bool>((
   ref,
 ) {
-  return ConnectionNotifier(ref);
+  return ConnectionFacade(ref);
 });
 
 final connectionConnectingProvider = Provider<bool>((ref) {
-  return ref.watch(connectionProvider.notifier).isConnecting;
+  return ref.watch(connectionFacadeProvider.notifier).isConnecting;
 });
 
-class ConnectionNotifier extends StateNotifier<bool>
+class ConnectionFacade extends StateNotifier<bool>
     with WidgetsBindingObserver {
   static const Duration _retryInterval = Duration(seconds: 30);
   // How long an outgoing SMS may sit on 'pending' before it's given up on
@@ -108,7 +108,7 @@ class ConnectionNotifier extends StateNotifier<bool>
   late final CallEventHandler _callHandler;
   late final SmsEventHandler _smsHandler;
 
-  ConnectionNotifier(this._ref) : super(false) {
+  ConnectionFacade(this._ref) : super(false) {
     _callHandler = CallEventHandler(
       ref: _ref,
       logger: _logger,

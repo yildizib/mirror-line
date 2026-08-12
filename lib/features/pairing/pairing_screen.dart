@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mirrorline/core/data/models/peer.dart';
 import 'package:mirrorline/core/security/key_store.dart';
 import 'package:mirrorline/core/theme/theme.dart';
-import 'package:mirrorline/features/connection/connection_provider.dart';
+import 'package:mirrorline/features/connection/connection_facade.dart';
 import 'package:mirrorline/features/connection/connection_status_provider.dart';
 import 'package:mirrorline/features/pairing/pairing_provider.dart';
 import 'package:mirrorline/features/pairing/peer_provider.dart';
@@ -35,7 +35,7 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
       // connection status (never into the peer record -- after pairing that
       // row belongs to the *other* device, and overwriting it with our own
       // address is what made Settings show the same IP for both devices).
-      ref.read(connectionProvider.notifier).updateLocalIp();
+      ref.read(connectionFacadeProvider.notifier).updateLocalIp();
     });
   }
 
@@ -419,7 +419,7 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
             TextButton(
               onPressed: () async {
                 final socketManager = ref
-                    .read(connectionProvider.notifier)
+                    .read(connectionFacadeProvider.notifier)
                     .socketManager;
                 if (socketManager != null) {
                   final notifier = ref.read(pairingProvider.notifier);
@@ -437,7 +437,7 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
             FilledButton(
               onPressed: () async {
                 final socketManager = ref
-                    .read(connectionProvider.notifier)
+                    .read(connectionFacadeProvider.notifier)
                     .socketManager;
                 if (socketManager != null) {
                   final notifier = ref.read(pairingProvider.notifier);
@@ -449,7 +449,7 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
                     scannerInfo: scannerInfo,
                     myIp: myIp,
                   );
-                  await ref.read(connectionProvider.notifier).refresh();
+                  await ref.read(connectionFacadeProvider.notifier).refresh();
                 }
                 // acceptRequest now waits for the scanner's ack before
                 // committing (see pairing_provider.dart) -- it can come back
@@ -624,7 +624,7 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
           myIp: myIp,
         );
 
-    await ref.read(connectionProvider.notifier).refresh();
+    await ref.read(connectionFacadeProvider.notifier).refresh();
 
     if (!mounted) return;
     final pairingState = ref.read(pairingProvider);

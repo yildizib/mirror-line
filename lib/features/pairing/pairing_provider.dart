@@ -101,7 +101,7 @@ final pairingProvider = StateNotifierProvider<PairingNotifier, PairingState>((
 ///   1. Scanner reads QR -> calls [sendRequest] with scanned info.
 ///   2. Scanner opens a temporary TCP connection to the scanned device
 ///      and sends `pairingRequest` with its own device name + peer id.
-///   3. Scanned device receives `pairingRequest` via ConnectionNotifier,
+///   3. Scanned device receives `pairingRequest` via ConnectionFacade,
 ///      which calls [handleIncomingRequest] -> UI shows confirmation dialog.
 ///   4. User on scanned device confirms -> [acceptRequest] sends
 ///      `pairingAccept` back and saves the peer.
@@ -222,7 +222,7 @@ class PairingNotifier extends StateNotifier<PairingState> {
         // Scanner side: save the scanned device's info as our peer record.
         // The Peer record represents the *other* device: id/ip/port/name are
         // the scanned device's.  But `role` is THIS device's own role
-        // (so ConnectionNotifier knows whether to start as source or main).
+        // (so ConnectionFacade knows whether to start as source or main).
         // `key` is the shared AES key from the QR.  `publicKey` is the
         // scanned device's Ed25519 public key for auth.
         //
@@ -308,7 +308,7 @@ class PairingNotifier extends StateNotifier<PairingState> {
   }
 
   // --------------------------------------------------------------------
-  // Scanned side  (called from ConnectionNotifier._handleIncomingMessage)
+  // Scanned side  (called from ConnectionFacade._handleIncomingMessage)
   // --------------------------------------------------------------------
 
   /// Called when a `pairingRequest` message arrives on the *scanned* device.
@@ -348,7 +348,7 @@ class PairingNotifier extends StateNotifier<PairingState> {
 
   /// Called by the UI when the *scanned* device user confirms the request.
   ///
-  /// [socketManager] is the live connection from ConnectionNotifier so we
+  /// [socketManager] is the live connection from ConnectionFacade so we
   /// can reply on the same channel.  [scannerInfo] carries the scanner's
   /// identity to persist as our peer.  [myIp] is this device's live local
   /// IP -- sent to the scanner so it can store it as the peer IP (more

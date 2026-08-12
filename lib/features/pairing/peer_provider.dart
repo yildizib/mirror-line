@@ -150,7 +150,7 @@ class PeerNotifier extends StateNotifier<Peer?> {
   /// its pairingRequest (preferred over the TCP remote address, which can
   /// be wrong on NAT/VLAN setups). Beacon discovery will further refine it
   /// if the scanner later roams to a new address -- see
-  /// ConnectionNotifier._recordDiscoveredAddress.
+  /// ConnectionFacade._recordDiscoveredAddress.
   Future<void> applyPairedPeer({
     required String id,
     required String deviceName,

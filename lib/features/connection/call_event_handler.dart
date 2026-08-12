@@ -10,7 +10,7 @@ import 'package:mirrorline/features/calls/call_list_provider.dart';
 import 'package:uuid/uuid.dart';
 
 /// Sends a single mirrored/peer message, queuing it locally if the socket
-/// isn't currently writable. Implemented by ConnectionNotifier so this
+/// isn't currently writable. Implemented by ConnectionFacade so this
 /// handler (and SmsEventHandler) never need their own view of the socket.
 typedef SendOrQueue =
     Future<bool> Function(String type, Map<String, dynamic> payload);
@@ -26,7 +26,7 @@ typedef ShowNotification =
 
 /// Everything about interpreting native call events (on the Source device)
 /// and incoming call_* peer messages (call_incoming/call_rejected/
-/// call_status/call_info), extracted out of ConnectionNotifier so it can be
+/// call_status/call_info), extracted out of ConnectionFacade so it can be
 /// read and reasoned about on its own. Pure delegation, no behavior change
 /// from when this lived inline: still driven by the same native events and
 /// peer messages, still goes through the same send/notify callbacks.

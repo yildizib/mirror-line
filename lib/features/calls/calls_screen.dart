@@ -6,7 +6,7 @@ import 'package:mirrorline/core/theme/theme.dart';
 import 'package:mirrorline/features/calls/call_group_detail_screen.dart';
 import 'package:mirrorline/features/calls/call_group_provider.dart';
 import 'package:mirrorline/features/calls/call_list_provider.dart';
-import 'package:mirrorline/features/connection/connection_provider.dart';
+import 'package:mirrorline/features/connection/connection_facade.dart';
 import 'package:mirrorline/shared/widgets/empty_state.dart';
 
 class CallsScreen extends ConsumerStatefulWidget {
@@ -149,7 +149,7 @@ class _CallsScreenState extends ConsumerState<CallsScreen> {
   void _handleReject(BuildContext context, WidgetRef ref, CallEvent call) {
     ref.read(callListProvider.notifier).updateStatus(call.id, 'rejected');
 
-    ref.read(connectionProvider.notifier).sendCallRejected(call.id);
+    ref.read(connectionFacadeProvider.notifier).sendCallRejected(call.id);
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(AppLocalizations.of(context).callsRejected)),
