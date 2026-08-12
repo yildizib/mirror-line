@@ -369,6 +369,9 @@ class AppLocalizationsTr extends AppLocalizations {
   String get settingsResetDone => 'Cihaz sıfırlandı';
 
   @override
+  String get settingsDangerZone => 'Tehlikeli Bölge';
+
+  @override
   String get settingsLanguage => 'Dil';
 
   @override

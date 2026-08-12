@@ -121,6 +121,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     }
   }
 
+  /// Localized title for the active tab, shown in the shared AppBar
+  /// instead of a generic app title for every tab.
+  String _tabTitle(AppLocalizations l, int index) => switch (index) {
+    0 => l.navHome,
+    1 => l.navCalls,
+    2 => l.navSms,
+    3 => l.navNotifications,
+    4 => l.navSettings,
+    _ => l.appTitle,
+  };
+
   @override
   Widget build(BuildContext context) {
     final isConnected = ref.watch(connectionFacadeProvider);
@@ -133,7 +144,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         title: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(l.appTitle),
+            Text(_tabTitle(l, _selectedIndex)),
             const SizedBox(width: AppSpacing.sm),
             AnimatedContainer(
               duration: const Duration(milliseconds: 300),

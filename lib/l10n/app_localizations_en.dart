@@ -368,6 +368,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsResetDone => 'Device reset';
 
   @override
+  String get settingsDangerZone => 'Danger Zone';
+
+  @override
   String get settingsLanguage => 'Language';
 
   @override

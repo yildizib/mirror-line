@@ -227,6 +227,8 @@
   "@settingsResetConfirmBody": {},
   "settingsResetDone": "Cihaz sıfırlandı",
   "@settingsResetDone": {},
+  "settingsDangerZone": "Tehlikeli Bölge",
+  "@settingsDangerZone": {},
   "settingsLanguage": "Dil",
   "@settingsLanguage": {},
   "settingsLanguageSystem": "Sistem dili",

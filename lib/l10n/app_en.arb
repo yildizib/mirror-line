@@ -116,6 +116,7 @@
   "settingsResetConfirmTitle": "Reset Device",
   "settingsResetConfirmBody": "All pairing info, call and SMS history will be deleted. A new QR will be generated.",
   "settingsResetDone": "Device reset",
+  "settingsDangerZone": "Danger Zone",
   "settingsLanguage": "Language",
   "settingsLanguageSystem": "System language",
 
