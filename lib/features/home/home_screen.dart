@@ -2,12 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:mirrorline/l10n/app_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logger/logger.dart';
+import 'package:mirrorline/core/data/models/notification_event.dart';
 import 'package:mirrorline/core/services/notification_service.dart';
 import 'package:mirrorline/core/services/permission_service.dart';
 import 'package:mirrorline/core/theme/theme.dart';
 import 'package:mirrorline/features/calls/calls_screen.dart';
 import 'package:mirrorline/features/connection/connection_facade.dart';
 import 'package:mirrorline/features/connection/widgets/connection_banner.dart';
+import 'package:mirrorline/features/notifications/notification_facade.dart';
+import 'package:mirrorline/features/notifications/notification_group_detail_screen.dart';
 import 'package:mirrorline/features/settings/settings_screen.dart';
 import 'package:mirrorline/features/sms/sms_screen.dart';
 import 'package:mirrorline/features/sms/sms_thread_screen.dart';
@@ -73,9 +76,35 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           });
         }
         break;
-      case 'mirrored':
-        // Mirrored notifications don't deep-link anywhere -- the app just
-        // comes to the foreground; leave the current tab as-is.
+      case 'mirrored_notification':
+        // No Notifications tab to switch to yet -- Stage 10 (issue #40)
+        // adds _selectedIndex handling here once the 5-tab HomeScreen
+        // restructuring lands. For now, just push the detail screen on
+        // top of whichever tab is current, mirroring the 'sms' case's
+        // push (minus the tab switch).
+        final eventId = payload.id;
+        if (eventId != null) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            final events = ref.read(notificationFacadeProvider);
+            NotificationEvent? match;
+            for (final e in events) {
+              if (e.id == eventId) {
+                match = e;
+                break;
+              }
+            }
+            if (match == null) return;
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => NotificationGroupDetailScreen(
+                  packageName: match!.packageName,
+                ),
+              ),
+            );
+          });
+        }
         break;
     }
   }
