@@ -3,9 +3,12 @@
   "appTitle": "MirrorLine",
   "splashTagline": "Two phones, end-to-end encrypted connection",
 
+  "navHome": "Home",
   "navCalls": "Calls",
   "navSms": "SMS",
+  "navNotifications": "Notifications",
   "navSettings": "Settings",
+  "homeFeedEmpty": "No activity yet",
 
   "roleTitle": "Role Selection",
   "rolePrompt": "Which role should this phone take?",

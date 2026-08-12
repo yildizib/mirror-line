@@ -5,12 +5,18 @@
   "splashTagline": "İki telefon, uçtan uca şifreli bağlantı",
   "@splashTagline": {},
 
+  "navHome": "Akış",
+  "@navHome": {},
   "navCalls": "Aramalar",
   "@navCalls": {},
   "navSms": "SMS",
   "@navSms": {},
+  "navNotifications": "Bildirimler",
+  "@navNotifications": {},
   "navSettings": "Ayarlar",
   "@navSettings": {},
+  "homeFeedEmpty": "Henüz etkinlik yok",
+  "@homeFeedEmpty": {},
 
   "roleTitle": "Rol Seçimi",
   "@roleTitle": {},

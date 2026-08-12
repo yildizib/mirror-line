@@ -110,6 +110,12 @@ abstract class AppLocalizations {
   /// **'İki telefon, uçtan uca şifreli bağlantı'**
   String get splashTagline;
 
+  /// No description provided for @navHome.
+  ///
+  /// In tr, this message translates to:
+  /// **'Akış'**
+  String get navHome;
+
   /// No description provided for @navCalls.
   ///
   /// In tr, this message translates to:
@@ -122,11 +128,23 @@ abstract class AppLocalizations {
   /// **'SMS'**
   String get navSms;
 
+  /// No description provided for @navNotifications.
+  ///
+  /// In tr, this message translates to:
+  /// **'Bildirimler'**
+  String get navNotifications;
+
   /// No description provided for @navSettings.
   ///
   /// In tr, this message translates to:
   /// **'Ayarlar'**
   String get navSettings;
+
+  /// No description provided for @homeFeedEmpty.
+  ///
+  /// In tr, this message translates to:
+  /// **'Henüz etkinlik yok'**
+  String get homeFeedEmpty;
 
   /// No description provided for @roleTitle.
   ///

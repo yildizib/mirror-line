@@ -15,13 +15,22 @@ class AppLocalizationsTr extends AppLocalizations {
   String get splashTagline => 'İki telefon, uçtan uca şifreli bağlantı';
 
   @override
+  String get navHome => 'Akış';
+
+  @override
   String get navCalls => 'Aramalar';
 
   @override
   String get navSms => 'SMS';
 
   @override
+  String get navNotifications => 'Bildirimler';
+
+  @override
   String get navSettings => 'Ayarlar';
+
+  @override
+  String get homeFeedEmpty => 'Henüz etkinlik yok';
 
   @override
   String get roleTitle => 'Rol Seçimi';

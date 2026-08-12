@@ -15,13 +15,22 @@ class AppLocalizationsEn extends AppLocalizations {
   String get splashTagline => 'Two phones, end-to-end encrypted connection';
 
   @override
+  String get navHome => 'Home';
+
+  @override
   String get navCalls => 'Calls';
 
   @override
   String get navSms => 'SMS';
 
   @override
+  String get navNotifications => 'Notifications';
+
+  @override
   String get navSettings => 'Settings';
+
+  @override
+  String get homeFeedEmpty => 'No activity yet';
 
   @override
   String get roleTitle => 'Role Selection';
