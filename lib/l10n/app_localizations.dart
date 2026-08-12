@@ -764,6 +764,12 @@ abstract class AppLocalizations {
   /// **'Cihaz sıfırlandı'**
   String get settingsResetDone;
 
+  /// No description provided for @settingsDangerZone.
+  ///
+  /// In tr, this message translates to:
+  /// **'Tehlikeli Bölge'**
+  String get settingsDangerZone;
+
   /// No description provided for @settingsLanguage.
   ///
   /// In tr, this message translates to:
