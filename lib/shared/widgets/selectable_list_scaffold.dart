@@ -23,7 +23,13 @@ class SelectableListScaffold<T> extends StatefulWidget {
   final String Function(int count) selectedCountLabel;
   final String deleteTooltip;
   final String deleteTitle;
-  final String deleteConfirm;
+
+  /// Builds the confirm-dialog body from the currently-selected items --
+  /// a builder (not a plain String) because callers may need more than a
+  /// live count: e.g. calls_screen.dart's confirm body needs both the
+  /// selected-group count and the flattened call count, which only the
+  /// caller can derive from the actual selected items.
+  final String Function(List<T> selected) deleteConfirm;
   final String deletedMessage;
 
   /// Overrides the bare `Center(Text(emptyMessage))` fallback -- pass a
@@ -168,7 +174,7 @@ class _SelectableListScaffoldState<T> extends State<SelectableListScaffold<T>> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: Text(widget.deleteTitle),
-        content: Text(widget.deleteConfirm),
+        content: Text(widget.deleteConfirm(selectedItems)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext),
