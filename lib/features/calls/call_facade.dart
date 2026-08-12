@@ -1,36 +1,40 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logger/logger.dart';
+import 'package:mirrorline/core/data/daos/call_event_dao.dart';
 import 'package:mirrorline/core/data/models/call_event.dart';
-import 'package:mirrorline/core/network/message_protocol.dart'
-    show MessageTypes, MirrorMessage;
+import 'package:mirrorline/core/network/message_protocol.dart';
 import 'package:mirrorline/core/services/locale_service.dart';
 import 'package:mirrorline/core/services/notification_service.dart';
 import 'package:mirrorline/core/telephony/telephony_channel.dart';
-import 'package:mirrorline/features/calls/call_list_provider.dart';
+import 'package:mirrorline/features/connection/connection_facade.dart';
 import 'package:uuid/uuid.dart';
 
-/// Sends a single mirrored/peer message, queuing it locally if the socket
-/// isn't currently writable. Implemented by ConnectionNotifier so this
-/// handler (and SmsEventHandler) never need their own view of the socket.
-typedef SendOrQueue =
-    Future<bool> Function(String type, Map<String, dynamic> payload);
-
-/// Shows (or replaces, by id) a local notification.
-typedef ShowNotification =
-    Future<void> Function({
-      required int id,
-      required String title,
-      required String body,
-      NotificationPayload? payload,
+final callFacadeProvider =
+    StateNotifierProvider<CallFacade, List<CallEvent>>((ref) {
+      final connectionFacade = ref.read(connectionFacadeProvider.notifier);
+      return CallFacade(
+        ref: ref,
+        logger: Logger(),
+        isSource: () => connectionFacade.isSource,
+        sendOrQueue: connectionFacade.sendOrQueue,
+        notify: connectionFacade.notify,
+      );
     });
 
-/// Everything about interpreting native call events (on the Source device)
-/// and incoming call_* peer messages (call_incoming/call_rejected/
-/// call_status/call_info), extracted out of ConnectionNotifier so it can be
-/// read and reasoned about on its own. Pure delegation, no behavior change
-/// from when this lived inline: still driven by the same native events and
-/// peer messages, still goes through the same send/notify callbacks.
-class CallEventHandler {
+/// Derived provider: O(1) lookup by call ID instead of linear search.
+final callEventMapProvider = Provider<Map<String, CallEvent>>((ref) {
+  final calls = ref.watch(callFacadeProvider);
+  return {for (final call in calls) call.id: call};
+});
+
+/// Merges the old CallListNotifier (state + DAO ops) and CallEventHandler
+/// (native/peer message handling) into one Facade, per issue #39's F1 --
+/// they were only ever split because the pre-#39 architecture had no
+/// Facade layer to put them in together. Pure delegation, no behavior
+/// change: still the same native events, peer messages and send/notify
+/// callbacks as before.
+class CallFacade extends StateNotifier<List<CallEvent>> {
+  final CallEventDao _dao = CallEventDao();
   final Ref _ref;
   final Logger _logger;
   final bool Function() _isSource;
@@ -43,16 +47,83 @@ class CallEventHandler {
   // the right CallEvent.
   String? _activeCallId;
 
-  CallEventHandler({
+  CallFacade({
     required this._ref,
     required this._logger,
     required this._isSource,
     required this._sendOrQueue,
     required this._notify,
-  });
+  }) : super([]) {
+    load();
+  }
 
   // -----------------------------------------------------------------------
-  // Native events (Source device only)
+  // State (formerly CallListNotifier)
+  // -----------------------------------------------------------------------
+
+  Future<void> load() async {
+    state = await _dao.getAll();
+  }
+
+  /// Upsert: replaces the existing entry if [event.id] is already present
+  /// instead of appending a duplicate. Native call events can legitimately
+  /// fire more than once for what is logically the same call (see
+  /// MirrorLineService's RINGING de-duplication) -- this keeps a stray
+  /// repeat from ever showing up as two list entries.
+  Future<void> add(CallEvent event) async {
+    await _dao.insert(event);
+    final exists = state.any((e) => e.id == event.id);
+    state = exists
+        ? state.map((e) => e.id == event.id ? event : e).toList()
+        : [...state, event];
+  }
+
+  Future<void> updateStatus(String id, String status) async {
+    await _dao.updateStatus(id, status);
+    state = state
+        .map((e) => e.id == id ? e.copyWith(status: status) : e)
+        .toList();
+  }
+
+  /// Patches the caller's number/contact name on an already-tracked call
+  /// (see RINGING_UPDATE) without treating it as a new event.
+  Future<void> updateCallerInfo(
+    String id, {
+    String? number,
+    String? contactName,
+  }) async {
+    await _dao.updateCallerInfo(id, number: number, contactName: contactName);
+    state = state
+        .map(
+          (e) => e.id == id
+              ? e.copyWith(number: number, contactName: contactName)
+              : e,
+        )
+        .toList();
+  }
+
+  Future<void> remove(String id) async {
+    await _dao.delete(id);
+    state = state.where((e) => e.id != id).toList();
+  }
+
+  /// Permanently deletes every call in [ids] (used by multi-select clear).
+  Future<void> removeMany(Iterable<String> ids) async {
+    final idSet = ids.toSet();
+    for (final id in idSet) {
+      await _dao.delete(id);
+    }
+    state = state.where((e) => !idSet.contains(e.id)).toList();
+  }
+
+  /// Permanently deletes all calls (used by "clear all" / device reset).
+  Future<void> removeAll() async {
+    await _dao.deleteAll();
+    state = [];
+  }
+
+  // -----------------------------------------------------------------------
+  // Native events (Source device only) -- formerly CallEventHandler
   // -----------------------------------------------------------------------
 
   Future<void> handleNativeEvent(
@@ -76,7 +147,7 @@ class CallEventHandler {
         createdAt: now,
       );
       _activeCallId = id;
-      await _ref.read(callListProvider.notifier).add(event);
+      await add(event);
       await sendCallNotification(number, id: id, contactName: contactName);
       return;
     }
@@ -88,9 +159,7 @@ class CallEventHandler {
       if (callId == null) return;
       final number = data['number'] as String?;
       final contactName = data['contactName'] as String?;
-      await _ref
-          .read(callListProvider.notifier)
-          .updateCallerInfo(callId, number: number, contactName: contactName);
+      await updateCallerInfo(callId, number: number, contactName: contactName);
       await _sendOrQueue(MessageTypes.callInfo, {
         'id': callId,
         'number': ?number,
@@ -124,9 +193,7 @@ class CallEventHandler {
     final number = data['number'] as String?;
     final contactName = data['contactName'] as String?;
     if (number != null || contactName != null) {
-      await _ref
-          .read(callListProvider.notifier)
-          .updateCallerInfo(callId, number: number, contactName: contactName);
+      await updateCallerInfo(callId, number: number, contactName: contactName);
       await _sendOrQueue(MessageTypes.callInfo, {
         'id': callId,
         'number': ?number,
@@ -134,7 +201,7 @@ class CallEventHandler {
       });
     }
 
-    await _ref.read(callListProvider.notifier).updateStatus(callId, newStatus);
+    await updateStatus(callId, newStatus);
     await _sendOrQueue(MessageTypes.callStatus, {
       'id': callId,
       'status': newStatus,
@@ -177,7 +244,7 @@ class CallEventHandler {
           status: 'ringing',
           createdAt: now,
         );
-        await _ref.read(callListProvider.notifier).add(event);
+        await add(event);
         final l = appL10n(_ref);
         await _notify(
           id: int.tryParse(id) ?? 1,
@@ -198,9 +265,7 @@ class CallEventHandler {
           _activeCallId = null;
         }
         if (id != null) {
-          await _ref
-              .read(callListProvider.notifier)
-              .updateStatus(id, 'rejected');
+          await updateStatus(id, 'rejected');
         }
         break;
 
@@ -208,7 +273,7 @@ class CallEventHandler {
         final id = payload['id'] as String?;
         final status = payload['status'] as String? ?? 'ended';
         if (id != null) {
-          await _ref.read(callListProvider.notifier).updateStatus(id, status);
+          await updateStatus(id, status);
           // Update the existing call notification in place (same id) so it
           // reflects the live status (Cevaplandı/Cevapsız/Sonlandı) instead
           // of just sitting there saying "Çalıyor" forever.
@@ -228,13 +293,11 @@ class CallEventHandler {
       case MessageTypes.callInfo:
         final id = payload['id'] as String?;
         if (id == null) break;
-        await _ref
-            .read(callListProvider.notifier)
-            .updateCallerInfo(
-              id,
-              number: payload['number'] as String?,
-              contactName: payload['contact_name'] as String?,
-            );
+        await updateCallerInfo(
+          id,
+          number: payload['number'] as String?,
+          contactName: payload['contact_name'] as String?,
+        );
         final enriched = _findCall(id);
         if (enriched != null) {
           final l = appL10n(_ref);
@@ -248,7 +311,7 @@ class CallEventHandler {
         break;
 
       default:
-        _logger.i('CallEventHandler: unhandled message type $type');
+        _logger.i('CallFacade: unhandled message type $type');
     }
   }
 

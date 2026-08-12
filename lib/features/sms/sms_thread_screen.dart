@@ -3,8 +3,8 @@ import 'package:mirrorline/l10n/app_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mirrorline/core/data/models/sms_message.dart';
 import 'package:mirrorline/core/theme/theme.dart';
-import 'package:mirrorline/features/connection/connection_provider.dart';
-import 'package:mirrorline/features/sms/sms_list_provider.dart';
+import 'package:mirrorline/features/connection/connection_facade.dart';
+import 'package:mirrorline/features/sms/sms_facade.dart';
 import 'package:mirrorline/features/sms/widgets/sms_bubble.dart';
 
 /// Full conversation with one address: every message exchanged with them,
@@ -54,7 +54,7 @@ class _SmsThreadScreenState extends ConsumerState<SmsThreadScreen> {
   }
 
   void _send(SmsMessage lastMessage) {
-    if (!ref.read(connectionProvider)) return;
+    if (!ref.read(connectionFacadeProvider)) return;
     final text = _controller.text.trim();
     if (text.isEmpty) return;
 
@@ -70,9 +70,9 @@ class _SmsThreadScreenState extends ConsumerState<SmsThreadScreen> {
       timestamp: DateTime.now(),
       createdAt: DateTime.now(),
     );
-    ref.read(smsListProvider.notifier).add(reply);
+    ref.read(smsFacadeProvider.notifier).add(reply);
     ref
-        .read(connectionProvider.notifier)
+        .read(connectionFacadeProvider.notifier)
         .sendReplySms(
           widget.address,
           text,
@@ -87,10 +87,10 @@ class _SmsThreadScreenState extends ConsumerState<SmsThreadScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final connected = ref.watch(connectionProvider);
+    final connected = ref.watch(connectionFacadeProvider);
     final messages =
         ref
-            .watch(smsListProvider)
+            .watch(smsFacadeProvider)
             .where((m) => m.address == widget.address)
             .toList()
           ..sort((a, b) => a.timestamp.compareTo(b.timestamp));

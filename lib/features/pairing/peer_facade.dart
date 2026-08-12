@@ -10,26 +10,26 @@ import 'package:mirrorline/core/security/crypto_manager.dart';
 import 'package:mirrorline/core/security/key_store.dart';
 import 'package:uuid/uuid.dart';
 
-final peerProvider = StateNotifierProvider<PeerNotifier, Peer?>((ref) {
-  return PeerNotifier();
+final peerFacadeProvider = StateNotifierProvider<PeerFacade, Peer?>((ref) {
+  return PeerFacade();
 });
 
-// List of all paired peers (for settings display). Watches peerProvider so
+// List of all paired peers (for settings display). Watches peerFacadeProvider so
 // it automatically refreshes whenever the active peer record changes
 // (pairing completes, peer deleted, reset, etc.) -- without this the list
 // would show stale data after pairing since FutureProvider doesn't
 // auto-refresh on DB writes.
 final pairedPeersProvider = FutureProvider<List<Peer>>((ref) async {
-  // Depend on peerProvider so any state change (applyPairedPeer,
+  // Depend on peerFacadeProvider so any state change (applyPairedPeer,
   // deletePeer, reset, ...) invalidates this provider.
-  ref.watch(peerProvider);
+  ref.watch(peerFacadeProvider);
   return PeerDao().getAllPeers();
 });
 
-class PeerNotifier extends StateNotifier<Peer?> {
+class PeerFacade extends StateNotifier<Peer?> {
   final PeerDao _dao = PeerDao();
 
-  PeerNotifier() : super(null) {
+  PeerFacade() : super(null) {
     _load();
   }
 
@@ -150,7 +150,7 @@ class PeerNotifier extends StateNotifier<Peer?> {
   /// its pairingRequest (preferred over the TCP remote address, which can
   /// be wrong on NAT/VLAN setups). Beacon discovery will further refine it
   /// if the scanner later roams to a new address -- see
-  /// ConnectionNotifier._recordDiscoveredAddress.
+  /// ConnectionFacade._recordDiscoveredAddress.
   Future<void> applyPairedPeer({
     required String id,
     required String deviceName,

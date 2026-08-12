@@ -75,7 +75,7 @@ class ReconnectScheduler {
     try {
       _logger.i('Attempting connection to $ip:$port (gen=$generation)...');
       await _onReconnect(ip, port).timeout(timeout);
-      // Connection succeeded; markConnected() is called by ConnectionNotifier
+      // Connection succeeded; markConnected() is called by ConnectionFacade
     } catch (e) {
       if (generation != _connectGeneration) {
         _logger.d(

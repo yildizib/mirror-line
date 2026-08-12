@@ -7,7 +7,7 @@ void main() {
     await tester.pumpWidget(const ProviderScope(child: MirrorLineApp()));
     // Splash screen shown first -- verifies the app boots without crashing.
     // Deliberately not pumping further: HomeScreen underneath watches
-    // ConnectionNotifier, which spins up real timers/sockets that don't
+    // ConnectionFacade, which spins up real timers/sockets that don't
     // belong in a lightweight smoke test.
     expect(find.text('MirrorLine'), findsOneWidget);
   });

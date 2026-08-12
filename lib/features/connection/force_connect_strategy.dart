@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:mirrorline/features/connection/connection_status_provider.dart';
 
 /// Orchestrates parallel discovery and connection attempts for force-connect.
-/// Decouples discovery logic from ConnectionNotifier for unit testing.
+/// Decouples discovery logic from ConnectionFacade for unit testing.
 class ForceConnectStrategy {
   final String? storedIp;
   final List<String> beaconIps;

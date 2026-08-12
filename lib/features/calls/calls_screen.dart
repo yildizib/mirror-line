@@ -5,43 +5,28 @@ import 'package:mirrorline/core/data/models/call_event.dart';
 import 'package:mirrorline/core/theme/theme.dart';
 import 'package:mirrorline/features/calls/call_group_detail_screen.dart';
 import 'package:mirrorline/features/calls/call_group_provider.dart';
-import 'package:mirrorline/features/calls/call_list_provider.dart';
-import 'package:mirrorline/features/connection/connection_provider.dart';
+import 'package:mirrorline/features/calls/call_facade.dart';
+import 'package:mirrorline/features/connection/connection_facade.dart';
 import 'package:mirrorline/shared/widgets/empty_state.dart';
+import 'package:mirrorline/shared/widgets/selectable_list_scaffold.dart';
 
-class CallsScreen extends ConsumerStatefulWidget {
+class CallsScreen extends ConsumerWidget {
   const CallsScreen({super.key});
 
   @override
-  ConsumerState<CallsScreen> createState() => _CallsScreenState();
-}
-
-class _CallsScreenState extends ConsumerState<CallsScreen> {
-  bool _selecting = false;
-  final Set<String> _selected = {};
-
-  @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final groups = ref.watch(callGroupsProvider);
     final l = AppLocalizations.of(context);
 
-    if (groups.isEmpty) {
-      return EmptyState(icon: Icons.call_end_rounded, message: l.callsEmpty);
-    }
-
-    return Scaffold(
-      body: ListView.separated(
-        padding: const EdgeInsets.all(AppSpacing.md),
-        itemCount: groups.length,
-        separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.sm),
-        itemBuilder: (context, index) {
-          final group = groups[index];
-          final isSelected = _selected.contains(group.key);
-          return _GroupedCallCard(
+    return SelectableListScaffold(
+      items: groups,
+      itemKey: (group) => group.key,
+      itemBuilder: (context, group, isSelecting, isSelected, onTapSelect) =>
+          _GroupedCallCard(
             group: group,
-            isSelecting: _selecting,
+            isSelecting: isSelecting,
             isSelected: isSelected,
-            onTapSelect: () => _toggleSelect(group.key),
+            onTapSelect: onTapSelect,
             onReject: () => _handleReject(context, ref, group.lastCall),
             onTap: () {
               if (group.count > 1) {
@@ -53,108 +38,44 @@ class _CallsScreenState extends ConsumerState<CallsScreen> {
                 );
               }
             },
-          );
-        },
-      ),
-      appBar: _selecting
-          ? AppBar(
-              leading: IconButton(
-                icon: const Icon(Icons.close_rounded),
-                onPressed: _exitSelectionMode,
-              ),
-              title: Text(l.callsSelectedCount(_selected.length)),
-              actions: [
-                IconButton(
-                  icon: const Icon(Icons.delete_rounded),
-                  tooltip: l.commonDeleteSelected,
-                  onPressed: _selected.isEmpty
-                      ? null
-                      : () => _deleteSelected(context, groups),
-                ),
-              ],
-            )
-          : null,
-      floatingActionButton: _selecting
-          ? null
-          : FloatingActionButton(
-              tooltip: l.callsSelectMode,
-              onPressed: () => setState(() => _selecting = true),
-              child: const Icon(Icons.checklist_rounded),
-            ),
-    );
-  }
-
-  void _toggleSelect(String key) {
-    setState(() {
-      if (_selected.contains(key)) {
-        _selected.remove(key);
-      } else {
-        _selected.add(key);
-      }
-      if (_selected.isEmpty) _selecting = false;
-    });
-  }
-
-  void _exitSelectionMode() {
-    setState(() {
-      _selecting = false;
-      _selected.clear();
-    });
-  }
-
-  void _deleteSelected(BuildContext context, List<CallGroup> groups) {
-    final selectedGroups = groups
-        .where((g) => _selected.contains(g.key))
-        .toList();
-    final ids = <String>{};
-    for (final g in selectedGroups) {
-      ids.addAll(g.calls.map((c) => c.id));
-    }
-    final l = AppLocalizations.of(context);
-    showDialog(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(l.callsDeleteSelected),
-        content: Text(
-          l.callsDeleteConfirmBody(selectedGroups.length, ids.length),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: Text(l.commonCancel),
           ),
-          TextButton(
-            onPressed: () async {
-              await ref
-                  .read(callListProvider.notifier)
-                  .removeMany(ids.toList());
-              if (context.mounted) {
-                Navigator.pop(dialogContext);
-                ScaffoldMessenger.of(
-                  context,
-                ).showSnackBar(SnackBar(content: Text(l.callsDeleted)));
-              }
-              _exitSelectionMode();
-            },
-            child: Text(
-              l.commonDelete,
-              style: TextStyle(color: Theme.of(context).colorScheme.error),
-            ),
-          ),
-        ],
+      emptyMessage: l.callsEmpty,
+      emptyBuilder: (context) =>
+          EmptyState(icon: Icons.call_end_rounded, message: l.callsEmpty),
+      selectModeTooltip: l.callsSelectMode,
+      selectedCountLabel: (count) => l.callsSelectedCount(count),
+      deleteTooltip: l.commonDeleteSelected,
+      deleteTitle: l.callsDeleteSelected,
+      deleteConfirm: (selectedGroups) => l.callsDeleteConfirmBody(
+        selectedGroups.length,
+        _flattenCallIds(selectedGroups).length,
       ),
+      deletedMessage: l.callsDeleted,
+      onDeleteSelected: (context, selectedGroups) async {
+        await ref
+            .read(callFacadeProvider.notifier)
+            .removeMany(_flattenCallIds(selectedGroups));
+      },
     );
   }
 
   void _handleReject(BuildContext context, WidgetRef ref, CallEvent call) {
-    ref.read(callListProvider.notifier).updateStatus(call.id, 'rejected');
+    ref.read(callFacadeProvider.notifier).updateStatus(call.id, 'rejected');
 
-    ref.read(connectionProvider.notifier).sendCallRejected(call.id);
+    ref.read(connectionFacadeProvider.notifier).sendCallRejected(call.id);
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(AppLocalizations.of(context).callsRejected)),
     );
   }
+}
+
+Set<String> _flattenCallIds(List<CallGroup> groups) {
+  final ids = <String>{};
+  for (final g in groups) {
+    ids.addAll(g.calls.map((c) => c.id));
+  }
+  return ids;
 }
 
 /// One row per caller (grouped). Single-call groups render like a normal

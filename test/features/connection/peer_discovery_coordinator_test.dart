@@ -7,11 +7,12 @@ void main() {
     test('Disconnection state tracking', () {
       final coordinator = PeerDiscoveryCoordinator(
         logger: Logger(),
-        onDiscovered: (ip, port) async {},
+        onDiscovered: (ip, port, {required fromScan}) async {},
         getPeerId: () => 'peer-id',
         getPeerPort: () => 45678,
         getDeviceName: () => 'Test Device',
         getAllLocalIps: () => ['192.168.1.10'],
+        getExpectedPeerId: () => null,
       );
 
       expect(coordinator.isDisconnected, false);
@@ -26,11 +27,12 @@ void main() {
     test('Beacon IPs collection', () {
       final coordinator = PeerDiscoveryCoordinator(
         logger: Logger(),
-        onDiscovered: (ip, port) async {},
+        onDiscovered: (ip, port, {required fromScan}) async {},
         getPeerId: () => 'peer-id',
         getPeerPort: () => 45678,
         getDeviceName: () => 'Test Device',
         getAllLocalIps: () => ['192.168.1.10'],
+        getExpectedPeerId: () => null,
       );
 
       expect(coordinator.beaconIps.isEmpty, true);
@@ -43,11 +45,12 @@ void main() {
       var updateCallCount = 0;
       final coordinator = PeerDiscoveryCoordinator(
         logger: Logger(),
-        onDiscovered: (ip, port) async {},
+        onDiscovered: (ip, port, {required fromScan}) async {},
         getPeerId: () => 'peer-id',
         getPeerPort: () => 45678,
         getDeviceName: () => 'Test Device',
         getAllLocalIps: () => ['192.168.1.10'],
+        getExpectedPeerId: () => null,
       );
 
       // updateBroadcastInfo updates internal state (ips, etc.)
@@ -60,11 +63,12 @@ void main() {
     test('Throttle setting', () {
       final coordinator = PeerDiscoveryCoordinator(
         logger: Logger(),
-        onDiscovered: (ip, port) async {},
+        onDiscovered: (ip, port, {required fromScan}) async {},
         getPeerId: () => 'peer-id',
         getPeerPort: () => 45678,
         getDeviceName: () => 'Test Device',
         getAllLocalIps: () => ['192.168.1.10'],
+        getExpectedPeerId: () => null,
       );
 
       // setThrottle should not throw
@@ -77,11 +81,12 @@ void main() {
     test('Coordinator cleanup on dispose', () async {
       final coordinator = PeerDiscoveryCoordinator(
         logger: Logger(),
-        onDiscovered: (ip, port) async {},
+        onDiscovered: (ip, port, {required fromScan}) async {},
         getPeerId: () => 'peer-id',
         getPeerPort: () => 45678,
         getDeviceName: () => 'Test Device',
         getAllLocalIps: () => ['192.168.1.10'],
+        getExpectedPeerId: () => null,
       );
 
       await coordinator.startListening();

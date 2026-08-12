@@ -138,9 +138,9 @@ class SocketManager {
     if (ip.isEmpty || ip == 'unknown') return false;
     // Don't let an outward connect() call clobber a running server. This
     // was a root-cause of Source's server dying after an onDisconnected
-    // callback: _scheduleReconnect -> _connectTo -> connect() flipped
+    // callback: the reconnect path -> _connectTo -> connect() flipped
     // _isServer = false, silently destroying the server's accept loop.
-    // The caller (ConnectionNotifier) now guards with isSource, but this
+    // The caller (ConnectionFacade) now guards with isSource, but this
     // is a defensive backstop so a misconfigured caller can't break the
     // server again.
     if (_isServer && _server != null) {

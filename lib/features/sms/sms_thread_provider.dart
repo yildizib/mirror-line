@@ -1,7 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mirrorline/core/data/models/sms_message.dart';
 import 'package:mirrorline/core/services/locale_service.dart';
-import 'package:mirrorline/features/sms/sms_list_provider.dart';
+import 'package:mirrorline/features/sms/sms_facade.dart';
 
 /// Every message exchanged with a single address, grouped so the SMS
 /// screen can read as a normal conversation list instead of one flat,
@@ -25,13 +25,13 @@ class SmsThread {
   SmsMessage get lastMessage => messages.last;
 }
 
-/// Derives conversations from smsListProvider's flat list, grouped by
+/// Derives conversations from smsFacadeProvider's flat list, grouped by
 /// address -- native never supplies a real Android thread id (see
 /// MirrorLineService, which always sends threadId ""), so address is the
 /// only key that reliably ties a reply to the message it answers. Sorted
 /// most-recently-active conversation first.
 final smsThreadsProvider = Provider<List<SmsThread>>((ref) {
-  final messages = ref.watch(smsListProvider);
+  final messages = ref.watch(smsFacadeProvider);
   final l = appL10n(ref);
   final byAddress = <String, List<SmsMessage>>{};
   for (final m in messages) {

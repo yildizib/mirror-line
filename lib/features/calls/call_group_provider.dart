@@ -1,7 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mirrorline/core/data/models/call_event.dart';
 import 'package:mirrorline/core/services/locale_service.dart';
-import 'package:mirrorline/features/calls/call_list_provider.dart';
+import 'package:mirrorline/features/calls/call_facade.dart';
 import 'package:mirrorline/l10n/app_localizations.dart';
 
 /// All calls from the same number (or the same unknown-number placeholder
@@ -43,11 +43,11 @@ class CallGroup {
   }
 }
 
-/// Derives call groups from callListProvider's flat list, grouped by
+/// Derives call groups from callFacadeProvider's flat list, grouped by
 /// identity (contact name -> number -> unknown). Sorted with the most
 /// recently active group first.
 final callGroupsProvider = Provider<List<CallGroup>>((ref) {
-  final calls = ref.watch(callListProvider);
+  final calls = ref.watch(callFacadeProvider);
   final l = appL10n(ref);
   final byKey = <String, List<CallEvent>>{};
 

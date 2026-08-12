@@ -20,28 +20,44 @@ import 'package:mirrorline/core/services/connectivity_service.dart';
 import 'package:mirrorline/core/services/notification_service.dart';
 import 'package:mirrorline/core/services/queue_service.dart';
 import 'package:mirrorline/core/telephony/telephony_channel.dart';
-import 'package:mirrorline/features/calls/call_list_provider.dart';
-import 'package:mirrorline/features/connection/call_event_handler.dart';
+import 'package:mirrorline/features/calls/call_facade.dart';
 import 'package:mirrorline/features/connection/connection_status_provider.dart';
 import 'package:mirrorline/features/connection/force_connect_strategy.dart';
-import 'package:mirrorline/features/connection/sms_event_handler.dart';
-import 'package:mirrorline/features/pairing/pairing_provider.dart';
-import 'package:mirrorline/features/pairing/peer_provider.dart';
-import 'package:mirrorline/features/sms/sms_list_provider.dart';
+import 'package:mirrorline/features/connection/peer_discovery_coordinator.dart';
+import 'package:mirrorline/features/connection/reconnect_scheduler.dart';
+import 'package:mirrorline/features/pairing/pairing_facade.dart';
+import 'package:mirrorline/features/pairing/peer_facade.dart';
+import 'package:mirrorline/features/sms/sms_facade.dart';
 import 'package:uuid/uuid.dart';
 import 'dart:io';
 
-final connectionProvider = StateNotifierProvider<ConnectionNotifier, bool>((
+/// Sends a single mirrored/peer message, queuing it locally if the socket
+/// isn't currently writable. Implemented by ConnectionFacade (see
+/// [ConnectionFacade.sendOrQueue]) so CallFacade/SmsFacade never need
+/// their own view of the socket.
+typedef SendOrQueue =
+    Future<bool> Function(String type, Map<String, dynamic> payload);
+
+/// Shows (or replaces, by id) a local notification.
+typedef ShowNotification =
+    Future<void> Function({
+      required int id,
+      required String title,
+      required String body,
+      NotificationPayload? payload,
+    });
+
+final connectionFacadeProvider = StateNotifierProvider<ConnectionFacade, bool>((
   ref,
 ) {
-  return ConnectionNotifier(ref);
+  return ConnectionFacade(ref);
 });
 
 final connectionConnectingProvider = Provider<bool>((ref) {
-  return ref.watch(connectionProvider.notifier).isConnecting;
+  return ref.watch(connectionFacadeProvider.notifier).isConnecting;
 });
 
-class ConnectionNotifier extends StateNotifier<bool>
+class ConnectionFacade extends StateNotifier<bool>
     with WidgetsBindingObserver {
   static const Duration _retryInterval = Duration(seconds: 30);
   // How long an outgoing SMS may sit on 'pending' before it's given up on
@@ -51,15 +67,6 @@ class ConnectionNotifier extends StateNotifier<bool>
   // never get marked either way -- this is a connection-state-independent
   // backstop so "Gönderiliyor" doesn't linger forever.
   static const Duration _pendingSmsTimeout = Duration(minutes: 2);
-  static const Duration _reconnectInitialDelay = Duration(seconds: 2);
-  static const Duration _reconnectMaxDelay = Duration(seconds: 30);
-  // Fallback active network scan (see SubnetScanner): only kicks in after
-  // being disconnected this long (beacon/direct-IP get a fair chance
-  // first), and won't run again more often than this -- scanning ~254
-  // hosts has a real battery/radio cost, so it must stay a rare fallback,
-  // not a routine poll.
-  static const Duration _scanGraceDuration = Duration(seconds: 25);
-  static const Duration _scanBackoff = Duration(seconds: 60);
 
   final Logger _logger = Logger();
   final Ref _ref;
@@ -68,7 +75,15 @@ class ConnectionNotifier extends StateNotifier<bool>
   final KnownNetworkDao _knownNetworkDao = KnownNetworkDao();
   final QueueService _queue = QueueService();
   final BeaconBroadcaster _broadcaster = BeaconBroadcaster();
-  final BeaconListener _listener = BeaconListener();
+  // Used only by _scanSubnetsWithProgress (force-reconnect's manual scan);
+  // the periodic fallback scan's own scanner now lives inside
+  // PeerDiscoveryCoordinator. These are two independent SubnetScanner
+  // instances -- a force-reconnect scan and a periodic fallback scan could
+  // now in principle run concurrently, whereas before they shared one
+  // _scanning guard. Accepted as a narrow, low-risk divergence: force-
+  // reconnect is rare/user-initiated and the periodic scan is itself rare
+  // (25s grace + 60s backoff), so the overlap window is small and running
+  // two network probes concurrently isn't harmful, just not deduped.
   final SubnetScanner _scanner = SubnetScanner();
 
   SocketManager? _socketManager;
@@ -80,13 +95,19 @@ class ConnectionNotifier extends StateNotifier<bool>
   bool _scanning = false;
   bool _telephonyHandlerRegistered = false;
   String? _lastDiscoveredIp;
-  DateTime? _disconnectedSince;
-  DateTime? _lastScanAt;
-  int _reconnectAttempts = 0;
+  // Resolved once (KeyStore reads are async) and cached for
+  // PeerDiscoveryCoordinator's sync getPeerId/getDeviceName callbacks --
+  // see _startAsMain.
+  String? _selfDiscoveryId;
+  String? _selfDiscoveryName;
   // Bumped whenever a forced reconnect abandons an in-flight _connectTo()
   // call, so that stale call's post-await continuation (recordConnectAttempt,
-  // _reconnectAttempts++, _scheduleReconnect, resetting _connecting) is
-  // skipped instead of stomping on the newer attempt it was superseded by.
+  // _maybeScheduleReconnect, resetting _connecting) is skipped instead of
+  // stomping on the newer attempt it was superseded by. Deliberately kept
+  // separate from ReconnectScheduler's own internal generation counter --
+  // this one guards ConnectionFacade's own async continuations across
+  // fallback-scan and network-changed paths, not just timer-driven
+  // reconnects, so the two must not be conflated.
   int _connectGeneration = 0;
   // Guards against an active on-path attacker (e.g. ARP spoofing into an
   // already-authenticated TCP session) replaying a previously captured,
@@ -99,29 +120,42 @@ class ConnectionNotifier extends StateNotifier<bool>
   int? _lastAcceptedMessageTimestamp;
   bool _disposed = false;
 
-  // Call/SMS native-event and peer-message handling live in their own
-  // classes (see call_event_handler.dart / sms_event_handler.dart) so this
-  // notifier's own job -- owning the socket and the connection lifecycle
-  // -- stays readable on its own. Constructed here (not as field
-  // initializers) because their callbacks are tear-offs of this instance's
-  // own methods, which need `this` to be fully alive first.
-  late final CallEventHandler _callHandler;
-  late final SmsEventHandler _smsHandler;
+  // Owns the periodic/backoff reconnect timer against the stored peer
+  // address. Callbacks are tear-offs of this instance (see the comment
+  // above), so constructed in the constructor body alongside the handlers.
+  late final ReconnectScheduler _reconnectScheduler;
 
-  ConnectionNotifier(this._ref) : super(false) {
-    _callHandler = CallEventHandler(
-      ref: _ref,
+  // Owns beacon listening and fallback subnet scanning (Main role only --
+  // Source uses _broadcaster instead, which is unrelated). Same
+  // constructor-body-construction reasoning as _reconnectScheduler.
+  late final PeerDiscoveryCoordinator _peerDiscoveryCoordinator;
+
+  ConnectionFacade(this._ref) : super(false) {
+    _reconnectScheduler = ReconnectScheduler(
       logger: _logger,
-      isSource: () => isSource,
-      sendOrQueue: _sendOrQueue,
-      notify: _notify,
+      onReconnect: (ip, port) async {
+        final ok = await _connectTo(ip, port);
+        if (!ok) {
+          // _connectTo already re-armed a guarded retry via
+          // _maybeScheduleReconnect() below; throwing here additionally
+          // lets the scheduler's own catch block increment its attempt
+          // counter so backoff actually grows across scheduler-driven
+          // retries (harmless redundant reschedule for this one path --
+          // scheduleReconnect() always cancels+replaces the pending timer).
+          throw StateError('Scheduled reconnect to $ip:$port failed');
+        }
+      },
+      getPeerIp: () => _lastDiscoveredIp ?? _peer?.ip,
+      getPeerPort: () => _peer?.port ?? 0,
     );
-    _smsHandler = SmsEventHandler(
-      ref: _ref,
+    _peerDiscoveryCoordinator = PeerDiscoveryCoordinator(
       logger: _logger,
-      isSource: () => isSource,
-      sendOrQueue: _sendOrQueue,
-      notify: _notify,
+      onDiscovered: _onDiscovered,
+      getPeerId: () => _selfDiscoveryId ?? _peer?.id ?? '',
+      getPeerPort: () => _peer?.port ?? 0,
+      getDeviceName: () => _selfDiscoveryName ?? _peer?.deviceName ?? '',
+      getAllLocalIps: () => _allLocalIps,
+      getExpectedPeerId: () => _peer?.id,
     );
     _init();
   }
@@ -129,7 +163,7 @@ class ConnectionNotifier extends StateNotifier<bool>
   bool get isSource => _peer?.role == 'source';
   bool get isConnecting => _connecting;
 
-  /// Exposed so PairingNotifier can reply on the live connection.
+  /// Exposed so PairingFacade can reply on the live connection.
   SocketManager? get socketManager => _socketManager;
 
   void _init() async {
@@ -147,13 +181,13 @@ class ConnectionNotifier extends StateNotifier<bool>
       if (isOnline) {
         _logger.i('Network back online. Reconnecting...');
         refresh();
-        _scheduleReconnect();
+        _maybeScheduleReconnect();
       } else {
         _logger.i(
           'Network offline. Dropping stale connection, pausing attempts.',
         );
         state = false;
-        _disconnectedSince ??= DateTime.now();
+        _peerDiscoveryCoordinator.markDisconnected();
         // Actually tear down the client-side connection, not just the UI
         // flag. Some network transitions (e.g. Wi-Fi AP roam) never deliver
         // a socket error, so SocketManager's internal _isConnected can stay
@@ -186,7 +220,7 @@ class ConnectionNotifier extends StateNotifier<bool>
     // so devices recover on their own instead of requiring the app to be
     // killed and reopened.
     _healthTimer ??= Timer.periodic(_retryInterval, (_) {
-      _ref.read(smsListProvider.notifier).failStalePending(_pendingSmsTimeout);
+      _ref.read(smsFacadeProvider.notifier).failStalePending(_pendingSmsTimeout);
       if (_connecting || state) return;
       refresh();
       _maybeRunFallbackScan();
@@ -199,7 +233,7 @@ class ConnectionNotifier extends StateNotifier<bool>
     if (state == AppLifecycleState.resumed) {
       _socketManager?.setBackgroundMode(false);
       refresh();
-      _scheduleReconnect();
+      _maybeScheduleReconnect();
     } else if (state == AppLifecycleState.paused) {
       _socketManager?.setBackgroundMode(true);
     }
@@ -250,7 +284,7 @@ class ConnectionNotifier extends StateNotifier<bool>
   /// Refreshes the reported local IP without touching the peer record.
   /// Used when showing the pairing QR, where the address must be current but
   /// must never be written back into the (possibly already-paired) peer row
-  /// -- unlike PeerNotifier.refreshLocalIp, which used to overwrite the
+  /// -- unlike PeerFacade.refreshLocalIp, which used to overwrite the
   /// paired peer's stored IP with this device's own address.
   ///
   /// Uses [getAllLocalIps] for VPN support: when the device has both WiFi
@@ -352,23 +386,33 @@ class ConnectionNotifier extends StateNotifier<bool>
     await _socketManager?.stopServer();
     _ref.read(connectionStatusProvider.notifier).setServer(0, false);
 
-    if (!_listener.isListening) {
-      final selfId = await KeyStore.getSelfId() ?? peer.id;
-      final selfName = await KeyStore.getSelfDeviceName() ?? peer.deviceName;
-      final allIps = _allLocalIps.isNotEmpty ? _allLocalIps : null;
-      await _listener.start(
-        onBeacon: _onBeacon,
-        peerId: selfId,
-        tcpPort: peer.port,
-        deviceName: selfName,
-        ips: allIps,
-      );
+    // Resolved once and cached (KeyStore reads are async, but
+    // PeerDiscoveryCoordinator's getPeerId/getDeviceName callbacks must be
+    // sync) -- matches the old code's "only resolve once" intent, which
+    // relied on _listener.isListening as an implicit guard.
+    if (_selfDiscoveryId == null || _selfDiscoveryName == null) {
+      _selfDiscoveryId = await KeyStore.getSelfId() ?? peer.id;
+      _selfDiscoveryName = await KeyStore.getSelfDeviceName() ?? peer.deviceName;
     }
+    await _peerDiscoveryCoordinator.startListening();
 
     // Periodic retries now come from the role-agnostic _healthTimer (see
     // _init()), which calls refresh() -- this immediate attempt just
-    // avoids waiting a full interval before the first try.
-    await _tryConnectToStoredPeer();
+    // avoids waiting a full interval before the first try. Inlined from
+    // the old _tryConnectToStoredPeer() (now deleted) since it has only
+    // this one remaining call site, and routing it through
+    // ReconnectScheduler would add a mandatory 2s+ delay this immediate
+    // first-try attempt never had.
+    if (!isSource && !state && !_connecting) {
+      final ip = _lastDiscoveredIp ?? peer.ip;
+      if (ip.isEmpty || ip == 'unknown') {
+        _ref
+            .read(connectionStatusProvider.notifier)
+            .recordConnectAttempt(ConnectionErrorCode.peerIpUnknown);
+      } else {
+        await _connectTo(ip, peer.port);
+      }
+    }
   }
 
   SocketManager _createSocketManager() {
@@ -376,8 +420,8 @@ class ConnectionNotifier extends StateNotifier<bool>
       onMessage: _handleIncomingMessage,
       onConnected: () {
         state = true;
-        _disconnectedSince = null;
-        _reconnectAttempts = 0;
+        _reconnectScheduler.markConnected();
+        _peerDiscoveryCoordinator.markConnected();
         _lastAcceptedMessageTimestamp = null;
         _ref.read(connectionStatusProvider.notifier).clearError();
         _logger.i('Socket connected and authenticated!');
@@ -394,17 +438,17 @@ class ConnectionNotifier extends StateNotifier<bool>
         }
         _flushQueue();
         _broadcaster.setThrottle(true);
-        _listener.setThrottle(true);
+        _peerDiscoveryCoordinator.setThrottle(true);
       },
       onDisconnected: () {
         state = false;
-        _disconnectedSince ??= DateTime.now();
+        _peerDiscoveryCoordinator.markDisconnected();
         _logger.w(
           'Socket disconnected. Will auto-reconnect when peer is reachable.',
         );
         _broadcaster.setThrottle(false);
-        _listener.setThrottle(false);
-        _scheduleReconnect();
+        _peerDiscoveryCoordinator.setThrottle(false);
+        _maybeScheduleReconnect();
       },
     );
     _configureAuth(sm);
@@ -424,57 +468,27 @@ class ConnectionNotifier extends StateNotifier<bool>
     );
   }
 
-  /// Schedules a reconnect attempt with exponential backoff: 2s, 4s, 8s,
-  /// 16s, 30s (capped). The delay doubles after each failed attempt and
-  /// resets to 2s once a connection succeeds (see _createSocketManager's
-  /// onConnected). This replaces the old single-shot 2s retry, which gave
-  /// up after one try and then waited up to 10s for the health timer --
-  /// making the app feel unresponsive when the screen was turned back on
-  /// after a disconnect.
+  /// Arms [_reconnectScheduler] for a backoff-timed retry, preserving the
+  /// exact guard conditions the old inline scheduling logic enforced --
+  /// the scheduler itself is role/state-agnostic (it just runs a timer
+  /// against whatever `getPeerIp`/`getPeerPort` currently return), so
+  /// every call site must gate it the same way here rather than relying on
+  /// the scheduler to know when it shouldn't run.
   ///
   /// **Source guard:** Source never dials out -- it only listens. Without
   /// this guard, an onDisconnected callback on Source would schedule a
-  /// _tryConnectToStoredPeer -> _connectTo call on Source's own socket
-  /// manager, which would flip `_isServer = false` (see SocketManager.
-  /// connect) and destroy the server socket's ability to accept incoming
-  /// connections. This was a root cause of the "auth timeout on 1st-2nd
-  /// attempt, succeeds on 3rd" pattern: each failed reconnect attempt
-  /// silently broke Source's server, and only the next incoming
-  /// connection from Main eventually revived it.
-  void _scheduleReconnect() {
+  /// reconnect -> _connectTo call on Source's own socket manager, which
+  /// would flip `_isServer = false` (see SocketManager.connect) and
+  /// destroy the server socket's ability to accept incoming connections.
+  /// This was a root cause of the "auth timeout on 1st-2nd attempt,
+  /// succeeds on 3rd" pattern: each failed reconnect attempt silently
+  /// broke Source's server, and only the next incoming connection from
+  /// Main eventually revived it.
+  void _maybeScheduleReconnect() {
     if (_peer == null || _key == null) return;
     if (isSource) return; // Source never dials out
     if (state || _connecting) return;
-    final delay = _reconnectInitialDelay * (1 << _reconnectAttempts);
-    final clampedDelay = delay > _reconnectMaxDelay
-        ? _reconnectMaxDelay
-        : delay;
-    _logger.i(
-      'Scheduling reconnect in ${clampedDelay.inSeconds}s (attempt ${_reconnectAttempts + 1}).',
-    );
-    Future.delayed(clampedDelay, () {
-      if (!state && !_connecting) {
-        _tryConnectToStoredPeer();
-      }
-    });
-  }
-
-  Future<void> _tryConnectToStoredPeer() async {
-    final peer = _peer;
-    final key = _key;
-    if (peer == null || key == null) return;
-    if (isSource) return; // Source never dials out
-    if (state || _connecting) return;
-
-    final ip = _lastDiscoveredIp ?? peer.ip;
-    if (ip.isEmpty || ip == 'unknown') {
-      _ref
-          .read(connectionStatusProvider.notifier)
-          .recordConnectAttempt(ConnectionErrorCode.peerIpUnknown);
-      return;
-    }
-
-    await _connectTo(ip, peer.port);
+    _reconnectScheduler.scheduleReconnect();
   }
 
   Future<bool> _connectTo(
@@ -528,8 +542,7 @@ class ConnectionNotifier extends StateNotifier<bool>
               DiscoveryState.failed,
               detail: 'Failed to connect to $ip:$port',
             );
-        _reconnectAttempts++;
-        _scheduleReconnect();
+        _maybeScheduleReconnect();
       }
       return ok;
     } finally {
@@ -559,148 +572,60 @@ class ConnectionNotifier extends StateNotifier<bool>
 
   /// Fallback discovery: if the beacon and last-known-IP haven't gotten us
   /// connected for a while, actively scan the local subnet for the peer's
-  /// TCP port. Covers routers that restrict broadcast/multicast between
-  /// devices even without classic AP isolation. Deliberately rare (grace
-  /// period + backoff, see the constants above) since scanning ~254 hosts
-  /// has a real, if brief, battery/radio cost -- this is a fallback, not a
-  /// routine poll.
+  /// TCP port (delegated to [_peerDiscoveryCoordinator]). Covers routers
+  /// that restrict broadcast/multicast between devices even without
+  /// classic AP isolation.
   ///
-  /// [immediate] skips the grace-period wait -- used when we already have a
-  /// concrete reason to believe the network changed (see
-  /// _handleNetworkChangedEvent) rather than just "haven't heard from the
-  /// peer in a while". The re-entrancy guard (_scanning) and the backoff
-  /// between actual scan attempts (_scanBackoff) still apply either way, so
-  /// rapid network flapping can't turn this into a routine poll.
-  ///
-  /// [force] additionally bypasses the _scanBackoff throttle -- reserved for
-  /// the user-facing "Force reconnect" action, which must actually scan even
-  /// if a routine fallback scan ran moments ago (that's what made the old
-  /// button feel like it did nothing).
+  /// Role/connection-state guards live here, not in the coordinator (which
+  /// is role/state-agnostic, same reasoning as [_maybeScheduleReconnect]).
+  /// [immediate]/[force] are forwarded as-is -- see
+  /// [PeerDiscoveryCoordinator.maybeRunFallbackScan] for their meaning.
   Future<void> _maybeRunFallbackScan({
     bool immediate = false,
     bool force = false,
   }) async {
     if (isSource) return; // only Main ever dials out
-    if (state || _connecting || _scanning) return;
+    if (state || _connecting) return;
 
     if (await _tryKnownNetworkFastPath()) return;
     if (state || _connecting) return;
 
-    if (!immediate) {
-      final disconnectedSince = _disconnectedSince;
-      if (disconnectedSince == null) return;
-      if (DateTime.now().difference(disconnectedSince) < _scanGraceDuration) {
-        return;
-      }
-    }
-
-    if (!force) {
-      final lastScan = _lastScanAt;
-      if (lastScan != null &&
-          DateTime.now().difference(lastScan) < _scanBackoff) {
-        return;
-      }
-    }
-
-    final peer = _peer;
-    final localIp = _ref.read(connectionStatusProvider).localIp;
-    if (peer == null || localIp == null) return;
-    // Use all local IPs (WiFi + VPN) for subnet scanning.
-    final scanIps = _allLocalIps.isNotEmpty ? _allLocalIps : [localIp];
-
-    _scanning = true;
-    _lastScanAt = DateTime.now();
-    try {
-      final found = await _scanner.findHostWithOpenPortMulti(
-        localIps: scanIps,
-        port: peer.port,
-      );
-      if (found != null && !state) {
-        _logger.i(
-          'Fallback scan located peer at $found; attempting connection.',
-        );
-        _lastDiscoveredIp = found;
-        // Persist the freshly-discovered address so diagnostics and future
-        // reconnect attempts agree on where the peer actually is -- the scan
-        // path used to only update the in-memory value, leaving the stored
-        // peer record stale after a roam.
-        _recordDiscoveredAddress(found, peer.port);
-        // If a connect attempt is in flight to a stale IP, abandon it so
-        // we can immediately try the freshly-discovered IP. This is critical
-        // for VPN: the stored/beacon IP may be a 5G IP that times out in 5s,
-        // while the scan just found the VPN IP that would connect instantly.
-        if (_connecting) {
-          _connectGeneration++;
-          _connecting = false;
-          await _socketManager?.disconnectClient();
-        }
-        await _connectTo(found, peer.port);
-      }
-    } finally {
-      _scanning = false;
-    }
+    await _peerDiscoveryCoordinator.maybeRunFallbackScan(
+      immediate: immediate,
+      force: force,
+    );
   }
 
-  void _onBeacon(BeaconInfo info) {
-    final peer = _peer;
-    if (peer == null) return;
-    if (info.peerId != peer.id) {
-      _logger.w('Ignoring beacon from unknown peer: ${info.peerId}');
-      return;
-    }
-
-    // The datagram source IP may be a 5G/WiFi IP that's unreachable
-    // from this device (e.g. the peer is on VPN but OS chose the 5G
-    // interface as the UDP source). If the beacon includes a list of
-    // all the peer's IPs (v2 beacon), prefer a VPN IP (tun/tap) or
-    // any IP on a subnet we share, falling back to the source IP.
-    final bestIp = _pickBestBeaconIp(info);
-    _lastDiscoveredIp = bestIp;
-    _ref.read(connectionStatusProvider.notifier).recordBeacon(bestIp);
-    _recordDiscoveredAddress(bestIp, info.tcpPort);
-
-    // Also persist all claimed IPs so the force-connect / scan path can
-    // try them if the best IP fails.
-    if (info.ips.isNotEmpty) {
-      _beaconIps = info.ips;
-    }
-
-    if (!state && !_connecting) {
-      _connectTo(bestIp, info.tcpPort);
-    }
-  }
-
-  /// Picks the most likely-reachable IP from a beacon. Prefers:
-  /// 1. An IP on the same /24 as one of our local IPs (same subnet).
-  /// 2. Any VPN-style IP (10.x, 172.16-31.x) the peer claims.
-  /// 3. The datagram source IP (fallback).
-  String _pickBestBeaconIp(BeaconInfo info) {
-    final sourceIp = info.ip;
-    final allPeerIps = {sourceIp, ...info.ips};
-
-    // 1) Same-subnet match: do we share a /24 with any peer IP?
-    for (final peerIp in allPeerIps) {
-      final peerPrefix = subnetPrefixOf(peerIp);
-      if (peerPrefix == null) continue;
-      for (final localIp in _allLocalIps) {
-        if (subnetPrefixOf(localIp) == peerPrefix) {
-          return peerIp; // same subnet, directly reachable
-        }
+  /// Shared landing point for both beacon and fallback-scan discovery (see
+  /// [PeerDiscoveryCoordinator]'s `onDiscovered` callback). [fromScan]
+  /// preserves the two policies the pre-extraction code applied: a scan
+  /// result is rare/expensive enough to abandon an in-flight connect
+  /// attempt for; a beacon is frequent/cheap enough that it should just be
+  /// skipped while an attempt is already in flight.
+  Future<void> _onDiscovered(
+    String ip,
+    int port, {
+    required bool fromScan,
+  }) async {
+    if (fromScan) {
+      if (state) return;
+      _lastDiscoveredIp = ip;
+      _recordDiscoveredAddress(ip, port);
+      if (_connecting) {
+        _connectGeneration++;
+        _connecting = false;
+        await _socketManager?.disconnectClient();
+      }
+      await _connectTo(ip, port);
+    } else {
+      _lastDiscoveredIp = ip;
+      _ref.read(connectionStatusProvider.notifier).recordBeacon(ip);
+      _recordDiscoveredAddress(ip, port);
+      if (!state && !_connecting) {
+        await _connectTo(ip, port);
       }
     }
-
-    // 2) VPN-style IP (10.x is common for VPNs like OpenVPN/WireGuard).
-    for (final peerIp in allPeerIps) {
-      if (peerIp.startsWith('10.')) return peerIp;
-    }
-
-    // 3) Fallback: datagram source IP.
-    return sourceIp;
   }
-
-  /// IPs claimed by the peer in its last beacon. Used by force-connect to
-  /// try all of them if the primary IP fails.
-  List<String> _beaconIps = [];
 
   /// Persists a peer address discovered via beacon or subnet scan so the
   /// stored peer record, diagnostics and future reconnect attempts all agree
@@ -713,7 +638,7 @@ class ConnectionNotifier extends StateNotifier<bool>
     final updated = peer.copyWith(ip: ip, port: port);
     _peer = updated;
     unawaited(_peerDao.update(updated));
-    _ref.read(peerProvider.notifier).applyUpdate(updated);
+    _ref.read(peerFacadeProvider.notifier).applyUpdate(updated);
     _ref.read(connectionStatusProvider.notifier).setPeerIp(ip);
   }
 
@@ -727,9 +652,9 @@ class ConnectionNotifier extends StateNotifier<bool>
   /// connection may be stale, so we react immediately instead of waiting.
   ///
   /// **Fast reconnect:** runs the fallback scan with `force: true` so the
-  /// 60s scan backoff doesn't block discovery after a roam, and schedules
-  /// a reconnect with no extra delay (the first attempt starts right away
-  /// via the health-timer-less `_tryConnectToStoredPeer` path). The beacon
+  /// 60s scan backoff doesn't block discovery after a roam, and resets
+  /// ReconnectScheduler's backoff to the fast cadence via
+  /// `_reconnectScheduler.forceReconnect()`. The beacon
   /// listener is un-throttled to fast cadence (3s) so a beacon from the
   /// peer lands as quickly as possible.
   /// Validates that a string is a valid IP address (IPv4 or IPv6).
@@ -760,9 +685,6 @@ class ConnectionNotifier extends StateNotifier<bool>
     // below -- same pattern forceReconnect()/_maybeRunFallbackScan use.
     _connectGeneration++;
     _connecting = false;
-    // The reconnect backoff was accumulated against the old network's
-    // failures; a roam is a fresh state, so start from the fast cadence.
-    _reconnectAttempts = 0;
 
     // Don't wait for the heartbeat timeout to notice the old socket is
     // dead -- same teardown _connectivity.onChanged's offline branch
@@ -770,12 +692,12 @@ class ConnectionNotifier extends StateNotifier<bool>
     // situation.
     _socketManager?.disconnectClient();
     state = false;
-    _disconnectedSince ??= DateTime.now();
+    _peerDiscoveryCoordinator.markDisconnected();
     // The address we last discovered belongs to the old network -- reconnect
     // must re-discover instead of hammering a dead IP for minutes.
     _lastDiscoveredIp = null;
     _broadcaster.setThrottle(false);
-    _listener.setThrottle(false);
+    _peerDiscoveryCoordinator.setThrottle(false);
 
     // Re-enumerate all local IPs (WiFi + VPN) BEFORE scanning so the scan
     // covers the new network's subnets (previously this was fire-and-forget
@@ -794,7 +716,14 @@ class ConnectionNotifier extends StateNotifier<bool>
     // network changed. The scan runs in parallel with the scheduled
     // reconnect below (which tries the stored peer IP directly).
     _maybeRunFallbackScan(immediate: true, force: true);
-    _scheduleReconnect();
+    // Reconnect backoff was accumulated against the old network's
+    // failures; a roam is a fresh state, so reset attempts to 0 and
+    // schedule immediately -- ReconnectScheduler.forceReconnect() does
+    // both in one call (it also bumps the scheduler's own generation,
+    // abandoning any stale scheduler-driven attempt against the old
+    // network -- independent of _connectGeneration above, which guards
+    // this method's own continuations, not the scheduler's).
+    _reconnectScheduler.forceReconnect();
   }
 
   /// Fast path for reconnecting to a previously-seen network: before
@@ -860,7 +789,7 @@ class ConnectionNotifier extends StateNotifier<bool>
       _lastDiscoveredIp = null;
       await _socketManager?.disconnectClient();
       await _broadcaster.stop();
-      await _listener.stop();
+      await _peerDiscoveryCoordinator.stopListening();
       await refresh();
       statusNotifier.logDiscovery('Source device ready.', isSuccess: true);
       statusNotifier.endForceConnect();
@@ -907,7 +836,7 @@ class ConnectionNotifier extends StateNotifier<bool>
 
     final strategy = ForceConnectStrategy(
       storedIp: peer.ip,
-      beaconIps: _beaconIps,
+      beaconIps: _peerDiscoveryCoordinator.beaconIps,
       allLocalIps: _allLocalIps,
       localIp: localIp,
       peerId: peer.id,
@@ -979,7 +908,6 @@ class ConnectionNotifier extends StateNotifier<bool>
     if (isSource || state || _connecting || _scanning) return null;
     if (localIps.isEmpty) return null;
     _scanning = true;
-    _lastScanAt = DateTime.now();
     statusNotifier.setDiscoveryState(
       DiscoveryState.scanningSubnet,
       detail: 'Scanning ${localIps.length} subnets...',
@@ -1030,9 +958,13 @@ class ConnectionNotifier extends StateNotifier<bool>
       final id = const Uuid().v4();
 
       if (type == 'onCall') {
-        await _callHandler.handleNativeEvent(data, id: id, now: now);
+        await _ref
+            .read(callFacadeProvider.notifier)
+            .handleNativeEvent(data, id: id, now: now);
       } else if (type == 'onSms') {
-        await _smsHandler.handleNativeEvent(data, id: id, now: now);
+        await _ref
+            .read(smsFacadeProvider.notifier)
+            .handleNativeEvent(data, id: id, now: now);
       } else if (type == 'onNotification') {
         final packageName = (data['packageName'] as String?) ?? 'unknown';
         final appName = (data['appName'] as String?) ?? packageName;
@@ -1096,23 +1028,17 @@ class ConnectionNotifier extends StateNotifier<bool>
       case MessageTypes.callRejected:
       case MessageTypes.callStatus:
       case MessageTypes.callInfo:
-        await _callHandler.handleIncomingMessage(
-          message.type,
-          payload,
-          message,
-          now,
-        );
+        await _ref
+            .read(callFacadeProvider.notifier)
+            .handleIncomingMessage(message.type, payload, message, now);
         break;
 
       case MessageTypes.smsIncoming:
       case MessageTypes.smsOutgoing:
       case MessageTypes.smsStatus:
-        await _smsHandler.handleIncomingMessage(
-          message.type,
-          payload,
-          message,
-          now,
-        );
+        await _ref
+            .read(smsFacadeProvider.notifier)
+            .handleIncomingMessage(message.type, payload, message, now);
         break;
 
       case MessageTypes.ack:
@@ -1124,7 +1050,7 @@ class ConnectionNotifier extends StateNotifier<bool>
         break;
 
       case MessageTypes.pairingRequest:
-        _ref.read(pairingProvider.notifier).handleIncomingRequest(payload);
+        _ref.read(pairingFacadeProvider.notifier).handleIncomingRequest(payload);
         break;
 
       case MessageTypes.pairingAck:
@@ -1132,12 +1058,12 @@ class ConnectionNotifier extends StateNotifier<bool>
         // arrives on this device's regular socket (unlike pairingAccept/
         // pairingReject below, which the *scanner* receives on its own
         // separate handshake socket, never here).
-        _ref.read(pairingProvider.notifier).handlePairingAck();
+        _ref.read(pairingFacadeProvider.notifier).handlePairingAck();
         break;
 
       case MessageTypes.pairingAccept:
       case MessageTypes.pairingReject:
-        // Handled by PairingNotifier's own socket on the scanner side.
+        // Handled by PairingFacade's own socket on the scanner side.
         // On the scanned side we never receive these (we send them).
         break;
 
@@ -1196,21 +1122,36 @@ class ConnectionNotifier extends StateNotifier<bool>
     return sent;
   }
 
+  /// Public entry points to [_sendOrQueue]/[_notify] -- CallFacade/SmsFacade
+  /// are constructed from their own top-level providers (not from within
+  /// this constructor), so unlike the pre-#39 CallEventHandler/
+  /// SmsEventHandler they can't tear off the private methods directly
+  /// (Dart privacy is per-file). Same underlying implementation either way.
+  Future<bool> sendOrQueue(String type, Map<String, dynamic> payload) =>
+      _sendOrQueue(type, payload);
+
+  Future<void> notify({
+    required int id,
+    required String title,
+    required String body,
+    NotificationPayload? payload,
+  }) => _notify(id: id, title: title, body: body, payload: payload);
+
   Future<bool> sendCallNotification(
     String number, {
     String? id,
     String? contactName,
-  }) => _callHandler.sendCallNotification(
-    number,
-    id: id,
-    contactName: contactName,
-  );
+  }) => _ref
+      .read(callFacadeProvider.notifier)
+      .sendCallNotification(number, id: id, contactName: contactName);
 
   Future<bool> sendCallRejected(String callId) =>
-      _callHandler.sendCallRejected(callId);
+      _ref.read(callFacadeProvider.notifier).sendCallRejected(callId);
 
   Future<bool> sendSmsNotification(String address, String body, {String? id}) =>
-      _smsHandler.sendSmsNotification(address, body, id: id);
+      _ref
+          .read(smsFacadeProvider.notifier)
+          .sendSmsNotification(address, body, id: id);
 
   Future<bool> sendReplySms(
     String address,
@@ -1218,13 +1159,15 @@ class ConnectionNotifier extends StateNotifier<bool>
     String? id,
     String? contactName,
     String? threadId,
-  }) => _smsHandler.sendReplySms(
-    address,
-    body,
-    id: id,
-    contactName: contactName,
-    threadId: threadId,
-  );
+  }) => _ref
+      .read(smsFacadeProvider.notifier)
+      .sendReplySms(
+        address,
+        body,
+        id: id,
+        contactName: contactName,
+        threadId: threadId,
+      );
 
   Future<void> _flushQueue() async {
     final items = await _queue.pendingItems();
@@ -1268,12 +1211,12 @@ class ConnectionNotifier extends StateNotifier<bool>
       case MessageTypes.smsOutgoing:
       case MessageTypes.smsStatus:
         await _ref
-            .read(smsListProvider.notifier)
+            .read(smsFacadeProvider.notifier)
             .updateStatus(entryId, 'failed');
         break;
       case MessageTypes.callIncoming:
         await _ref
-            .read(callListProvider.notifier)
+            .read(callFacadeProvider.notifier)
             .updateStatus(entryId, 'failed');
         break;
     }
@@ -1299,7 +1242,7 @@ class ConnectionNotifier extends StateNotifier<bool>
     // for the rest of the app session (it's only ever created once, in
     // _init()).
     await _broadcaster.stop();
-    await _listener.stop();
+    await _peerDiscoveryCoordinator.stopListening();
     await _socketManager?.disconnect();
     _socketManager = null;
     _lastDiscoveredIp = null;
@@ -1325,7 +1268,7 @@ class ConnectionNotifier extends StateNotifier<bool>
     _connectivity.stopListening();
     _healthTimer?.cancel();
     _broadcaster.stop();
-    _listener.stop();
+    _peerDiscoveryCoordinator.dispose();
     _socketManager?.disconnect();
     super.dispose();
   }

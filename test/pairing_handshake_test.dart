@@ -36,7 +36,7 @@ void main() {
     await scanned.startServer(45911, key);
 
     // Scanner side: a temporary handshake socket, mimicking
-    // PairingNotifier.sendRequest.
+    // PairingFacade.sendRequest.
     final scanner = SocketManager(
       onMessage: (_) {},
       onConnected: () {},
@@ -138,13 +138,13 @@ void main() {
       () async {
     // This documents the contract that scanner-side persistence prefers the
     // IP claimed in pairingAccept over the (possibly stale) IP from the QR.
-    // The actual persistence logic lives in PairingNotifier.sendRequest,
+    // The actual persistence logic lives in PairingFacade.sendRequest,
     // which we can't unit-test without a full Riverpod stack -- so we test
     // the precedence rule directly on the parsed payload.
     final qrIp = '10.0.0.5';
     final acceptIp = '192.168.1.99';
 
-    // Mimics the precedence in PairingNotifier.sendRequest:
+    // Mimics the precedence in PairingFacade.sendRequest:
     //   peerIp = acceptPayload.ip.isNotEmpty ? acceptPayload.ip : qrIp
     final acceptPayload = <String, dynamic>{'ip': acceptIp};
     final peerIp = (acceptPayload['ip'] as String?)?.isNotEmpty == true

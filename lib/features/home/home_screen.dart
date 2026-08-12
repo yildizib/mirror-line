@@ -6,7 +6,7 @@ import 'package:mirrorline/core/services/notification_service.dart';
 import 'package:mirrorline/core/services/permission_service.dart';
 import 'package:mirrorline/core/theme/theme.dart';
 import 'package:mirrorline/features/calls/calls_screen.dart';
-import 'package:mirrorline/features/connection/connection_provider.dart';
+import 'package:mirrorline/features/connection/connection_facade.dart';
 import 'package:mirrorline/features/connection/widgets/connection_banner.dart';
 import 'package:mirrorline/features/settings/settings_screen.dart';
 import 'package:mirrorline/features/sms/sms_screen.dart';
@@ -90,7 +90,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final isConnected = ref.watch(connectionProvider);
+    final isConnected = ref.watch(connectionFacadeProvider);
     final theme = Theme.of(context);
     final status = theme.status;
     final l = AppLocalizations.of(context);
