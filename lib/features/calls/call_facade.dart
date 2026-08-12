@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logger/logger.dart';
 import 'package:mirrorline/core/data/daos/call_event_dao.dart';
@@ -46,6 +48,23 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
   // *transitions* without an id, so this is how they get matched back to
   // the right CallEvent.
   String? _activeCallId;
+
+  // Serializes native call events (Source side only): the previous event
+  // must fully complete -- including its awaited `sendCallNotification` /
+  // `call_status` peer message -- before the next one starts. Without this,
+  // RINGING's `await sendCallNotification` yields to the event loop and the
+  // MISSED handler can run re-entrantly, sending `call_status` to the peer
+  // before `call_incoming` has actually been written -- leaving the Main
+  // device with a call created from `call_incoming` and stuck on "ringing".
+  Future<void>? _nativeEventQueue;
+
+  // On the Main side a `call_status` peer message can arrive before the
+  // matching `call_incoming` (queued + reordered by the offline queue, or
+  // simply delivered out of order). `updateStatus` is a silent no-op when
+  // the call id is unknown, and that final status would then be lost
+  // forever -- leaving the call showing "ringing". Buffer it here and apply
+  // it the moment `call_incoming` creates the call.
+  final Map<String, String> _pendingCallStatuses = {};
 
   CallFacade({
     required this._ref,
@@ -126,7 +145,35 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
   // Native events (Source device only) -- formerly CallEventHandler
   // -----------------------------------------------------------------------
 
+  /// Public entry point for native call events (Source device only).
+  /// Serializes events so a previous transition (notably RINGING's
+  /// awaited `sendCallNotification`) fully completes before the next one
+  /// (e.g. MISSED) starts -- otherwise the two could interleave and emit
+  /// `call_status` to the peer before `call_incoming`, leaving the Main
+  /// device with a call stuck on "ringing". See `_nativeEventQueue`.
   Future<void> handleNativeEvent(
+    Map<dynamic, dynamic> data, {
+    required String id,
+    required DateTime now,
+  }) {
+    final previous = _nativeEventQueue;
+    final completer = Completer<void>();
+    _nativeEventQueue = completer.future;
+
+    Future<void> run() async {
+      if (previous != null) await previous;
+      await _handleNativeEventImpl(data, id: id, now: now);
+    }
+
+    return run().then((_) {
+      completer.complete();
+    }).catchError((Object e, StackTrace st) {
+      _logger.e('Native call event error: $e', stackTrace: st);
+      completer.complete();
+    });
+  }
+
+  Future<void> _handleNativeEventImpl(
     Map<dynamic, dynamic> data, {
     required String id,
     required DateTime now,
@@ -245,6 +292,14 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
           createdAt: now,
         );
         await add(event);
+        // A `call_status` peer message may have arrived before this
+        // `call_incoming` (re-entrancy on the Source side, or queue
+        // reorder). If so, it was buffered in `_pendingCallStatuses` --
+        // apply it now so the call doesn't stay on "ringing".
+        final pendingStatus = _pendingCallStatuses.remove(id);
+        if (pendingStatus != null) {
+          await updateStatus(id, pendingStatus);
+        }
         final l = appL10n(_ref);
         await _notify(
           id: int.tryParse(id) ?? 1,
@@ -272,21 +327,32 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
       case MessageTypes.callStatus:
         final id = payload['id'] as String?;
         final status = payload['status'] as String? ?? 'ended';
-        if (id != null) {
-          await updateStatus(id, status);
-          // Update the existing call notification in place (same id) so it
-          // reflects the live status (Cevaplandı/Cevapsız/Sonlandı) instead
-          // of just sitting there saying "Çalıyor" forever.
-          final updated = _findCall(id);
-          if (updated != null) {
-            final l = appL10n(_ref);
-            await _notify(
-              id: int.tryParse(id) ?? 1,
-              title: updated.displayName(l),
-              body: updated.statusLabel(l),
-              payload: NotificationPayload(type: 'call', id: id),
-            );
-          }
+        if (id == null) break;
+        final existing = _findCall(id);
+        if (existing == null) {
+          // The matching `call_incoming` hasn't been processed yet
+          // (out-of-order delivery). Remember the status and apply it
+          // once the call is created, so it doesn't stay on "ringing".
+          _pendingCallStatuses[id] = status;
+          break;
+        }
+        // Don't downgrade a terminal status the user already set: a
+        // user-initiated reject on Main shouldn't be relabeled "missed"
+        // when the Source's later IDLE/MISSED transition arrives.
+        if (existing.status == 'rejected' && status != 'rejected') break;
+        await updateStatus(id, status);
+        // Update the existing call notification in place (same id) so it
+        // reflects the live status (Cevaplandı/Cevapsız/Sonlandı) instead
+        // of just sitting there saying "Çalıyor" forever.
+        final updated = _findCall(id);
+        if (updated != null) {
+          final l = appL10n(_ref);
+          await _notify(
+            id: int.tryParse(id) ?? 1,
+            title: updated.displayName(l),
+            body: updated.statusLabel(l),
+            payload: NotificationPayload(type: 'call', id: id),
+          );
         }
         break;
 
