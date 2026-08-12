@@ -13,6 +13,7 @@ import 'package:mirrorline/features/pairing/pairing_screen.dart';
 import 'package:mirrorline/features/pairing/peer_facade.dart';
 import 'package:mirrorline/features/pairing/role_selection_screen.dart';
 import 'package:mirrorline/features/pairing/widgets/qr_display.dart';
+import 'package:mirrorline/features/settings/diagnostics_screen.dart';
 import 'package:mirrorline/features/settings/settings_controller.dart';
 import 'package:mirrorline/features/settings/watched_apps_screen.dart';
 
@@ -362,6 +363,21 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     context,
                     MaterialPageRoute(
                       builder: (_) => const WatchedAppsScreen(),
+                    ),
+                  );
+                },
+              ),
+              const Divider(height: 1, indent: 16, endIndent: 16),
+              ListTile(
+                leading: const Icon(Icons.bug_report_rounded),
+                title: Text(l.settingsRunTests),
+                subtitle: Text(l.settingsRunTestsDesc),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const DiagnosticsScreen(),
                     ),
                   );
                 },

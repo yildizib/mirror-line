@@ -293,6 +293,41 @@ class AppLocalizationsTr extends AppLocalizations {
   String get watchedAppsSearchHint => 'Uygulama ara...';
 
   @override
+  String get settingsRunTests => 'Testleri çalıştır';
+
+  @override
+  String get settingsRunTestsDesc =>
+      'Eşleşen cihaza sahte arama, SMS ve bildirim gönder';
+
+  @override
+  String get runTestsTitle => 'Testleri çalıştır';
+
+  @override
+  String get runTestsButton => 'Testleri çalıştır';
+
+  @override
+  String get runTestsEmpty => 'Henüz test çalıştırılmadı';
+
+  @override
+  String get runTestsSent => 'Gönderildi';
+
+  @override
+  String get runTestsQueued => 'Sıraya alındı';
+
+  @override
+  String get runTestsCallType => 'Test araması';
+
+  @override
+  String get runTestsSmsType => 'Test SMS\'i';
+
+  @override
+  String get runTestsNotificationType => 'Test bildirimi';
+
+  @override
+  String get runTestsNotConnected =>
+      'Testleri çalıştırmak için eşleşmiş bir cihaza bağlı olmalısınız';
+
+  @override
   String get settingsKeepPermissions => 'Kullanılmıyorsa izinleri kaldırma';
 
   @override
@@ -461,6 +496,23 @@ class AppLocalizationsTr extends AppLocalizations {
 
   @override
   String get smsReplyHint => 'Yanıtınızı yazın...';
+
+  @override
+  String get runTestsCallLabel => 'MirrorLine Test Araması';
+
+  @override
+  String get runTestsSmsBody =>
+      'Bu, MirrorLine tanılamasından gelen bir test SMS\'idir.';
+
+  @override
+  String get runTestsNotificationApp => 'MirrorLine Testi';
+
+  @override
+  String get runTestsNotificationTitle => 'Test Bildirimi';
+
+  @override
+  String get runTestsNotificationBody =>
+      'Bu, MirrorLine tanılamasından gelen bir test bildirimidir.';
 
   @override
   String get notificationsEmpty => 'Henüz bildirim yok';

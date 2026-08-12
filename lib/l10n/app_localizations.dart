@@ -626,6 +626,72 @@ abstract class AppLocalizations {
   /// **'Uygulama ara...'**
   String get watchedAppsSearchHint;
 
+  /// No description provided for @settingsRunTests.
+  ///
+  /// In tr, this message translates to:
+  /// **'Testleri çalıştır'**
+  String get settingsRunTests;
+
+  /// No description provided for @settingsRunTestsDesc.
+  ///
+  /// In tr, this message translates to:
+  /// **'Eşleşen cihaza sahte arama, SMS ve bildirim gönder'**
+  String get settingsRunTestsDesc;
+
+  /// No description provided for @runTestsTitle.
+  ///
+  /// In tr, this message translates to:
+  /// **'Testleri çalıştır'**
+  String get runTestsTitle;
+
+  /// No description provided for @runTestsButton.
+  ///
+  /// In tr, this message translates to:
+  /// **'Testleri çalıştır'**
+  String get runTestsButton;
+
+  /// No description provided for @runTestsEmpty.
+  ///
+  /// In tr, this message translates to:
+  /// **'Henüz test çalıştırılmadı'**
+  String get runTestsEmpty;
+
+  /// No description provided for @runTestsSent.
+  ///
+  /// In tr, this message translates to:
+  /// **'Gönderildi'**
+  String get runTestsSent;
+
+  /// No description provided for @runTestsQueued.
+  ///
+  /// In tr, this message translates to:
+  /// **'Sıraya alındı'**
+  String get runTestsQueued;
+
+  /// No description provided for @runTestsCallType.
+  ///
+  /// In tr, this message translates to:
+  /// **'Test araması'**
+  String get runTestsCallType;
+
+  /// No description provided for @runTestsSmsType.
+  ///
+  /// In tr, this message translates to:
+  /// **'Test SMS\'i'**
+  String get runTestsSmsType;
+
+  /// No description provided for @runTestsNotificationType.
+  ///
+  /// In tr, this message translates to:
+  /// **'Test bildirimi'**
+  String get runTestsNotificationType;
+
+  /// No description provided for @runTestsNotConnected.
+  ///
+  /// In tr, this message translates to:
+  /// **'Testleri çalıştırmak için eşleşmiş bir cihaza bağlı olmalısınız'**
+  String get runTestsNotConnected;
+
   /// No description provided for @settingsKeepPermissions.
   ///
   /// In tr, this message translates to:
@@ -925,6 +991,36 @@ abstract class AppLocalizations {
   /// In tr, this message translates to:
   /// **'Yanıtınızı yazın...'**
   String get smsReplyHint;
+
+  /// No description provided for @runTestsCallLabel.
+  ///
+  /// In tr, this message translates to:
+  /// **'MirrorLine Test Araması'**
+  String get runTestsCallLabel;
+
+  /// No description provided for @runTestsSmsBody.
+  ///
+  /// In tr, this message translates to:
+  /// **'Bu, MirrorLine tanılamasından gelen bir test SMS\'idir.'**
+  String get runTestsSmsBody;
+
+  /// No description provided for @runTestsNotificationApp.
+  ///
+  /// In tr, this message translates to:
+  /// **'MirrorLine Testi'**
+  String get runTestsNotificationApp;
+
+  /// No description provided for @runTestsNotificationTitle.
+  ///
+  /// In tr, this message translates to:
+  /// **'Test Bildirimi'**
+  String get runTestsNotificationTitle;
+
+  /// No description provided for @runTestsNotificationBody.
+  ///
+  /// In tr, this message translates to:
+  /// **'Bu, MirrorLine tanılamasından gelen bir test bildirimidir.'**
+  String get runTestsNotificationBody;
 
   /// No description provided for @notificationsEmpty.
   ///
