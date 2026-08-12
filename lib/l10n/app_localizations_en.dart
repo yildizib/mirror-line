@@ -292,6 +292,41 @@ class AppLocalizationsEn extends AppLocalizations {
   String get watchedAppsSearchHint => 'Search apps...';
 
   @override
+  String get settingsRunTests => 'Run tests';
+
+  @override
+  String get settingsRunTestsDesc =>
+      'Send a fake call, SMS and notification to the paired device';
+
+  @override
+  String get runTestsTitle => 'Run tests';
+
+  @override
+  String get runTestsButton => 'Run tests';
+
+  @override
+  String get runTestsEmpty => 'No tests run yet';
+
+  @override
+  String get runTestsSent => 'Sent';
+
+  @override
+  String get runTestsQueued => 'Queued';
+
+  @override
+  String get runTestsCallType => 'Test call';
+
+  @override
+  String get runTestsSmsType => 'Test SMS';
+
+  @override
+  String get runTestsNotificationType => 'Test notification';
+
+  @override
+  String get runTestsNotConnected =>
+      'You must be connected to a paired device to run tests';
+
+  @override
   String get settingsKeepPermissions => 'Don\'t remove permissions when unused';
 
   @override
