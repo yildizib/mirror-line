@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:mirrorline/l10n/app_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mirrorline/core/theme/theme.dart';
-import 'package:mirrorline/features/sms/sms_list_provider.dart';
+import 'package:mirrorline/features/sms/sms_facade.dart';
 import 'package:mirrorline/features/sms/sms_thread_provider.dart';
 import 'package:mirrorline/features/sms/sms_thread_screen.dart';
 import 'package:mirrorline/features/sms/widgets/sms_thread_tile.dart';
@@ -110,7 +110,7 @@ class _SmsScreenState extends ConsumerState<SmsScreen> {
           ),
           TextButton(
             onPressed: () async {
-              final notifier = ref.read(smsListProvider.notifier);
+              final notifier = ref.read(smsFacadeProvider.notifier);
               for (final address in _selected.toList()) {
                 await notifier.removeThread(address);
               }

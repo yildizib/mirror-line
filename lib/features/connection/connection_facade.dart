@@ -25,10 +25,9 @@ import 'package:mirrorline/features/connection/connection_status_provider.dart';
 import 'package:mirrorline/features/connection/force_connect_strategy.dart';
 import 'package:mirrorline/features/connection/peer_discovery_coordinator.dart';
 import 'package:mirrorline/features/connection/reconnect_scheduler.dart';
-import 'package:mirrorline/features/connection/sms_event_handler.dart';
 import 'package:mirrorline/features/pairing/pairing_provider.dart';
 import 'package:mirrorline/features/pairing/peer_provider.dart';
-import 'package:mirrorline/features/sms/sms_list_provider.dart';
+import 'package:mirrorline/features/sms/sms_facade.dart';
 import 'package:uuid/uuid.dart';
 import 'dart:io';
 
@@ -105,15 +104,6 @@ class ConnectionFacade extends StateNotifier<bool>
   int? _lastAcceptedMessageTimestamp;
   bool _disposed = false;
 
-  // SMS native-event and peer-message handling lives in its own class (see
-  // sms_event_handler.dart) so this notifier's own job -- owning the
-  // socket and the connection lifecycle -- stays readable on its own.
-  // Constructed here (not as a field initializer) because its callbacks
-  // are tear-offs of this instance's own methods, which need `this` to be
-  // fully alive first. (Calls' equivalent, CallEventHandler, has already
-  // been absorbed into CallFacade -- see call_facade.dart.)
-  late final SmsEventHandler _smsHandler;
-
   // Owns the periodic/backoff reconnect timer against the stored peer
   // address. Callbacks are tear-offs of this instance (see the comment
   // above), so constructed in the constructor body alongside the handlers.
@@ -150,13 +140,6 @@ class ConnectionFacade extends StateNotifier<bool>
       getDeviceName: () => _selfDiscoveryName ?? _peer?.deviceName ?? '',
       getAllLocalIps: () => _allLocalIps,
       getExpectedPeerId: () => _peer?.id,
-    );
-    _smsHandler = SmsEventHandler(
-      ref: _ref,
-      logger: _logger,
-      isSource: () => isSource,
-      sendOrQueue: _sendOrQueue,
-      notify: _notify,
     );
     _init();
   }
@@ -221,7 +204,7 @@ class ConnectionFacade extends StateNotifier<bool>
     // so devices recover on their own instead of requiring the app to be
     // killed and reopened.
     _healthTimer ??= Timer.periodic(_retryInterval, (_) {
-      _ref.read(smsListProvider.notifier).failStalePending(_pendingSmsTimeout);
+      _ref.read(smsFacadeProvider.notifier).failStalePending(_pendingSmsTimeout);
       if (_connecting || state) return;
       refresh();
       _maybeRunFallbackScan();
@@ -963,7 +946,9 @@ class ConnectionFacade extends StateNotifier<bool>
             .read(callFacadeProvider.notifier)
             .handleNativeEvent(data, id: id, now: now);
       } else if (type == 'onSms') {
-        await _smsHandler.handleNativeEvent(data, id: id, now: now);
+        await _ref
+            .read(smsFacadeProvider.notifier)
+            .handleNativeEvent(data, id: id, now: now);
       } else if (type == 'onNotification') {
         final packageName = (data['packageName'] as String?) ?? 'unknown';
         final appName = (data['appName'] as String?) ?? packageName;
@@ -1035,12 +1020,9 @@ class ConnectionFacade extends StateNotifier<bool>
       case MessageTypes.smsIncoming:
       case MessageTypes.smsOutgoing:
       case MessageTypes.smsStatus:
-        await _smsHandler.handleIncomingMessage(
-          message.type,
-          payload,
-          message,
-          now,
-        );
+        await _ref
+            .read(smsFacadeProvider.notifier)
+            .handleIncomingMessage(message.type, payload, message, now);
         break;
 
       case MessageTypes.ack:
@@ -1151,7 +1133,9 @@ class ConnectionFacade extends StateNotifier<bool>
       _ref.read(callFacadeProvider.notifier).sendCallRejected(callId);
 
   Future<bool> sendSmsNotification(String address, String body, {String? id}) =>
-      _smsHandler.sendSmsNotification(address, body, id: id);
+      _ref
+          .read(smsFacadeProvider.notifier)
+          .sendSmsNotification(address, body, id: id);
 
   Future<bool> sendReplySms(
     String address,
@@ -1159,13 +1143,15 @@ class ConnectionFacade extends StateNotifier<bool>
     String? id,
     String? contactName,
     String? threadId,
-  }) => _smsHandler.sendReplySms(
-    address,
-    body,
-    id: id,
-    contactName: contactName,
-    threadId: threadId,
-  );
+  }) => _ref
+      .read(smsFacadeProvider.notifier)
+      .sendReplySms(
+        address,
+        body,
+        id: id,
+        contactName: contactName,
+        threadId: threadId,
+      );
 
   Future<void> _flushQueue() async {
     final items = await _queue.pendingItems();
@@ -1209,7 +1195,7 @@ class ConnectionFacade extends StateNotifier<bool>
       case MessageTypes.smsOutgoing:
       case MessageTypes.smsStatus:
         await _ref
-            .read(smsListProvider.notifier)
+            .read(smsFacadeProvider.notifier)
             .updateStatus(entryId, 'failed');
         break;
       case MessageTypes.callIncoming:
