@@ -65,7 +65,9 @@ class _FeedTile extends StatelessWidget {
           ),
         );
       case SmsFeedItem(:final message):
-        icon = Icons.message_rounded;
+        icon = message.direction == 'incoming'
+            ? Icons.sms_rounded
+            : Icons.send_rounded;
         title = message.displayName(l);
         subtitle = message.body;
         timestamp = message.timestamp;
