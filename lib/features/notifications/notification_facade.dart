@@ -98,6 +98,33 @@ class NotificationFacade extends StateNotifier<List<NotificationEvent>> {
     state = [];
   }
 
+  /// Sends a synthetic notification-mirrored message, bypassing
+  /// handleNativeEvent's native-map/self-package/watched-apps gating --
+  /// for the Settings diagnostics "Run Tests" button (issue #42), which
+  /// needs to broadcast a fake event regardless of watched-apps state.
+  /// Uses a fixed synthetic packageName so repeated test runs group
+  /// together under one recognizable "app" on the receiving device,
+  /// distinct from any real installed app. Not persisted locally on the
+  /// sending device, matching CallFacade.sendCallNotification/
+  /// SmsFacade.sendSmsNotification -- the sender doesn't get a mirrored
+  /// copy of its own outgoing event.
+  Future<bool> sendTestNotification({
+    required String appName,
+    required String title,
+    required String text,
+  }) {
+    final nativeId = const Uuid().v4();
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    return _sendOrQueue(MessageTypes.notificationMirrored, {
+      'nativeId': nativeId,
+      'packageName': 'mirrorline.diagnostics.test',
+      'appName': appName,
+      'title': title,
+      'text': text,
+      'timestamp': timestamp,
+    });
+  }
+
   // -----------------------------------------------------------------------
   // Native events (Source device only)
   // -----------------------------------------------------------------------

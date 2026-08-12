@@ -154,4 +154,40 @@ void main() {
       );
     },
   );
+
+  test(
+    'sendTestNotification sends regardless of watched-apps state and does not persist locally',
+    () async {
+      final sent = <MapEntry<String, Map<String, dynamic>>>[];
+      final container = buildContainer(sent);
+      final facade = container.read(notificationFacadeProvider.notifier);
+      final watchedApps = container.read(watchedAppsProvider.notifier);
+      await facade.load();
+      await watchedApps.load();
+
+      // No packages watched (default in tests) -- sendTestNotification
+      // must not be gated by this, unlike handleNativeEvent.
+      expect(watchedApps.isWatched('mirrorline.diagnostics.test'), isFalse);
+
+      final delivered = await facade.sendTestNotification(
+        appName: 'Test App',
+        title: 'Test Title',
+        text: 'Test body',
+      );
+
+      expect(delivered, isTrue);
+      expect(
+        facade.state,
+        isEmpty,
+        reason: 'sender does not get a local copy of its own test event',
+      );
+      final message = sent.singleWhere(
+        (e) => e.key == 'notification_mirrored',
+      );
+      expect(message.value['packageName'], 'mirrorline.diagnostics.test');
+      expect(message.value['appName'], 'Test App');
+      expect(message.value['title'], 'Test Title');
+      expect(message.value['text'], 'Test body');
+    },
+  );
 }
