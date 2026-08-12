@@ -24,6 +24,7 @@ import 'package:mirrorline/features/calls/call_list_provider.dart';
 import 'package:mirrorline/features/connection/call_event_handler.dart';
 import 'package:mirrorline/features/connection/connection_status_provider.dart';
 import 'package:mirrorline/features/connection/force_connect_strategy.dart';
+import 'package:mirrorline/features/connection/reconnect_scheduler.dart';
 import 'package:mirrorline/features/connection/sms_event_handler.dart';
 import 'package:mirrorline/features/pairing/pairing_provider.dart';
 import 'package:mirrorline/features/pairing/peer_provider.dart';
@@ -51,8 +52,6 @@ class ConnectionFacade extends StateNotifier<bool>
   // never get marked either way -- this is a connection-state-independent
   // backstop so "Gönderiliyor" doesn't linger forever.
   static const Duration _pendingSmsTimeout = Duration(minutes: 2);
-  static const Duration _reconnectInitialDelay = Duration(seconds: 2);
-  static const Duration _reconnectMaxDelay = Duration(seconds: 30);
   // Fallback active network scan (see SubnetScanner): only kicks in after
   // being disconnected this long (beacon/direct-IP get a fair chance
   // first), and won't run again more often than this -- scanning ~254
@@ -82,11 +81,14 @@ class ConnectionFacade extends StateNotifier<bool>
   String? _lastDiscoveredIp;
   DateTime? _disconnectedSince;
   DateTime? _lastScanAt;
-  int _reconnectAttempts = 0;
   // Bumped whenever a forced reconnect abandons an in-flight _connectTo()
   // call, so that stale call's post-await continuation (recordConnectAttempt,
-  // _reconnectAttempts++, _scheduleReconnect, resetting _connecting) is
-  // skipped instead of stomping on the newer attempt it was superseded by.
+  // _maybeScheduleReconnect, resetting _connecting) is skipped instead of
+  // stomping on the newer attempt it was superseded by. Deliberately kept
+  // separate from ReconnectScheduler's own internal generation counter --
+  // this one guards ConnectionFacade's own async continuations across
+  // fallback-scan and network-changed paths, not just timer-driven
+  // reconnects, so the two must not be conflated.
   int _connectGeneration = 0;
   // Guards against an active on-path attacker (e.g. ARP spoofing into an
   // already-authenticated TCP session) replaying a previously captured,
@@ -108,7 +110,29 @@ class ConnectionFacade extends StateNotifier<bool>
   late final CallEventHandler _callHandler;
   late final SmsEventHandler _smsHandler;
 
+  // Owns the periodic/backoff reconnect timer against the stored peer
+  // address. Callbacks are tear-offs of this instance (see the comment
+  // above), so constructed in the constructor body alongside the handlers.
+  late final ReconnectScheduler _reconnectScheduler;
+
   ConnectionFacade(this._ref) : super(false) {
+    _reconnectScheduler = ReconnectScheduler(
+      logger: _logger,
+      onReconnect: (ip, port) async {
+        final ok = await _connectTo(ip, port);
+        if (!ok) {
+          // _connectTo already re-armed a guarded retry via
+          // _maybeScheduleReconnect() below; throwing here additionally
+          // lets the scheduler's own catch block increment its attempt
+          // counter so backoff actually grows across scheduler-driven
+          // retries (harmless redundant reschedule for this one path --
+          // scheduleReconnect() always cancels+replaces the pending timer).
+          throw StateError('Scheduled reconnect to $ip:$port failed');
+        }
+      },
+      getPeerIp: () => _lastDiscoveredIp ?? _peer?.ip,
+      getPeerPort: () => _peer?.port ?? 0,
+    );
     _callHandler = CallEventHandler(
       ref: _ref,
       logger: _logger,
@@ -147,7 +171,7 @@ class ConnectionFacade extends StateNotifier<bool>
       if (isOnline) {
         _logger.i('Network back online. Reconnecting...');
         refresh();
-        _scheduleReconnect();
+        _maybeScheduleReconnect();
       } else {
         _logger.i(
           'Network offline. Dropping stale connection, pausing attempts.',
@@ -199,7 +223,7 @@ class ConnectionFacade extends StateNotifier<bool>
     if (state == AppLifecycleState.resumed) {
       _socketManager?.setBackgroundMode(false);
       refresh();
-      _scheduleReconnect();
+      _maybeScheduleReconnect();
     } else if (state == AppLifecycleState.paused) {
       _socketManager?.setBackgroundMode(true);
     }
@@ -367,8 +391,21 @@ class ConnectionFacade extends StateNotifier<bool>
 
     // Periodic retries now come from the role-agnostic _healthTimer (see
     // _init()), which calls refresh() -- this immediate attempt just
-    // avoids waiting a full interval before the first try.
-    await _tryConnectToStoredPeer();
+    // avoids waiting a full interval before the first try. Inlined from
+    // the old _tryConnectToStoredPeer() (now deleted) since it has only
+    // this one remaining call site, and routing it through
+    // ReconnectScheduler would add a mandatory 2s+ delay this immediate
+    // first-try attempt never had.
+    if (!isSource && !state && !_connecting) {
+      final ip = _lastDiscoveredIp ?? peer.ip;
+      if (ip.isEmpty || ip == 'unknown') {
+        _ref
+            .read(connectionStatusProvider.notifier)
+            .recordConnectAttempt(ConnectionErrorCode.peerIpUnknown);
+      } else {
+        await _connectTo(ip, peer.port);
+      }
+    }
   }
 
   SocketManager _createSocketManager() {
@@ -377,7 +414,7 @@ class ConnectionFacade extends StateNotifier<bool>
       onConnected: () {
         state = true;
         _disconnectedSince = null;
-        _reconnectAttempts = 0;
+        _reconnectScheduler.markConnected();
         _lastAcceptedMessageTimestamp = null;
         _ref.read(connectionStatusProvider.notifier).clearError();
         _logger.i('Socket connected and authenticated!');
@@ -404,7 +441,7 @@ class ConnectionFacade extends StateNotifier<bool>
         );
         _broadcaster.setThrottle(false);
         _listener.setThrottle(false);
-        _scheduleReconnect();
+        _maybeScheduleReconnect();
       },
     );
     _configureAuth(sm);
@@ -424,57 +461,27 @@ class ConnectionFacade extends StateNotifier<bool>
     );
   }
 
-  /// Schedules a reconnect attempt with exponential backoff: 2s, 4s, 8s,
-  /// 16s, 30s (capped). The delay doubles after each failed attempt and
-  /// resets to 2s once a connection succeeds (see _createSocketManager's
-  /// onConnected). This replaces the old single-shot 2s retry, which gave
-  /// up after one try and then waited up to 10s for the health timer --
-  /// making the app feel unresponsive when the screen was turned back on
-  /// after a disconnect.
+  /// Arms [_reconnectScheduler] for a backoff-timed retry, preserving the
+  /// exact guard conditions the old inline scheduling logic enforced --
+  /// the scheduler itself is role/state-agnostic (it just runs a timer
+  /// against whatever `getPeerIp`/`getPeerPort` currently return), so
+  /// every call site must gate it the same way here rather than relying on
+  /// the scheduler to know when it shouldn't run.
   ///
   /// **Source guard:** Source never dials out -- it only listens. Without
   /// this guard, an onDisconnected callback on Source would schedule a
-  /// _tryConnectToStoredPeer -> _connectTo call on Source's own socket
-  /// manager, which would flip `_isServer = false` (see SocketManager.
-  /// connect) and destroy the server socket's ability to accept incoming
-  /// connections. This was a root cause of the "auth timeout on 1st-2nd
-  /// attempt, succeeds on 3rd" pattern: each failed reconnect attempt
-  /// silently broke Source's server, and only the next incoming
-  /// connection from Main eventually revived it.
-  void _scheduleReconnect() {
+  /// reconnect -> _connectTo call on Source's own socket manager, which
+  /// would flip `_isServer = false` (see SocketManager.connect) and
+  /// destroy the server socket's ability to accept incoming connections.
+  /// This was a root cause of the "auth timeout on 1st-2nd attempt,
+  /// succeeds on 3rd" pattern: each failed reconnect attempt silently
+  /// broke Source's server, and only the next incoming connection from
+  /// Main eventually revived it.
+  void _maybeScheduleReconnect() {
     if (_peer == null || _key == null) return;
     if (isSource) return; // Source never dials out
     if (state || _connecting) return;
-    final delay = _reconnectInitialDelay * (1 << _reconnectAttempts);
-    final clampedDelay = delay > _reconnectMaxDelay
-        ? _reconnectMaxDelay
-        : delay;
-    _logger.i(
-      'Scheduling reconnect in ${clampedDelay.inSeconds}s (attempt ${_reconnectAttempts + 1}).',
-    );
-    Future.delayed(clampedDelay, () {
-      if (!state && !_connecting) {
-        _tryConnectToStoredPeer();
-      }
-    });
-  }
-
-  Future<void> _tryConnectToStoredPeer() async {
-    final peer = _peer;
-    final key = _key;
-    if (peer == null || key == null) return;
-    if (isSource) return; // Source never dials out
-    if (state || _connecting) return;
-
-    final ip = _lastDiscoveredIp ?? peer.ip;
-    if (ip.isEmpty || ip == 'unknown') {
-      _ref
-          .read(connectionStatusProvider.notifier)
-          .recordConnectAttempt(ConnectionErrorCode.peerIpUnknown);
-      return;
-    }
-
-    await _connectTo(ip, peer.port);
+    _reconnectScheduler.scheduleReconnect();
   }
 
   Future<bool> _connectTo(
@@ -528,8 +535,7 @@ class ConnectionFacade extends StateNotifier<bool>
               DiscoveryState.failed,
               detail: 'Failed to connect to $ip:$port',
             );
-        _reconnectAttempts++;
-        _scheduleReconnect();
+        _maybeScheduleReconnect();
       }
       return ok;
     } finally {
@@ -727,9 +733,9 @@ class ConnectionFacade extends StateNotifier<bool>
   /// connection may be stale, so we react immediately instead of waiting.
   ///
   /// **Fast reconnect:** runs the fallback scan with `force: true` so the
-  /// 60s scan backoff doesn't block discovery after a roam, and schedules
-  /// a reconnect with no extra delay (the first attempt starts right away
-  /// via the health-timer-less `_tryConnectToStoredPeer` path). The beacon
+  /// 60s scan backoff doesn't block discovery after a roam, and resets
+  /// ReconnectScheduler's backoff to the fast cadence via
+  /// `_reconnectScheduler.forceReconnect()`. The beacon
   /// listener is un-throttled to fast cadence (3s) so a beacon from the
   /// peer lands as quickly as possible.
   /// Validates that a string is a valid IP address (IPv4 or IPv6).
@@ -760,9 +766,6 @@ class ConnectionFacade extends StateNotifier<bool>
     // below -- same pattern forceReconnect()/_maybeRunFallbackScan use.
     _connectGeneration++;
     _connecting = false;
-    // The reconnect backoff was accumulated against the old network's
-    // failures; a roam is a fresh state, so start from the fast cadence.
-    _reconnectAttempts = 0;
 
     // Don't wait for the heartbeat timeout to notice the old socket is
     // dead -- same teardown _connectivity.onChanged's offline branch
@@ -794,7 +797,14 @@ class ConnectionFacade extends StateNotifier<bool>
     // network changed. The scan runs in parallel with the scheduled
     // reconnect below (which tries the stored peer IP directly).
     _maybeRunFallbackScan(immediate: true, force: true);
-    _scheduleReconnect();
+    // Reconnect backoff was accumulated against the old network's
+    // failures; a roam is a fresh state, so reset attempts to 0 and
+    // schedule immediately -- ReconnectScheduler.forceReconnect() does
+    // both in one call (it also bumps the scheduler's own generation,
+    // abandoning any stale scheduler-driven attempt against the old
+    // network -- independent of _connectGeneration above, which guards
+    // this method's own continuations, not the scheduler's).
+    _reconnectScheduler.forceReconnect();
   }
 
   /// Fast path for reconnecting to a previously-seen network: before
