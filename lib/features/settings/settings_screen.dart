@@ -13,6 +13,7 @@ import 'package:mirrorline/features/pairing/pairing_screen.dart';
 import 'package:mirrorline/features/pairing/peer_facade.dart';
 import 'package:mirrorline/features/pairing/role_selection_screen.dart';
 import 'package:mirrorline/features/pairing/widgets/qr_display.dart';
+import 'package:mirrorline/features/settings/settings_controller.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -676,9 +677,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             color: theme.colorScheme.error,
           ),
           onPressed: () async {
-            await ref.read(peerFacadeProvider.notifier).deletePeer(p);
-            ref.invalidate(pairedPeersProvider);
-            await ref.read(connectionFacadeProvider.notifier).refresh();
+            await ref.read(settingsControllerProvider).deletePeer(p);
           },
         ),
       ),
@@ -703,9 +702,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ),
           TextButton(
             onPressed: () async {
-              await ref.read(connectionFacadeProvider.notifier).stopAll();
-              await ref.read(peerFacadeProvider.notifier).reset();
-              ref.invalidate(pairedPeersProvider);
+              await ref.read(settingsControllerProvider).resetDevice();
               if (context.mounted) {
                 Navigator.pop(context);
                 ScaffoldMessenger.of(
