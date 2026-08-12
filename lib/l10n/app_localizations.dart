@@ -584,6 +584,30 @@ abstract class AppLocalizations {
   /// **'Diğer telefondan bildirimleri yansıtmak için gerekli'**
   String get settingsNotifAccessDesc;
 
+  /// No description provided for @settingsWatchedApps.
+  ///
+  /// In tr, this message translates to:
+  /// **'İzlenen uygulamalar'**
+  String get settingsWatchedApps;
+
+  /// No description provided for @settingsWatchedAppsDesc.
+  ///
+  /// In tr, this message translates to:
+  /// **'Bildirimleri yansıtılacak uygulamaları seç'**
+  String get settingsWatchedAppsDesc;
+
+  /// No description provided for @watchedAppsTitle.
+  ///
+  /// In tr, this message translates to:
+  /// **'İzlenen uygulamalar'**
+  String get watchedAppsTitle;
+
+  /// No description provided for @watchedAppsSearchHint.
+  ///
+  /// In tr, this message translates to:
+  /// **'Uygulama ara...'**
+  String get watchedAppsSearchHint;
+
   /// No description provided for @settingsKeepPermissions.
   ///
   /// In tr, this message translates to:

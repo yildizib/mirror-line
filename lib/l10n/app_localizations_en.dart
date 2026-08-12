@@ -270,6 +270,19 @@ class AppLocalizationsEn extends AppLocalizations {
       'Required to mirror notifications from the other phone';
 
   @override
+  String get settingsWatchedApps => 'Watched apps';
+
+  @override
+  String get settingsWatchedAppsDesc =>
+      'Choose which apps\' notifications get mirrored';
+
+  @override
+  String get watchedAppsTitle => 'Watched apps';
+
+  @override
+  String get watchedAppsSearchHint => 'Search apps...';
+
+  @override
   String get settingsKeepPermissions => 'Don\'t remove permissions when unused';
 
   @override

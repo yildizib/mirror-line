@@ -271,6 +271,19 @@ class AppLocalizationsTr extends AppLocalizations {
       'Diğer telefondan bildirimleri yansıtmak için gerekli';
 
   @override
+  String get settingsWatchedApps => 'İzlenen uygulamalar';
+
+  @override
+  String get settingsWatchedAppsDesc =>
+      'Bildirimleri yansıtılacak uygulamaları seç';
+
+  @override
+  String get watchedAppsTitle => 'İzlenen uygulamalar';
+
+  @override
+  String get watchedAppsSearchHint => 'Uygulama ara...';
+
+  @override
   String get settingsKeepPermissions => 'Kullanılmıyorsa izinleri kaldırma';
 
   @override
