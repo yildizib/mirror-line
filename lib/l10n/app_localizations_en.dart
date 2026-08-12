@@ -462,6 +462,23 @@ class AppLocalizationsEn extends AppLocalizations {
   String get smsReplyHint => 'Type your reply...';
 
   @override
+  String get runTestsCallLabel => 'MirrorLine Test Call';
+
+  @override
+  String get runTestsSmsBody =>
+      'This is a test SMS from MirrorLine diagnostics.';
+
+  @override
+  String get runTestsNotificationApp => 'MirrorLine Test';
+
+  @override
+  String get runTestsNotificationTitle => 'Test Notification';
+
+  @override
+  String get runTestsNotificationBody =>
+      'This is a test notification from MirrorLine diagnostics.';
+
+  @override
   String get notificationsEmpty => 'No notifications yet';
 
   @override

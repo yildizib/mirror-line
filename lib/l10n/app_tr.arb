@@ -286,6 +286,17 @@
   "smsReplyHint": "Yanıtınızı yazın...",
   "@smsReplyHint": {},
 
+  "runTestsCallLabel": "MirrorLine Test Araması",
+  "@runTestsCallLabel": {},
+  "runTestsSmsBody": "Bu, MirrorLine tanılamasından gelen bir test SMS'idir.",
+  "@runTestsSmsBody": {},
+  "runTestsNotificationApp": "MirrorLine Testi",
+  "@runTestsNotificationApp": {},
+  "runTestsNotificationTitle": "Test Bildirimi",
+  "@runTestsNotificationTitle": {},
+  "runTestsNotificationBody": "Bu, MirrorLine tanılamasından gelen bir test bildirimidir.",
+  "@runTestsNotificationBody": {},
+
   "notificationsEmpty": "Henüz bildirim yok",
   "@notificationsEmpty": {},
   "notificationsSelectedCount": "{count} seçili",

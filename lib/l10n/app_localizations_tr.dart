@@ -463,6 +463,23 @@ class AppLocalizationsTr extends AppLocalizations {
   String get smsReplyHint => 'Yanıtınızı yazın...';
 
   @override
+  String get runTestsCallLabel => 'MirrorLine Test Araması';
+
+  @override
+  String get runTestsSmsBody =>
+      'Bu, MirrorLine tanılamasından gelen bir test SMS\'idir.';
+
+  @override
+  String get runTestsNotificationApp => 'MirrorLine Testi';
+
+  @override
+  String get runTestsNotificationTitle => 'Test Bildirimi';
+
+  @override
+  String get runTestsNotificationBody =>
+      'Bu, MirrorLine tanılamasından gelen bir test bildirimidir.';
+
+  @override
   String get notificationsEmpty => 'Henüz bildirim yok';
 
   @override

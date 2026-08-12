@@ -926,6 +926,36 @@ abstract class AppLocalizations {
   /// **'Yanıtınızı yazın...'**
   String get smsReplyHint;
 
+  /// No description provided for @runTestsCallLabel.
+  ///
+  /// In tr, this message translates to:
+  /// **'MirrorLine Test Araması'**
+  String get runTestsCallLabel;
+
+  /// No description provided for @runTestsSmsBody.
+  ///
+  /// In tr, this message translates to:
+  /// **'Bu, MirrorLine tanılamasından gelen bir test SMS\'idir.'**
+  String get runTestsSmsBody;
+
+  /// No description provided for @runTestsNotificationApp.
+  ///
+  /// In tr, this message translates to:
+  /// **'MirrorLine Testi'**
+  String get runTestsNotificationApp;
+
+  /// No description provided for @runTestsNotificationTitle.
+  ///
+  /// In tr, this message translates to:
+  /// **'Test Bildirimi'**
+  String get runTestsNotificationTitle;
+
+  /// No description provided for @runTestsNotificationBody.
+  ///
+  /// In tr, this message translates to:
+  /// **'Bu, MirrorLine tanılamasından gelen bir test bildirimidir.'**
+  String get runTestsNotificationBody;
+
   /// No description provided for @notificationsEmpty.
   ///
   /// In tr, this message translates to:
