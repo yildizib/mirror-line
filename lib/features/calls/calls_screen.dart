@@ -21,6 +21,7 @@ class CallsScreen extends ConsumerWidget {
     return SelectableListScaffold(
       items: groups,
       itemKey: (group) => group.key,
+      dateHeaderOf: (group) => group.lastCall.timestamp,
       itemBuilder: (context, group, isSelecting, isSelected, onTapSelect) =>
           _GroupedCallCard(
             group: group,

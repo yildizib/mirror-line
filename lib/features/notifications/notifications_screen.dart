@@ -19,6 +19,7 @@ class NotificationsScreen extends ConsumerWidget {
     return SelectableListScaffold(
       items: groups,
       itemKey: (group) => group.key,
+      dateHeaderOf: (group) => group.lastEvent.timestamp,
       itemBuilder: (context, group, isSelecting, isSelected, onTapSelect) =>
           _GroupedNotificationCard(
             group: group,
@@ -148,6 +149,16 @@ class _GroupedNotificationCard extends StatelessWidget {
                   ],
                 ),
               ),
+              Padding(
+                padding: const EdgeInsets.only(left: AppSpacing.sm),
+                child: Text(
+                  _formatTime(last.timestamp),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
               if (multi)
                 Padding(
                   padding: const EdgeInsets.only(left: AppSpacing.sm),
@@ -175,5 +186,16 @@ class _GroupedNotificationCard extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  String _formatTime(DateTime time) {
+    final now = DateTime.now();
+    final sameDay =
+        time.year == now.year && time.month == now.month && time.day == now.day;
+    final hh = time.hour.toString().padLeft(2, '0');
+    final mm = time.minute.toString().padLeft(2, '0');
+    if (sameDay) return '$hh:$mm';
+    return '${time.day.toString().padLeft(2, '0')}.${time.month.toString().padLeft(2, '0')} '
+        '$hh:$mm';
   }
 }
