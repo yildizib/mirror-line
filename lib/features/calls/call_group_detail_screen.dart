@@ -48,6 +48,7 @@ class CallGroupDetailScreen extends ConsumerWidget {
     return SelectableListScaffold<CallEvent>(
       items: resolvedGroup.calls,
       itemKey: (event) => event.id,
+      dateHeaderOf: (event) => event.timestamp,
       itemBuilder: (context, event, isSelecting, isSelected, onTapSelect) =>
           _CallDetailTile(
             event: event,
@@ -181,6 +182,6 @@ class _CallDetailTile extends StatelessWidget {
     final mm = time.minute.toString().padLeft(2, '0');
     final l = AppLocalizations.of(context);
     if (sameDay) return '${l.commonToday} $hh:$mm';
-    return '${time.day.toString().padLeft(2, '0')}.${time.month.toString().padLeft(2, '0')}.$time.year $hh:$mm';
+    return '${time.day.toString().padLeft(2, '0')}.${time.month.toString().padLeft(2, '0')}.${time.year} $hh:$mm';
   }
 }

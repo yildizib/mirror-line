@@ -997,6 +997,12 @@ abstract class AppLocalizations {
   /// In tr, this message translates to:
   /// **'Bugün'**
   String get commonToday;
+
+  /// No description provided for @commonYesterday.
+  ///
+  /// In tr, this message translates to:
+  /// **'Dün'**
+  String get commonYesterday;
 }
 
 class _AppLocalizationsDelegate

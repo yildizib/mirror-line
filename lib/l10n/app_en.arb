@@ -161,5 +161,6 @@
   "commonError": "Error: {error}",
   "commonSelect": "Select",
   "commonDeleteSelected": "Delete selected",
-  "commonToday": "Today"
+  "commonToday": "Today",
+  "commonYesterday": "Yesterday"
 }

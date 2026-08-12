@@ -47,6 +47,7 @@ class NotificationGroupDetailScreen extends ConsumerWidget {
     return SelectableListScaffold<NotificationEvent>(
       items: resolvedGroup.events,
       itemKey: (event) => event.id,
+      dateHeaderOf: (event) => event.timestamp,
       itemBuilder: (context, event, isSelecting, isSelected, onTapSelect) =>
           _NotificationDetailTile(
             event: event,

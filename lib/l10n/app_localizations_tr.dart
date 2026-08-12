@@ -507,4 +507,7 @@ class AppLocalizationsTr extends AppLocalizations {
 
   @override
   String get commonToday => 'Bugün';
+
+  @override
+  String get commonYesterday => 'Dün';
 }

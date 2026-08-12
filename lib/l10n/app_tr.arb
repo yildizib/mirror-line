@@ -310,5 +310,7 @@
   "commonDeleteSelected": "Seçilenleri sil",
   "@commonDeleteSelected": {},
   "commonToday": "Bugün",
-  "@commonToday": {}
+  "@commonToday": {},
+  "commonYesterday": "Dün",
+  "@commonYesterday": {}
 }

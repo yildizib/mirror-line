@@ -6,6 +6,7 @@ import 'package:mirrorline/core/theme/theme.dart';
 import 'package:mirrorline/features/connection/connection_facade.dart';
 import 'package:mirrorline/features/sms/sms_facade.dart';
 import 'package:mirrorline/features/sms/widgets/sms_bubble.dart';
+import 'package:mirrorline/shared/widgets/date_grouped_list.dart';
 
 /// Full conversation with one address: every message exchanged with them,
 /// oldest first, chat-bubble style, with the reply composer inline at the
@@ -113,12 +114,16 @@ class _SmsThreadScreenState extends ConsumerState<SmsThreadScreen> {
       body: Column(
         children: [
           Expanded(
-            child: ListView.builder(
+            child: ListView(
               controller: _scrollController,
               padding: const EdgeInsets.all(AppSpacing.md),
-              itemCount: messages.length,
-              itemBuilder: (context, index) =>
-                  SmsBubble(message: messages[index]),
+              children: buildDateGroupedItems(
+                context: context,
+                items: messages,
+                timestampOf: (message) => message.timestamp,
+                itemBuilder: (context, message) =>
+                    SmsBubble(message: message),
+              ),
             ),
           ),
           _ComposeBar(
