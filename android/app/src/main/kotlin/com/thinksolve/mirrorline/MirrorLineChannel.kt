@@ -128,6 +128,11 @@ object MirrorLineChannel {
                     val number = call.argument<String>("number") ?: ""
                     result.success(ContactResolver.resolveName(appContext, number))
                 }
+                "getInstalledApps" -> result.success(InstalledAppsResolver.list(appContext))
+                "getAppIcon" -> {
+                    val packageName = call.argument<String>("packageName") ?: ""
+                    result.success(InstalledAppsResolver.iconBytes(appContext, packageName))
+                }
                 else -> result.notImplemented()
             }
         }
