@@ -114,6 +114,37 @@ class _SelectableListScaffoldState<T> extends State<SelectableListScaffold<T>> {
   }
 
   PreferredSizeWidget? _buildAppBar() {
+    // AppBar-entry-point screens keep the same persistent title (e.g. a
+    // contact name + call count) in both modes -- only the leading/actions
+    // change. FAB-entry-point screens swap the title to the live selected
+    // count while selecting, and have no AppBar at all otherwise.
+    if (widget.useAppBarEntryPoint) {
+      return AppBar(
+        leading: _selecting
+            ? IconButton(
+                icon: const Icon(Icons.close_rounded),
+                onPressed: _exitSelectionMode,
+              )
+            : null,
+        title: widget.nonSelectingTitle,
+        actions: [
+          if (_selecting)
+            IconButton(
+              icon: const Icon(Icons.delete_rounded),
+              tooltip: widget.deleteTooltip,
+              onPressed: _selected.isEmpty
+                  ? null
+                  : () => _showDeleteDialog(context),
+            )
+          else
+            IconButton(
+              icon: const Icon(Icons.checklist_rounded),
+              tooltip: widget.selectModeTooltip,
+              onPressed: () => setState(() => _selecting = true),
+            ),
+        ],
+      );
+    }
     if (_selecting) {
       return AppBar(
         leading: IconButton(
@@ -128,18 +159,6 @@ class _SelectableListScaffoldState<T> extends State<SelectableListScaffold<T>> {
             onPressed: _selected.isEmpty
                 ? null
                 : () => _showDeleteDialog(context),
-          ),
-        ],
-      );
-    }
-    if (widget.useAppBarEntryPoint) {
-      return AppBar(
-        title: widget.nonSelectingTitle,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.checklist_rounded),
-            tooltip: widget.selectModeTooltip,
-            onPressed: () => setState(() => _selecting = true),
           ),
         ],
       );
