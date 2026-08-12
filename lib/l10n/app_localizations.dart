@@ -884,6 +884,54 @@ abstract class AppLocalizations {
   /// **'Yanıtınızı yazın...'**
   String get smsReplyHint;
 
+  /// No description provided for @notificationsEmpty.
+  ///
+  /// In tr, this message translates to:
+  /// **'Henüz bildirim yok'**
+  String get notificationsEmpty;
+
+  /// No description provided for @notificationsSelectedCount.
+  ///
+  /// In tr, this message translates to:
+  /// **'{count} seçili'**
+  String notificationsSelectedCount(int count);
+
+  /// No description provided for @notificationsDeleteSelected.
+  ///
+  /// In tr, this message translates to:
+  /// **'Seçilen bildirimleri sil'**
+  String get notificationsDeleteSelected;
+
+  /// No description provided for @notificationsDeleteConfirmBody.
+  ///
+  /// In tr, this message translates to:
+  /// **'{count} bildirim kalıcı olarak silinecek.'**
+  String notificationsDeleteConfirmBody(int count);
+
+  /// No description provided for @notificationsDeleted.
+  ///
+  /// In tr, this message translates to:
+  /// **'Seçilen bildirimler silindi'**
+  String get notificationsDeleted;
+
+  /// No description provided for @notificationsEventCount.
+  ///
+  /// In tr, this message translates to:
+  /// **'{count} bildirim'**
+  String notificationsEventCount(int count);
+
+  /// No description provided for @notificationsSelectMode.
+  ///
+  /// In tr, this message translates to:
+  /// **'Bildirimleri seç'**
+  String get notificationsSelectMode;
+
+  /// No description provided for @notificationsDeleteOne.
+  ///
+  /// In tr, this message translates to:
+  /// **'{count} bildirim kalıcı olarak silinecek.'**
+  String notificationsDeleteOne(int count);
+
   /// No description provided for @commonDelete.
   ///
   /// In tr, this message translates to:

@@ -440,6 +440,38 @@ class AppLocalizationsEn extends AppLocalizations {
   String get smsReplyHint => 'Type your reply...';
 
   @override
+  String get notificationsEmpty => 'No notifications yet';
+
+  @override
+  String notificationsSelectedCount(int count) {
+    return '$count selected';
+  }
+
+  @override
+  String get notificationsDeleteSelected => 'Delete selected notifications';
+
+  @override
+  String notificationsDeleteConfirmBody(int count) {
+    return '$count notification(s) will be permanently deleted.';
+  }
+
+  @override
+  String get notificationsDeleted => 'Selected notifications deleted';
+
+  @override
+  String notificationsEventCount(int count) {
+    return '$count notifications';
+  }
+
+  @override
+  String get notificationsSelectMode => 'Select notifications';
+
+  @override
+  String notificationsDeleteOne(int count) {
+    return '$count notification(s) will be permanently deleted.';
+  }
+
+  @override
   String get commonDelete => 'Delete';
 
   @override

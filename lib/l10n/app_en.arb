@@ -142,6 +142,15 @@
   "smsSelectMode": "Select messages",
   "smsReplyHint": "Type your reply...",
 
+  "notificationsEmpty": "No notifications yet",
+  "notificationsSelectedCount": "{count} selected",
+  "notificationsDeleteSelected": "Delete selected notifications",
+  "notificationsDeleteConfirmBody": "{count} notification(s) will be permanently deleted.",
+  "notificationsDeleted": "Selected notifications deleted",
+  "notificationsEventCount": "{count} notifications",
+  "notificationsSelectMode": "Select notifications",
+  "notificationsDeleteOne": "{count} notification(s) will be permanently deleted.",
+
   "commonDelete": "Delete",
   "commonReset": "Reset",
   "commonCancel": "Cancel",

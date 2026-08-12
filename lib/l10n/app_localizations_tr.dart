@@ -441,6 +441,38 @@ class AppLocalizationsTr extends AppLocalizations {
   String get smsReplyHint => 'Yanıtınızı yazın...';
 
   @override
+  String get notificationsEmpty => 'Henüz bildirim yok';
+
+  @override
+  String notificationsSelectedCount(int count) {
+    return '$count seçili';
+  }
+
+  @override
+  String get notificationsDeleteSelected => 'Seçilen bildirimleri sil';
+
+  @override
+  String notificationsDeleteConfirmBody(int count) {
+    return '$count bildirim kalıcı olarak silinecek.';
+  }
+
+  @override
+  String get notificationsDeleted => 'Seçilen bildirimler silindi';
+
+  @override
+  String notificationsEventCount(int count) {
+    return '$count bildirim';
+  }
+
+  @override
+  String get notificationsSelectMode => 'Bildirimleri seç';
+
+  @override
+  String notificationsDeleteOne(int count) {
+    return '$count bildirim kalıcı olarak silinecek.';
+  }
+
+  @override
   String get commonDelete => 'Sil';
 
   @override
