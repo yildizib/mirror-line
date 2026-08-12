@@ -47,6 +47,12 @@ void main() {
       containsAll(['peer_id', 'subnet_prefix', 'ip', 'port', 'last_seen_at']),
     );
 
+    final notificationColumns = await _columnNames(db, 'notification_event');
+    expect(
+      notificationColumns,
+      containsAll(['id', 'native_id', 'package_name', 'app_name', 'title', 'text', 'timestamp']),
+    );
+
     await db.close();
   });
 
@@ -219,6 +225,69 @@ void main() {
     final rows = await db.query('known_network');
     expect(rows, hasLength(1));
     expect(rows.first['ip'], '192.168.1.42');
+
+    await db.close();
+  });
+
+  test('upgrading from v5 adds the notification_event table', () async {
+    final db = await databaseFactory.openDatabase(inMemoryDatabasePath, options: OpenDatabaseOptions(version: 5));
+
+    await db.execute('''
+      CREATE TABLE peer (
+        id TEXT PRIMARY KEY, device_name TEXT NOT NULL DEFAULT "", role TEXT NOT NULL,
+        ip TEXT NOT NULL, port INTEGER NOT NULL, key TEXT NOT NULL,
+        public_key TEXT NOT NULL DEFAULT "", created_at INTEGER NOT NULL
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE call_event (
+        id TEXT PRIMARY KEY, direction TEXT NOT NULL, number TEXT NOT NULL,
+        contact_name TEXT NOT NULL DEFAULT "", timestamp INTEGER NOT NULL,
+        encrypted TEXT NOT NULL, status TEXT NOT NULL, created_at INTEGER NOT NULL
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE sms_message (
+        id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, address TEXT NOT NULL,
+        contact_name TEXT NOT NULL DEFAULT "", body TEXT NOT NULL, encrypted TEXT NOT NULL,
+        direction TEXT NOT NULL, status TEXT NOT NULL, timestamp INTEGER NOT NULL,
+        created_at INTEGER NOT NULL
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE known_network (
+        peer_id TEXT NOT NULL, subnet_prefix TEXT NOT NULL, ip TEXT NOT NULL,
+        port INTEGER NOT NULL, last_seen_at INTEGER NOT NULL,
+        PRIMARY KEY (peer_id, subnet_prefix)
+      )
+    ''');
+
+    // notification_event doesn't exist yet pre-upgrade -- confirm that,
+    // then confirm the real v5->v6 upgrade path creates it.
+    expect(await _columnNames(db, 'notification_event'), isEmpty);
+
+    await AppDatabase.instance.upgradeTables(db, 5, AppDatabase.schemaVersion);
+
+    final notificationColumns = await _columnNames(db, 'notification_event');
+    expect(
+      notificationColumns,
+      containsAll(['id', 'native_id', 'package_name', 'app_name', 'title', 'text', 'encrypted', 'timestamp', 'created_at']),
+    );
+
+    await db.insert('notification_event', {
+      'id': 'notif-1',
+      'native_id': 'native-key-1',
+      'package_name': 'com.example.chat',
+      'app_name': 'Chat',
+      'title': 'New message',
+      'text': 'Hello',
+      'encrypted': '',
+      'timestamp': 1700000000000,
+      'created_at': 1700000000000,
+    });
+    final rows = await db.query('notification_event');
+    expect(rows, hasLength(1));
+    expect(rows.first['package_name'], 'com.example.chat');
 
     await db.close();
   });

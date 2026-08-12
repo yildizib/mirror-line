@@ -1,42 +1,41 @@
 import 'package:flutter/material.dart';
 import 'package:mirrorline/l10n/app_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:mirrorline/core/data/models/call_event.dart';
+import 'package:mirrorline/core/data/models/notification_event.dart';
 import 'package:mirrorline/core/theme/theme.dart';
-import 'package:mirrorline/features/calls/call_group_provider.dart';
-import 'package:mirrorline/features/calls/call_facade.dart';
+import 'package:mirrorline/features/notifications/notification_facade.dart';
+import 'package:mirrorline/features/notifications/notification_group_provider.dart';
 import 'package:mirrorline/shared/widgets/selectable_list_scaffold.dart';
 
-/// Shows every individual call in a [CallGroup], each with its own
-/// timestamp and status -- opened by tapping a grouped row on the calls
-/// list when a caller has called more than once.
-///
-/// Takes the group's key (not the CallGroup itself) and re-derives the
-/// live group from [callGroupsProvider] on every build, so deletes on
-/// this screen are reflected immediately instead of showing a stale
-/// snapshot until the screen is reopened.
-class CallGroupDetailScreen extends ConsumerWidget {
-  final String groupKey;
+/// Shows every individual notification from one app -- opened by tapping a
+/// grouped row on the notifications list. Same "pass only the key,
+/// re-derive live, auto-pop on empty" pattern as CallGroupDetailScreen.
+class NotificationGroupDetailScreen extends ConsumerWidget {
+  final String packageName;
 
-  const CallGroupDetailScreen({required this.groupKey, super.key});
+  const NotificationGroupDetailScreen({
+    required this.packageName,
+    super.key,
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final l = AppLocalizations.of(context);
-    final groups = ref.watch(callGroupsProvider);
+    final groups = ref.watch(notificationGroupsProvider);
 
-    CallGroup? group;
+    NotificationGroup? group;
     for (final g in groups) {
-      if (g.key == groupKey) {
+      if (g.key == packageName) {
         group = g;
         break;
       }
     }
 
-    // The group can disappear entirely if every call in it was deleted --
-    // pop back to the calls list instead of rendering an empty screen.
+    // The group can disappear entirely if every notification in it was
+    // deleted or dismissed -- pop back to the list instead of rendering
+    // an empty screen.
     if (group == null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (context.mounted) Navigator.maybePop(context);
@@ -45,27 +44,27 @@ class CallGroupDetailScreen extends ConsumerWidget {
     }
     final resolvedGroup = group;
 
-    return SelectableListScaffold<CallEvent>(
-      items: resolvedGroup.calls,
+    return SelectableListScaffold<NotificationEvent>(
+      items: resolvedGroup.events,
       itemKey: (event) => event.id,
       dateHeaderOf: (event) => event.timestamp,
       itemBuilder: (context, event, isSelecting, isSelected, onTapSelect) =>
-          _CallDetailTile(
+          _NotificationDetailTile(
             event: event,
             isSelecting: isSelecting,
             isSelected: isSelected,
             onTapSelect: onTapSelect,
           ),
-      // Unreachable in practice: a group with zero calls doesn't exist in
-      // callGroupsProvider, so `group` would already be null above.
-      emptyMessage: l.callsEmpty,
+      // Unreachable in practice: a group with zero events doesn't exist in
+      // notificationGroupsProvider, so `group` would already be null above.
+      emptyMessage: l.notificationsEmpty,
       useAppBarEntryPoint: true,
       nonSelectingTitle: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(resolvedGroup.displayName, style: const TextStyle(fontSize: 17)),
+          Text(resolvedGroup.appName, style: const TextStyle(fontSize: 17)),
           Text(
-            l.callsCallCount(resolvedGroup.count),
+            l.notificationsEventCount(resolvedGroup.count),
             style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w400,
@@ -75,27 +74,27 @@ class CallGroupDetailScreen extends ConsumerWidget {
         ],
       ),
       selectModeTooltip: l.commonSelect,
-      selectedCountLabel: (count) => l.callsSelectedCount(count),
+      selectedCountLabel: (count) => l.notificationsSelectedCount(count),
       deleteTooltip: l.commonDeleteSelected,
-      deleteTitle: l.callsDeleteSelected,
-      deleteConfirm: (selected) => l.callsDeleteOne(selected.length),
-      deletedMessage: l.callsDeleted,
+      deleteTitle: l.notificationsDeleteSelected,
+      deleteConfirm: (selected) => l.notificationsDeleteOne(selected.length),
+      deletedMessage: l.notificationsDeleted,
       onDeleteSelected: (context, selected) async {
         await ref
-            .read(callFacadeProvider.notifier)
+            .read(notificationFacadeProvider.notifier)
             .removeMany(selected.map((e) => e.id));
       },
     );
   }
 }
 
-class _CallDetailTile extends StatelessWidget {
-  final CallEvent event;
+class _NotificationDetailTile extends StatelessWidget {
+  final NotificationEvent event;
   final bool isSelecting;
   final bool isSelected;
   final VoidCallback? onTapSelect;
 
-  const _CallDetailTile({
+  const _NotificationDetailTile({
     required this.event,
     this.isSelecting = false,
     this.isSelected = false,
@@ -106,16 +105,9 @@ class _CallDetailTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    final statusColors = theme.status;
-    final l = AppLocalizations.of(context);
-
-    final statusColor = switch (event.status) {
-      'answered' => statusColors.success,
-      'missed' => statusColors.warning,
-      'rejected' => colorScheme.error,
-      'ringing' => statusColors.success,
-      _ => colorScheme.onSurfaceVariant,
-    };
+    final subtitle = (event.title.isNotEmpty && event.title != event.appName)
+        ? '${event.title}: ${event.text}'
+        : event.text;
 
     final tile = Card(
       color: isSelected
@@ -126,10 +118,8 @@ class _CallDetailTile extends StatelessWidget {
         child: Row(
           children: [
             Icon(
-              event.direction == 'incoming'
-                  ? Icons.call_received_rounded
-                  : Icons.call_made_rounded,
-              color: statusColor,
+              Icons.notifications_rounded,
+              color: colorScheme.onSurfaceVariant,
               size: 20,
             ),
             const SizedBox(width: AppSpacing.md),
@@ -144,15 +134,16 @@ class _CallDetailTile extends StatelessWidget {
                       fontSize: 14,
                     ),
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    event.statusLabel(l),
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: statusColor,
-                      fontWeight: FontWeight.w600,
+                  if (subtitle.isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: colorScheme.onSurfaceVariant,
+                      ),
                     ),
-                  ),
+                  ],
                 ],
               ),
             ),

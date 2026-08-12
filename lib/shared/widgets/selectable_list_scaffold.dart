@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:mirrorline/l10n/app_localizations.dart';
+import 'package:mirrorline/shared/widgets/date_header.dart';
 
 typedef SelectableItemBuilder<T> =
     Widget Function(
@@ -47,6 +48,13 @@ class SelectableListScaffold<T> extends StatefulWidget {
   /// [useAppBarEntryPoint] is true. Ignored otherwise.
   final Widget? nonSelectingTitle;
 
+  /// When set, a [DateHeader] is inserted before any item whose calendar
+  /// day (per this timestamp) differs from the previous item's -- for
+  /// screens showing a chronological history (call/notification detail
+  /// lists). [items] must already be sorted by this timestamp, ascending
+  /// or descending; this only inserts headers, it never re-sorts.
+  final DateTime Function(T item)? dateHeaderOf;
+
   const SelectableListScaffold({
     required this.items,
     required this.itemKey,
@@ -62,6 +70,7 @@ class SelectableListScaffold<T> extends StatefulWidget {
     this.emptyBuilder,
     this.useAppBarEntryPoint = false,
     this.nonSelectingTitle,
+    this.dateHeaderOf,
     super.key,
   }) : assert(
          !useAppBarEntryPoint || nonSelectingTitle != null,
@@ -85,23 +94,7 @@ class _SelectableListScaffoldState<T> extends State<SelectableListScaffold<T>> {
     }
 
     return Scaffold(
-      body: ListView.separated(
-        padding: const EdgeInsets.all(16),
-        itemCount: widget.items.length,
-        separatorBuilder: (_, _) => const SizedBox(height: 8),
-        itemBuilder: (context, index) {
-          final item = widget.items[index];
-          final key = widget.itemKey(item);
-          final isSelected = _selected.contains(key);
-          return widget.itemBuilder(
-            context,
-            item,
-            _selecting,
-            isSelected,
-            () => _toggleSelect(key),
-          );
-        },
-      ),
+      body: _buildList(context),
       appBar: _buildAppBar(),
       floatingActionButton: (_selecting || widget.useAppBarEntryPoint)
           ? null
@@ -110,6 +103,49 @@ class _SelectableListScaffoldState<T> extends State<SelectableListScaffold<T>> {
               onPressed: () => setState(() => _selecting = true),
               child: const Icon(Icons.checklist_rounded),
             ),
+    );
+  }
+
+  Widget _buildList(BuildContext context) {
+    final dateHeaderOf = widget.dateHeaderOf;
+    if (dateHeaderOf == null) {
+      return ListView.separated(
+        padding: const EdgeInsets.all(16),
+        itemCount: widget.items.length,
+        separatorBuilder: (_, _) => const SizedBox(height: 8),
+        itemBuilder: (context, index) => _buildItem(context, widget.items[index]),
+      );
+    }
+
+    // Grouped path: flatten into a header/item widget list up front, since
+    // headers aren't part of widget.items and don't participate in
+    // selection -- ListView.separated's fixed one-widget-per-index
+    // mapping can't express that, so this switches to a plain ListView.
+    final children = <Widget>[];
+    DateTime? previousDay;
+    for (final item in widget.items) {
+      final timestamp = dateHeaderOf(item);
+      final day = DateTime(timestamp.year, timestamp.month, timestamp.day);
+      if (previousDay == null || day != previousDay) {
+        if (children.isNotEmpty) children.add(const SizedBox(height: 8));
+        children.add(DateHeader(date: day));
+        previousDay = day;
+      }
+      children.add(const SizedBox(height: 8));
+      children.add(_buildItem(context, item));
+    }
+    return ListView(padding: const EdgeInsets.all(16), children: children);
+  }
+
+  Widget _buildItem(BuildContext context, T item) {
+    final key = widget.itemKey(item);
+    final isSelected = _selected.contains(key);
+    return widget.itemBuilder(
+      context,
+      item,
+      _selecting,
+      isSelected,
+      () => _toggleSelect(key),
     );
   }
 

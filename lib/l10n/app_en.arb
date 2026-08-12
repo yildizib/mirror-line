@@ -3,9 +3,12 @@
   "appTitle": "MirrorLine",
   "splashTagline": "Two phones, end-to-end encrypted connection",
 
+  "navHome": "Home",
   "navCalls": "Calls",
   "navSms": "SMS",
+  "navNotifications": "Notifications",
   "navSettings": "Settings",
+  "homeFeedEmpty": "No activity yet",
 
   "roleTitle": "Role Selection",
   "rolePrompt": "Which role should this phone take?",
@@ -86,6 +89,10 @@
   "settingsBatteryOpened": "Battery settings opened",
   "settingsNotifAccess": "Notification access",
   "settingsNotifAccessDesc": "Required to mirror notifications from the other phone",
+  "settingsWatchedApps": "Watched apps",
+  "settingsWatchedAppsDesc": "Choose which apps' notifications get mirrored",
+  "watchedAppsTitle": "Watched apps",
+  "watchedAppsSearchHint": "Search apps...",
   "settingsKeepPermissions": "Don't remove permissions when unused",
   "settingsKeepPermissionsDesc": "Turn off \"Remove permissions if unused\" (\"App not in use\" on HyperOS) in App Info -- if left on, Android may revoke SMS/call permissions after a few months",
   "settingsAutoStart": "Background autostart permission",
@@ -142,11 +149,21 @@
   "smsSelectMode": "Select messages",
   "smsReplyHint": "Type your reply...",
 
+  "notificationsEmpty": "No notifications yet",
+  "notificationsSelectedCount": "{count} selected",
+  "notificationsDeleteSelected": "Delete selected notifications",
+  "notificationsDeleteConfirmBody": "{count} notification(s) will be permanently deleted.",
+  "notificationsDeleted": "Selected notifications deleted",
+  "notificationsEventCount": "{count} notifications",
+  "notificationsSelectMode": "Select notifications",
+  "notificationsDeleteOne": "{count} notification(s) will be permanently deleted.",
+
   "commonDelete": "Delete",
   "commonReset": "Reset",
   "commonCancel": "Cancel",
   "commonError": "Error: {error}",
   "commonSelect": "Select",
   "commonDeleteSelected": "Delete selected",
-  "commonToday": "Today"
+  "commonToday": "Today",
+  "commonYesterday": "Yesterday"
 }

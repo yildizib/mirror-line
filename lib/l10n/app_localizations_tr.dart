@@ -15,13 +15,22 @@ class AppLocalizationsTr extends AppLocalizations {
   String get splashTagline => 'İki telefon, uçtan uca şifreli bağlantı';
 
   @override
+  String get navHome => 'Akış';
+
+  @override
   String get navCalls => 'Aramalar';
 
   @override
   String get navSms => 'SMS';
 
   @override
+  String get navNotifications => 'Bildirimler';
+
+  @override
   String get navSettings => 'Ayarlar';
+
+  @override
+  String get homeFeedEmpty => 'Henüz etkinlik yok';
 
   @override
   String get roleTitle => 'Rol Seçimi';
@@ -271,6 +280,19 @@ class AppLocalizationsTr extends AppLocalizations {
       'Diğer telefondan bildirimleri yansıtmak için gerekli';
 
   @override
+  String get settingsWatchedApps => 'İzlenen uygulamalar';
+
+  @override
+  String get settingsWatchedAppsDesc =>
+      'Bildirimleri yansıtılacak uygulamaları seç';
+
+  @override
+  String get watchedAppsTitle => 'İzlenen uygulamalar';
+
+  @override
+  String get watchedAppsSearchHint => 'Uygulama ara...';
+
+  @override
   String get settingsKeepPermissions => 'Kullanılmıyorsa izinleri kaldırma';
 
   @override
@@ -441,6 +463,38 @@ class AppLocalizationsTr extends AppLocalizations {
   String get smsReplyHint => 'Yanıtınızı yazın...';
 
   @override
+  String get notificationsEmpty => 'Henüz bildirim yok';
+
+  @override
+  String notificationsSelectedCount(int count) {
+    return '$count seçili';
+  }
+
+  @override
+  String get notificationsDeleteSelected => 'Seçilen bildirimleri sil';
+
+  @override
+  String notificationsDeleteConfirmBody(int count) {
+    return '$count bildirim kalıcı olarak silinecek.';
+  }
+
+  @override
+  String get notificationsDeleted => 'Seçilen bildirimler silindi';
+
+  @override
+  String notificationsEventCount(int count) {
+    return '$count bildirim';
+  }
+
+  @override
+  String get notificationsSelectMode => 'Bildirimleri seç';
+
+  @override
+  String notificationsDeleteOne(int count) {
+    return '$count bildirim kalıcı olarak silinecek.';
+  }
+
+  @override
   String get commonDelete => 'Sil';
 
   @override
@@ -462,4 +516,7 @@ class AppLocalizationsTr extends AppLocalizations {
 
   @override
   String get commonToday => 'Bugün';
+
+  @override
+  String get commonYesterday => 'Dün';
 }

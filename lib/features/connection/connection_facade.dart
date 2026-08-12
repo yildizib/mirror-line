@@ -25,6 +25,7 @@ import 'package:mirrorline/features/connection/connection_status_provider.dart';
 import 'package:mirrorline/features/connection/force_connect_strategy.dart';
 import 'package:mirrorline/features/connection/peer_discovery_coordinator.dart';
 import 'package:mirrorline/features/connection/reconnect_scheduler.dart';
+import 'package:mirrorline/features/notifications/notification_facade.dart';
 import 'package:mirrorline/features/pairing/pairing_facade.dart';
 import 'package:mirrorline/features/pairing/peer_facade.dart';
 import 'package:mirrorline/features/sms/sms_facade.dart';
@@ -966,26 +967,13 @@ class ConnectionFacade extends StateNotifier<bool>
             .read(smsFacadeProvider.notifier)
             .handleNativeEvent(data, id: id, now: now);
       } else if (type == 'onNotification') {
-        final packageName = (data['packageName'] as String?) ?? 'unknown';
-        final appName = (data['appName'] as String?) ?? packageName;
-        final title = (data['title'] as String?) ?? '';
-        final text = (data['text'] as String?) ?? '';
-        final timestamp =
-            (data['timestamp'] as int?) ?? now.millisecondsSinceEpoch;
-        // Native's own stable per-notification key (see
-        // MirrorLineNotificationListener), not the generated message id --
-        // this is what lets Main replace a reposted notification instead
-        // of duplicating it.
-        final nativeId = (data['id'] as String?) ?? id;
-        if (packageName == 'com.thinksolve.mirrorline') return;
-        await _sendOrQueue(MessageTypes.notificationMirrored, {
-          'nativeId': nativeId,
-          'packageName': packageName,
-          'appName': appName,
-          'title': title,
-          'text': text,
-          'timestamp': timestamp,
-        });
+        await _ref
+            .read(notificationFacadeProvider.notifier)
+            .handleNativeEvent(data, id: id, now: now);
+      } else if (type == 'onNotificationRemoved') {
+        await _ref
+            .read(notificationFacadeProvider.notifier)
+            .handleNativeRemoval(data);
       }
     });
   }
@@ -1046,7 +1034,10 @@ class ConnectionFacade extends StateNotifier<bool>
         break;
 
       case MessageTypes.notificationMirrored:
-        await _handleNotificationMirrored(payload, message);
+      case MessageTypes.notificationRemoved:
+        await _ref
+            .read(notificationFacadeProvider.notifier)
+            .handleIncomingMessage(message.type, payload, message, now);
         break;
 
       case MessageTypes.pairingRequest:
@@ -1070,23 +1061,6 @@ class ConnectionFacade extends StateNotifier<bool>
       default:
         _logger.i('Unknown message type: ${message.type}');
     }
-  }
-
-  Future<void> _handleNotificationMirrored(
-    Map<String, dynamic> payload,
-    MirrorMessage message,
-  ) async {
-    final packageName = payload['packageName'] as String? ?? 'unknown';
-    final appName = payload['appName'] as String? ?? packageName;
-    final title = payload['title'] as String? ?? '';
-    final text = payload['text'] as String? ?? '';
-    final nativeId = payload['nativeId'] as String? ?? message.id;
-    await NotificationService.showMirrored(
-      id: nativeId.hashCode & 0x7fffffff,
-      title: appName,
-      body: (title.isNotEmpty && title != appName) ? '$title: $text' : text,
-      packageName: packageName,
-    );
   }
 
   Future<void> _notify({

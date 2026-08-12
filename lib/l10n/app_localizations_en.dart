@@ -15,13 +15,22 @@ class AppLocalizationsEn extends AppLocalizations {
   String get splashTagline => 'Two phones, end-to-end encrypted connection';
 
   @override
+  String get navHome => 'Home';
+
+  @override
   String get navCalls => 'Calls';
 
   @override
   String get navSms => 'SMS';
 
   @override
+  String get navNotifications => 'Notifications';
+
+  @override
   String get navSettings => 'Settings';
+
+  @override
+  String get homeFeedEmpty => 'No activity yet';
 
   @override
   String get roleTitle => 'Role Selection';
@@ -270,6 +279,19 @@ class AppLocalizationsEn extends AppLocalizations {
       'Required to mirror notifications from the other phone';
 
   @override
+  String get settingsWatchedApps => 'Watched apps';
+
+  @override
+  String get settingsWatchedAppsDesc =>
+      'Choose which apps\' notifications get mirrored';
+
+  @override
+  String get watchedAppsTitle => 'Watched apps';
+
+  @override
+  String get watchedAppsSearchHint => 'Search apps...';
+
+  @override
   String get settingsKeepPermissions => 'Don\'t remove permissions when unused';
 
   @override
@@ -440,6 +462,38 @@ class AppLocalizationsEn extends AppLocalizations {
   String get smsReplyHint => 'Type your reply...';
 
   @override
+  String get notificationsEmpty => 'No notifications yet';
+
+  @override
+  String notificationsSelectedCount(int count) {
+    return '$count selected';
+  }
+
+  @override
+  String get notificationsDeleteSelected => 'Delete selected notifications';
+
+  @override
+  String notificationsDeleteConfirmBody(int count) {
+    return '$count notification(s) will be permanently deleted.';
+  }
+
+  @override
+  String get notificationsDeleted => 'Selected notifications deleted';
+
+  @override
+  String notificationsEventCount(int count) {
+    return '$count notifications';
+  }
+
+  @override
+  String get notificationsSelectMode => 'Select notifications';
+
+  @override
+  String notificationsDeleteOne(int count) {
+    return '$count notification(s) will be permanently deleted.';
+  }
+
+  @override
   String get commonDelete => 'Delete';
 
   @override
@@ -461,4 +515,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get commonToday => 'Today';
+
+  @override
+  String get commonYesterday => 'Yesterday';
 }

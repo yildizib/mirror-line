@@ -50,6 +50,10 @@ abstract class MessageTypes {
   static const String ping = 'ping';
   static const String pong = 'pong';
   static const String notificationMirrored = 'notification_mirrored';
+  // Source -> Main: a previously-mirrored notification was dismissed on
+  // the source device -- clear the mirrored copy. Payload: {packageName,
+  // nativeId}.
+  static const String notificationRemoved = 'notification_removed';
 
   // ---- Pairing handshake ----------------------------------------------
   // Scanner -> Scanned:  "Ben {deviceName} ({myId}) seninle eşleşmek istiyorum"
