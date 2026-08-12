@@ -5,7 +5,7 @@ import 'package:mirrorline/core/data/models/call_event.dart';
 import 'package:mirrorline/core/theme/theme.dart';
 import 'package:mirrorline/features/calls/call_group_detail_screen.dart';
 import 'package:mirrorline/features/calls/call_group_provider.dart';
-import 'package:mirrorline/features/calls/call_list_provider.dart';
+import 'package:mirrorline/features/calls/call_facade.dart';
 import 'package:mirrorline/features/connection/connection_facade.dart';
 import 'package:mirrorline/shared/widgets/empty_state.dart';
 
@@ -126,7 +126,7 @@ class _CallsScreenState extends ConsumerState<CallsScreen> {
           TextButton(
             onPressed: () async {
               await ref
-                  .read(callListProvider.notifier)
+                  .read(callFacadeProvider.notifier)
                   .removeMany(ids.toList());
               if (context.mounted) {
                 Navigator.pop(dialogContext);
@@ -147,7 +147,7 @@ class _CallsScreenState extends ConsumerState<CallsScreen> {
   }
 
   void _handleReject(BuildContext context, WidgetRef ref, CallEvent call) {
-    ref.read(callListProvider.notifier).updateStatus(call.id, 'rejected');
+    ref.read(callFacadeProvider.notifier).updateStatus(call.id, 'rejected');
 
     ref.read(connectionFacadeProvider.notifier).sendCallRejected(call.id);
 

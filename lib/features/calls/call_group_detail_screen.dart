@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mirrorline/core/data/models/call_event.dart';
 import 'package:mirrorline/core/theme/theme.dart';
 import 'package:mirrorline/features/calls/call_group_provider.dart';
-import 'package:mirrorline/features/calls/call_list_provider.dart';
+import 'package:mirrorline/features/calls/call_facade.dart';
 
 /// Shows every individual call in a [CallGroup], each with its own
 /// timestamp and status -- opened by tapping a grouped row on the calls
@@ -139,7 +139,7 @@ class _CallGroupDetailScreenState extends ConsumerState<CallGroupDetailScreen> {
           TextButton(
             onPressed: () async {
               await ref
-                  .read(callListProvider.notifier)
+                  .read(callFacadeProvider.notifier)
                   .removeMany(_selected.toList());
               if (context.mounted) {
                 Navigator.pop(dialogContext);

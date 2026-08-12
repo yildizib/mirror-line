@@ -20,8 +20,7 @@ import 'package:mirrorline/core/services/connectivity_service.dart';
 import 'package:mirrorline/core/services/notification_service.dart';
 import 'package:mirrorline/core/services/queue_service.dart';
 import 'package:mirrorline/core/telephony/telephony_channel.dart';
-import 'package:mirrorline/features/calls/call_list_provider.dart';
-import 'package:mirrorline/features/connection/call_event_handler.dart';
+import 'package:mirrorline/features/calls/call_facade.dart';
 import 'package:mirrorline/features/connection/connection_status_provider.dart';
 import 'package:mirrorline/features/connection/force_connect_strategy.dart';
 import 'package:mirrorline/features/connection/peer_discovery_coordinator.dart';
@@ -106,13 +105,13 @@ class ConnectionFacade extends StateNotifier<bool>
   int? _lastAcceptedMessageTimestamp;
   bool _disposed = false;
 
-  // Call/SMS native-event and peer-message handling live in their own
-  // classes (see call_event_handler.dart / sms_event_handler.dart) so this
-  // notifier's own job -- owning the socket and the connection lifecycle
-  // -- stays readable on its own. Constructed here (not as field
-  // initializers) because their callbacks are tear-offs of this instance's
-  // own methods, which need `this` to be fully alive first.
-  late final CallEventHandler _callHandler;
+  // SMS native-event and peer-message handling lives in its own class (see
+  // sms_event_handler.dart) so this notifier's own job -- owning the
+  // socket and the connection lifecycle -- stays readable on its own.
+  // Constructed here (not as a field initializer) because its callbacks
+  // are tear-offs of this instance's own methods, which need `this` to be
+  // fully alive first. (Calls' equivalent, CallEventHandler, has already
+  // been absorbed into CallFacade -- see call_facade.dart.)
   late final SmsEventHandler _smsHandler;
 
   // Owns the periodic/backoff reconnect timer against the stored peer
@@ -151,13 +150,6 @@ class ConnectionFacade extends StateNotifier<bool>
       getDeviceName: () => _selfDiscoveryName ?? _peer?.deviceName ?? '',
       getAllLocalIps: () => _allLocalIps,
       getExpectedPeerId: () => _peer?.id,
-    );
-    _callHandler = CallEventHandler(
-      ref: _ref,
-      logger: _logger,
-      isSource: () => isSource,
-      sendOrQueue: _sendOrQueue,
-      notify: _notify,
     );
     _smsHandler = SmsEventHandler(
       ref: _ref,
@@ -967,7 +959,9 @@ class ConnectionFacade extends StateNotifier<bool>
       final id = const Uuid().v4();
 
       if (type == 'onCall') {
-        await _callHandler.handleNativeEvent(data, id: id, now: now);
+        await _ref
+            .read(callFacadeProvider.notifier)
+            .handleNativeEvent(data, id: id, now: now);
       } else if (type == 'onSms') {
         await _smsHandler.handleNativeEvent(data, id: id, now: now);
       } else if (type == 'onNotification') {
@@ -1033,12 +1027,9 @@ class ConnectionFacade extends StateNotifier<bool>
       case MessageTypes.callRejected:
       case MessageTypes.callStatus:
       case MessageTypes.callInfo:
-        await _callHandler.handleIncomingMessage(
-          message.type,
-          payload,
-          message,
-          now,
-        );
+        await _ref
+            .read(callFacadeProvider.notifier)
+            .handleIncomingMessage(message.type, payload, message, now);
         break;
 
       case MessageTypes.smsIncoming:
@@ -1133,18 +1124,31 @@ class ConnectionFacade extends StateNotifier<bool>
     return sent;
   }
 
+  /// Public entry points to [_sendOrQueue]/[_notify] -- CallFacade/SmsFacade
+  /// are constructed from their own top-level providers (not from within
+  /// this constructor), so unlike the pre-#39 CallEventHandler/
+  /// SmsEventHandler they can't tear off the private methods directly
+  /// (Dart privacy is per-file). Same underlying implementation either way.
+  Future<bool> sendOrQueue(String type, Map<String, dynamic> payload) =>
+      _sendOrQueue(type, payload);
+
+  Future<void> notify({
+    required int id,
+    required String title,
+    required String body,
+    NotificationPayload? payload,
+  }) => _notify(id: id, title: title, body: body, payload: payload);
+
   Future<bool> sendCallNotification(
     String number, {
     String? id,
     String? contactName,
-  }) => _callHandler.sendCallNotification(
-    number,
-    id: id,
-    contactName: contactName,
-  );
+  }) => _ref
+      .read(callFacadeProvider.notifier)
+      .sendCallNotification(number, id: id, contactName: contactName);
 
   Future<bool> sendCallRejected(String callId) =>
-      _callHandler.sendCallRejected(callId);
+      _ref.read(callFacadeProvider.notifier).sendCallRejected(callId);
 
   Future<bool> sendSmsNotification(String address, String body, {String? id}) =>
       _smsHandler.sendSmsNotification(address, body, id: id);
@@ -1210,7 +1214,7 @@ class ConnectionFacade extends StateNotifier<bool>
         break;
       case MessageTypes.callIncoming:
         await _ref
-            .read(callListProvider.notifier)
+            .read(callFacadeProvider.notifier)
             .updateStatus(entryId, 'failed');
         break;
     }
