@@ -24,6 +24,7 @@ import 'package:mirrorline/features/calls/call_list_provider.dart';
 import 'package:mirrorline/features/connection/call_event_handler.dart';
 import 'package:mirrorline/features/connection/connection_status_provider.dart';
 import 'package:mirrorline/features/connection/force_connect_strategy.dart';
+import 'package:mirrorline/features/connection/peer_discovery_coordinator.dart';
 import 'package:mirrorline/features/connection/reconnect_scheduler.dart';
 import 'package:mirrorline/features/connection/sms_event_handler.dart';
 import 'package:mirrorline/features/pairing/pairing_provider.dart';
@@ -52,13 +53,6 @@ class ConnectionFacade extends StateNotifier<bool>
   // never get marked either way -- this is a connection-state-independent
   // backstop so "Gönderiliyor" doesn't linger forever.
   static const Duration _pendingSmsTimeout = Duration(minutes: 2);
-  // Fallback active network scan (see SubnetScanner): only kicks in after
-  // being disconnected this long (beacon/direct-IP get a fair chance
-  // first), and won't run again more often than this -- scanning ~254
-  // hosts has a real battery/radio cost, so it must stay a rare fallback,
-  // not a routine poll.
-  static const Duration _scanGraceDuration = Duration(seconds: 25);
-  static const Duration _scanBackoff = Duration(seconds: 60);
 
   final Logger _logger = Logger();
   final Ref _ref;
@@ -67,7 +61,15 @@ class ConnectionFacade extends StateNotifier<bool>
   final KnownNetworkDao _knownNetworkDao = KnownNetworkDao();
   final QueueService _queue = QueueService();
   final BeaconBroadcaster _broadcaster = BeaconBroadcaster();
-  final BeaconListener _listener = BeaconListener();
+  // Used only by _scanSubnetsWithProgress (force-reconnect's manual scan);
+  // the periodic fallback scan's own scanner now lives inside
+  // PeerDiscoveryCoordinator. These are two independent SubnetScanner
+  // instances -- a force-reconnect scan and a periodic fallback scan could
+  // now in principle run concurrently, whereas before they shared one
+  // _scanning guard. Accepted as a narrow, low-risk divergence: force-
+  // reconnect is rare/user-initiated and the periodic scan is itself rare
+  // (25s grace + 60s backoff), so the overlap window is small and running
+  // two network probes concurrently isn't harmful, just not deduped.
   final SubnetScanner _scanner = SubnetScanner();
 
   SocketManager? _socketManager;
@@ -79,8 +81,11 @@ class ConnectionFacade extends StateNotifier<bool>
   bool _scanning = false;
   bool _telephonyHandlerRegistered = false;
   String? _lastDiscoveredIp;
-  DateTime? _disconnectedSince;
-  DateTime? _lastScanAt;
+  // Resolved once (KeyStore reads are async) and cached for
+  // PeerDiscoveryCoordinator's sync getPeerId/getDeviceName callbacks --
+  // see _startAsMain.
+  String? _selfDiscoveryId;
+  String? _selfDiscoveryName;
   // Bumped whenever a forced reconnect abandons an in-flight _connectTo()
   // call, so that stale call's post-await continuation (recordConnectAttempt,
   // _maybeScheduleReconnect, resetting _connecting) is skipped instead of
@@ -115,6 +120,11 @@ class ConnectionFacade extends StateNotifier<bool>
   // above), so constructed in the constructor body alongside the handlers.
   late final ReconnectScheduler _reconnectScheduler;
 
+  // Owns beacon listening and fallback subnet scanning (Main role only --
+  // Source uses _broadcaster instead, which is unrelated). Same
+  // constructor-body-construction reasoning as _reconnectScheduler.
+  late final PeerDiscoveryCoordinator _peerDiscoveryCoordinator;
+
   ConnectionFacade(this._ref) : super(false) {
     _reconnectScheduler = ReconnectScheduler(
       logger: _logger,
@@ -132,6 +142,15 @@ class ConnectionFacade extends StateNotifier<bool>
       },
       getPeerIp: () => _lastDiscoveredIp ?? _peer?.ip,
       getPeerPort: () => _peer?.port ?? 0,
+    );
+    _peerDiscoveryCoordinator = PeerDiscoveryCoordinator(
+      logger: _logger,
+      onDiscovered: _onDiscovered,
+      getPeerId: () => _selfDiscoveryId ?? _peer?.id ?? '',
+      getPeerPort: () => _peer?.port ?? 0,
+      getDeviceName: () => _selfDiscoveryName ?? _peer?.deviceName ?? '',
+      getAllLocalIps: () => _allLocalIps,
+      getExpectedPeerId: () => _peer?.id,
     );
     _callHandler = CallEventHandler(
       ref: _ref,
@@ -177,7 +196,7 @@ class ConnectionFacade extends StateNotifier<bool>
           'Network offline. Dropping stale connection, pausing attempts.',
         );
         state = false;
-        _disconnectedSince ??= DateTime.now();
+        _peerDiscoveryCoordinator.markDisconnected();
         // Actually tear down the client-side connection, not just the UI
         // flag. Some network transitions (e.g. Wi-Fi AP roam) never deliver
         // a socket error, so SocketManager's internal _isConnected can stay
@@ -376,18 +395,15 @@ class ConnectionFacade extends StateNotifier<bool>
     await _socketManager?.stopServer();
     _ref.read(connectionStatusProvider.notifier).setServer(0, false);
 
-    if (!_listener.isListening) {
-      final selfId = await KeyStore.getSelfId() ?? peer.id;
-      final selfName = await KeyStore.getSelfDeviceName() ?? peer.deviceName;
-      final allIps = _allLocalIps.isNotEmpty ? _allLocalIps : null;
-      await _listener.start(
-        onBeacon: _onBeacon,
-        peerId: selfId,
-        tcpPort: peer.port,
-        deviceName: selfName,
-        ips: allIps,
-      );
+    // Resolved once and cached (KeyStore reads are async, but
+    // PeerDiscoveryCoordinator's getPeerId/getDeviceName callbacks must be
+    // sync) -- matches the old code's "only resolve once" intent, which
+    // relied on _listener.isListening as an implicit guard.
+    if (_selfDiscoveryId == null || _selfDiscoveryName == null) {
+      _selfDiscoveryId = await KeyStore.getSelfId() ?? peer.id;
+      _selfDiscoveryName = await KeyStore.getSelfDeviceName() ?? peer.deviceName;
     }
+    await _peerDiscoveryCoordinator.startListening();
 
     // Periodic retries now come from the role-agnostic _healthTimer (see
     // _init()), which calls refresh() -- this immediate attempt just
@@ -413,8 +429,8 @@ class ConnectionFacade extends StateNotifier<bool>
       onMessage: _handleIncomingMessage,
       onConnected: () {
         state = true;
-        _disconnectedSince = null;
         _reconnectScheduler.markConnected();
+        _peerDiscoveryCoordinator.markConnected();
         _lastAcceptedMessageTimestamp = null;
         _ref.read(connectionStatusProvider.notifier).clearError();
         _logger.i('Socket connected and authenticated!');
@@ -431,16 +447,16 @@ class ConnectionFacade extends StateNotifier<bool>
         }
         _flushQueue();
         _broadcaster.setThrottle(true);
-        _listener.setThrottle(true);
+        _peerDiscoveryCoordinator.setThrottle(true);
       },
       onDisconnected: () {
         state = false;
-        _disconnectedSince ??= DateTime.now();
+        _peerDiscoveryCoordinator.markDisconnected();
         _logger.w(
           'Socket disconnected. Will auto-reconnect when peer is reachable.',
         );
         _broadcaster.setThrottle(false);
-        _listener.setThrottle(false);
+        _peerDiscoveryCoordinator.setThrottle(false);
         _maybeScheduleReconnect();
       },
     );
@@ -565,148 +581,60 @@ class ConnectionFacade extends StateNotifier<bool>
 
   /// Fallback discovery: if the beacon and last-known-IP haven't gotten us
   /// connected for a while, actively scan the local subnet for the peer's
-  /// TCP port. Covers routers that restrict broadcast/multicast between
-  /// devices even without classic AP isolation. Deliberately rare (grace
-  /// period + backoff, see the constants above) since scanning ~254 hosts
-  /// has a real, if brief, battery/radio cost -- this is a fallback, not a
-  /// routine poll.
+  /// TCP port (delegated to [_peerDiscoveryCoordinator]). Covers routers
+  /// that restrict broadcast/multicast between devices even without
+  /// classic AP isolation.
   ///
-  /// [immediate] skips the grace-period wait -- used when we already have a
-  /// concrete reason to believe the network changed (see
-  /// _handleNetworkChangedEvent) rather than just "haven't heard from the
-  /// peer in a while". The re-entrancy guard (_scanning) and the backoff
-  /// between actual scan attempts (_scanBackoff) still apply either way, so
-  /// rapid network flapping can't turn this into a routine poll.
-  ///
-  /// [force] additionally bypasses the _scanBackoff throttle -- reserved for
-  /// the user-facing "Force reconnect" action, which must actually scan even
-  /// if a routine fallback scan ran moments ago (that's what made the old
-  /// button feel like it did nothing).
+  /// Role/connection-state guards live here, not in the coordinator (which
+  /// is role/state-agnostic, same reasoning as [_maybeScheduleReconnect]).
+  /// [immediate]/[force] are forwarded as-is -- see
+  /// [PeerDiscoveryCoordinator.maybeRunFallbackScan] for their meaning.
   Future<void> _maybeRunFallbackScan({
     bool immediate = false,
     bool force = false,
   }) async {
     if (isSource) return; // only Main ever dials out
-    if (state || _connecting || _scanning) return;
+    if (state || _connecting) return;
 
     if (await _tryKnownNetworkFastPath()) return;
     if (state || _connecting) return;
 
-    if (!immediate) {
-      final disconnectedSince = _disconnectedSince;
-      if (disconnectedSince == null) return;
-      if (DateTime.now().difference(disconnectedSince) < _scanGraceDuration) {
-        return;
-      }
-    }
-
-    if (!force) {
-      final lastScan = _lastScanAt;
-      if (lastScan != null &&
-          DateTime.now().difference(lastScan) < _scanBackoff) {
-        return;
-      }
-    }
-
-    final peer = _peer;
-    final localIp = _ref.read(connectionStatusProvider).localIp;
-    if (peer == null || localIp == null) return;
-    // Use all local IPs (WiFi + VPN) for subnet scanning.
-    final scanIps = _allLocalIps.isNotEmpty ? _allLocalIps : [localIp];
-
-    _scanning = true;
-    _lastScanAt = DateTime.now();
-    try {
-      final found = await _scanner.findHostWithOpenPortMulti(
-        localIps: scanIps,
-        port: peer.port,
-      );
-      if (found != null && !state) {
-        _logger.i(
-          'Fallback scan located peer at $found; attempting connection.',
-        );
-        _lastDiscoveredIp = found;
-        // Persist the freshly-discovered address so diagnostics and future
-        // reconnect attempts agree on where the peer actually is -- the scan
-        // path used to only update the in-memory value, leaving the stored
-        // peer record stale after a roam.
-        _recordDiscoveredAddress(found, peer.port);
-        // If a connect attempt is in flight to a stale IP, abandon it so
-        // we can immediately try the freshly-discovered IP. This is critical
-        // for VPN: the stored/beacon IP may be a 5G IP that times out in 5s,
-        // while the scan just found the VPN IP that would connect instantly.
-        if (_connecting) {
-          _connectGeneration++;
-          _connecting = false;
-          await _socketManager?.disconnectClient();
-        }
-        await _connectTo(found, peer.port);
-      }
-    } finally {
-      _scanning = false;
-    }
+    await _peerDiscoveryCoordinator.maybeRunFallbackScan(
+      immediate: immediate,
+      force: force,
+    );
   }
 
-  void _onBeacon(BeaconInfo info) {
-    final peer = _peer;
-    if (peer == null) return;
-    if (info.peerId != peer.id) {
-      _logger.w('Ignoring beacon from unknown peer: ${info.peerId}');
-      return;
-    }
-
-    // The datagram source IP may be a 5G/WiFi IP that's unreachable
-    // from this device (e.g. the peer is on VPN but OS chose the 5G
-    // interface as the UDP source). If the beacon includes a list of
-    // all the peer's IPs (v2 beacon), prefer a VPN IP (tun/tap) or
-    // any IP on a subnet we share, falling back to the source IP.
-    final bestIp = _pickBestBeaconIp(info);
-    _lastDiscoveredIp = bestIp;
-    _ref.read(connectionStatusProvider.notifier).recordBeacon(bestIp);
-    _recordDiscoveredAddress(bestIp, info.tcpPort);
-
-    // Also persist all claimed IPs so the force-connect / scan path can
-    // try them if the best IP fails.
-    if (info.ips.isNotEmpty) {
-      _beaconIps = info.ips;
-    }
-
-    if (!state && !_connecting) {
-      _connectTo(bestIp, info.tcpPort);
-    }
-  }
-
-  /// Picks the most likely-reachable IP from a beacon. Prefers:
-  /// 1. An IP on the same /24 as one of our local IPs (same subnet).
-  /// 2. Any VPN-style IP (10.x, 172.16-31.x) the peer claims.
-  /// 3. The datagram source IP (fallback).
-  String _pickBestBeaconIp(BeaconInfo info) {
-    final sourceIp = info.ip;
-    final allPeerIps = {sourceIp, ...info.ips};
-
-    // 1) Same-subnet match: do we share a /24 with any peer IP?
-    for (final peerIp in allPeerIps) {
-      final peerPrefix = subnetPrefixOf(peerIp);
-      if (peerPrefix == null) continue;
-      for (final localIp in _allLocalIps) {
-        if (subnetPrefixOf(localIp) == peerPrefix) {
-          return peerIp; // same subnet, directly reachable
-        }
+  /// Shared landing point for both beacon and fallback-scan discovery (see
+  /// [PeerDiscoveryCoordinator]'s `onDiscovered` callback). [fromScan]
+  /// preserves the two policies the pre-extraction code applied: a scan
+  /// result is rare/expensive enough to abandon an in-flight connect
+  /// attempt for; a beacon is frequent/cheap enough that it should just be
+  /// skipped while an attempt is already in flight.
+  Future<void> _onDiscovered(
+    String ip,
+    int port, {
+    required bool fromScan,
+  }) async {
+    if (fromScan) {
+      if (state) return;
+      _lastDiscoveredIp = ip;
+      _recordDiscoveredAddress(ip, port);
+      if (_connecting) {
+        _connectGeneration++;
+        _connecting = false;
+        await _socketManager?.disconnectClient();
+      }
+      await _connectTo(ip, port);
+    } else {
+      _lastDiscoveredIp = ip;
+      _ref.read(connectionStatusProvider.notifier).recordBeacon(ip);
+      _recordDiscoveredAddress(ip, port);
+      if (!state && !_connecting) {
+        await _connectTo(ip, port);
       }
     }
-
-    // 2) VPN-style IP (10.x is common for VPNs like OpenVPN/WireGuard).
-    for (final peerIp in allPeerIps) {
-      if (peerIp.startsWith('10.')) return peerIp;
-    }
-
-    // 3) Fallback: datagram source IP.
-    return sourceIp;
   }
-
-  /// IPs claimed by the peer in its last beacon. Used by force-connect to
-  /// try all of them if the primary IP fails.
-  List<String> _beaconIps = [];
 
   /// Persists a peer address discovered via beacon or subnet scan so the
   /// stored peer record, diagnostics and future reconnect attempts all agree
@@ -773,12 +701,12 @@ class ConnectionFacade extends StateNotifier<bool>
     // situation.
     _socketManager?.disconnectClient();
     state = false;
-    _disconnectedSince ??= DateTime.now();
+    _peerDiscoveryCoordinator.markDisconnected();
     // The address we last discovered belongs to the old network -- reconnect
     // must re-discover instead of hammering a dead IP for minutes.
     _lastDiscoveredIp = null;
     _broadcaster.setThrottle(false);
-    _listener.setThrottle(false);
+    _peerDiscoveryCoordinator.setThrottle(false);
 
     // Re-enumerate all local IPs (WiFi + VPN) BEFORE scanning so the scan
     // covers the new network's subnets (previously this was fire-and-forget
@@ -870,7 +798,7 @@ class ConnectionFacade extends StateNotifier<bool>
       _lastDiscoveredIp = null;
       await _socketManager?.disconnectClient();
       await _broadcaster.stop();
-      await _listener.stop();
+      await _peerDiscoveryCoordinator.stopListening();
       await refresh();
       statusNotifier.logDiscovery('Source device ready.', isSuccess: true);
       statusNotifier.endForceConnect();
@@ -917,7 +845,7 @@ class ConnectionFacade extends StateNotifier<bool>
 
     final strategy = ForceConnectStrategy(
       storedIp: peer.ip,
-      beaconIps: _beaconIps,
+      beaconIps: _peerDiscoveryCoordinator.beaconIps,
       allLocalIps: _allLocalIps,
       localIp: localIp,
       peerId: peer.id,
@@ -989,7 +917,6 @@ class ConnectionFacade extends StateNotifier<bool>
     if (isSource || state || _connecting || _scanning) return null;
     if (localIps.isEmpty) return null;
     _scanning = true;
-    _lastScanAt = DateTime.now();
     statusNotifier.setDiscoveryState(
       DiscoveryState.scanningSubnet,
       detail: 'Scanning ${localIps.length} subnets...',
@@ -1309,7 +1236,7 @@ class ConnectionFacade extends StateNotifier<bool>
     // for the rest of the app session (it's only ever created once, in
     // _init()).
     await _broadcaster.stop();
-    await _listener.stop();
+    await _peerDiscoveryCoordinator.stopListening();
     await _socketManager?.disconnect();
     _socketManager = null;
     _lastDiscoveredIp = null;
@@ -1335,7 +1262,7 @@ class ConnectionFacade extends StateNotifier<bool>
     _connectivity.stopListening();
     _healthTimer?.cancel();
     _broadcaster.stop();
-    _listener.stop();
+    _peerDiscoveryCoordinator.dispose();
     _socketManager?.disconnect();
     super.dispose();
   }
