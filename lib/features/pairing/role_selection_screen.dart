@@ -3,8 +3,7 @@ import 'package:mirrorline/l10n/app_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mirrorline/core/services/permission_service.dart';
 import 'package:mirrorline/core/theme/theme.dart';
-import 'package:mirrorline/features/connection/connection_facade.dart';
-import 'package:mirrorline/features/pairing/peer_facade.dart';
+import 'package:mirrorline/features/pairing/role_selection_controller.dart';
 
 class RoleSelectionScreen extends ConsumerWidget {
   const RoleSelectionScreen({super.key});
@@ -59,8 +58,7 @@ class RoleSelectionScreen extends ConsumerWidget {
     WidgetRef ref,
     String role,
   ) async {
-    await ref.read(peerFacadeProvider.notifier).createPeer(role);
-    await ref.read(connectionFacadeProvider.notifier).refresh();
+    await ref.read(roleSelectionControllerProvider).selectRole(role);
     if (!context.mounted) return;
 
     // The Source device (the one holding the SIM) is the one that must
