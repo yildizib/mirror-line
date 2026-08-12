@@ -6,11 +6,6 @@ import 'package:mirrorline/core/network/message_protocol.dart';
 import 'package:mirrorline/core/services/locale_service.dart';
 import 'package:mirrorline/core/services/notification_service.dart';
 import 'package:mirrorline/core/telephony/telephony_channel.dart';
-// SendOrQueue/ShowNotification typedefs currently live here -- this file
-// is deleted in F1.3 once CallFacade/SmsFacade fully absorb it, at which
-// point these typedefs relocate to connection_facade.dart.
-import 'package:mirrorline/features/connection/call_event_handler.dart'
-    show SendOrQueue, ShowNotification;
 import 'package:mirrorline/features/connection/connection_facade.dart';
 import 'package:uuid/uuid.dart';
 

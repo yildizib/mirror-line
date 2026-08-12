@@ -32,7 +32,7 @@ class CallEventDao {
     );
   }
 
-  /// Patches number/contact_name in place (see CallListNotifier.updateCallerInfo).
+  /// Patches number/contact_name in place (see CallFacade.updateCallerInfo).
   Future<void> updateCallerInfo(
     String id, {
     String? number,

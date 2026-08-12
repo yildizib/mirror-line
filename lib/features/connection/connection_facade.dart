@@ -31,6 +31,22 @@ import 'package:mirrorline/features/sms/sms_facade.dart';
 import 'package:uuid/uuid.dart';
 import 'dart:io';
 
+/// Sends a single mirrored/peer message, queuing it locally if the socket
+/// isn't currently writable. Implemented by ConnectionFacade (see
+/// [ConnectionFacade.sendOrQueue]) so CallFacade/SmsFacade never need
+/// their own view of the socket.
+typedef SendOrQueue =
+    Future<bool> Function(String type, Map<String, dynamic> payload);
+
+/// Shows (or replaces, by id) a local notification.
+typedef ShowNotification =
+    Future<void> Function({
+      required int id,
+      required String title,
+      required String body,
+      NotificationPayload? payload,
+    });
+
 final connectionFacadeProvider = StateNotifierProvider<ConnectionFacade, bool>((
   ref,
 ) {
