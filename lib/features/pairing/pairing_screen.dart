@@ -6,6 +6,7 @@ import 'package:mirrorline/core/security/key_store.dart';
 import 'package:mirrorline/core/theme/theme.dart';
 import 'package:mirrorline/features/connection/connection_facade.dart';
 import 'package:mirrorline/features/connection/connection_status_provider.dart';
+import 'package:mirrorline/features/pairing/pairing_controller.dart';
 import 'package:mirrorline/features/pairing/pairing_facade.dart';
 import 'package:mirrorline/features/pairing/peer_facade.dart';
 import 'package:mirrorline/features/pairing/role_selection_screen.dart';
@@ -436,28 +437,16 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
             ),
             FilledButton(
               onPressed: () async {
-                final socketManager = ref
-                    .read(connectionFacadeProvider.notifier)
-                    .socketManager;
-                if (socketManager != null) {
-                  final notifier = ref.read(pairingFacadeProvider.notifier);
-                  final scannerInfo = notifier.pendingScannerInfo ?? {};
-                  final status = ref.read(connectionStatusProvider);
-                  final myIp = status.localIp ?? '';
-                  await notifier.acceptRequest(
-                    socketManager: socketManager,
-                    scannerInfo: scannerInfo,
-                    myIp: myIp,
-                  );
-                  await ref.read(connectionFacadeProvider.notifier).refresh();
-                }
+                final hadSocket = await ref
+                    .read(pairingControllerProvider)
+                    .acceptPairingRequest();
                 // acceptRequest now waits for the scanner's ack before
                 // committing (see pairing_facade.dart) -- it can come back
                 // with an errorCode if that ack never arrived, so this can
                 // no longer unconditionally claim success.
                 final latest = ref.read(pairingFacadeProvider);
                 final errorCode = latest.errorCode;
-                final succeeded = socketManager != null && errorCode == null;
+                final succeeded = hadSocket && errorCode == null;
                 if (mounted) {
                   setState(() => _isProcessing = false);
                   ScaffoldMessenger.of(context).showSnackBar(
@@ -603,14 +592,14 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
       return;
     }
 
-    // Send pairing request via PairingFacade.
+    // Send pairing request via PairingController.
     final myPublicKey = await KeyStore.ensureDeviceKeyPair();
     final status = ref.read(connectionStatusProvider);
     final myIp = status.localIp ?? '';
 
     await ref
-        .read(pairingFacadeProvider.notifier)
-        .sendRequest(
+        .read(pairingControllerProvider)
+        .sendPairingRequest(
           scannedId: scannedId,
           scannedIp: scannedIp,
           scannedPort: scannedPort,
@@ -623,8 +612,6 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
           myPublicKey: myPublicKey,
           myIp: myIp,
         );
-
-    await ref.read(connectionFacadeProvider.notifier).refresh();
 
     if (!mounted) return;
     final pairingState = ref.read(pairingFacadeProvider);
