@@ -20,11 +20,26 @@ class SelectableListScaffold<T> extends StatefulWidget {
   final OnDeleteSelected<T> onDeleteSelected;
   final String emptyMessage;
   final String selectModeTooltip;
-  final String selectedCountLabel;
+  final String Function(int count) selectedCountLabel;
   final String deleteTooltip;
   final String deleteTitle;
   final String deleteConfirm;
   final String deletedMessage;
+
+  /// Overrides the bare `Center(Text(emptyMessage))` fallback -- pass a
+  /// screen's existing icon-based empty-state widget to preserve it.
+  final Widget Function(BuildContext context)? emptyBuilder;
+
+  /// When true, the AppBar is always shown (never null) and selection mode
+  /// is entered via an AppBar action instead of a FloatingActionButton --
+  /// for screens whose non-selecting AppBar already carries context (e.g.
+  /// a contact name + count) that a FAB-only entry point would hide.
+  /// Requires [nonSelectingTitle].
+  final bool useAppBarEntryPoint;
+
+  /// Title shown in the AppBar while not selecting, when
+  /// [useAppBarEntryPoint] is true. Ignored otherwise.
+  final Widget? nonSelectingTitle;
 
   const SelectableListScaffold({
     required this.items,
@@ -38,8 +53,14 @@ class SelectableListScaffold<T> extends StatefulWidget {
     required this.deleteTitle,
     required this.deleteConfirm,
     required this.deletedMessage,
+    this.emptyBuilder,
+    this.useAppBarEntryPoint = false,
+    this.nonSelectingTitle,
     super.key,
-  });
+  }) : assert(
+         !useAppBarEntryPoint || nonSelectingTitle != null,
+         'nonSelectingTitle is required when useAppBarEntryPoint is true',
+       );
 
   @override
   State<SelectableListScaffold<T>> createState() =>
@@ -53,7 +74,8 @@ class _SelectableListScaffoldState<T> extends State<SelectableListScaffold<T>> {
   @override
   Widget build(BuildContext context) {
     if (widget.items.isEmpty) {
-      return Center(child: Text(widget.emptyMessage));
+      return widget.emptyBuilder?.call(context) ??
+          Center(child: Text(widget.emptyMessage));
     }
 
     return Scaffold(
@@ -74,25 +96,8 @@ class _SelectableListScaffoldState<T> extends State<SelectableListScaffold<T>> {
           );
         },
       ),
-      appBar: _selecting
-          ? AppBar(
-              leading: IconButton(
-                icon: const Icon(Icons.close_rounded),
-                onPressed: _exitSelectionMode,
-              ),
-              title: Text(widget.selectedCountLabel),
-              actions: [
-                IconButton(
-                  icon: const Icon(Icons.delete_rounded),
-                  tooltip: widget.deleteTooltip,
-                  onPressed: _selected.isEmpty
-                      ? null
-                      : () => _showDeleteDialog(context),
-                ),
-              ],
-            )
-          : null,
-      floatingActionButton: _selecting
+      appBar: _buildAppBar(),
+      floatingActionButton: (_selecting || widget.useAppBarEntryPoint)
           ? null
           : FloatingActionButton(
               tooltip: widget.selectModeTooltip,
@@ -100,6 +105,40 @@ class _SelectableListScaffoldState<T> extends State<SelectableListScaffold<T>> {
               child: const Icon(Icons.checklist_rounded),
             ),
     );
+  }
+
+  PreferredSizeWidget? _buildAppBar() {
+    if (_selecting) {
+      return AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.close_rounded),
+          onPressed: _exitSelectionMode,
+        ),
+        title: Text(widget.selectedCountLabel(_selected.length)),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.delete_rounded),
+            tooltip: widget.deleteTooltip,
+            onPressed: _selected.isEmpty
+                ? null
+                : () => _showDeleteDialog(context),
+          ),
+        ],
+      );
+    }
+    if (widget.useAppBarEntryPoint) {
+      return AppBar(
+        title: widget.nonSelectingTitle,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.checklist_rounded),
+            tooltip: widget.selectModeTooltip,
+            onPressed: () => setState(() => _selecting = true),
+          ),
+        ],
+      );
+    }
+    return null;
   }
 
   void _toggleSelect(String key) {
