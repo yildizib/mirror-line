@@ -66,6 +66,17 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
   // it the moment `call_incoming` creates the call.
   final Map<String, String> _pendingCallStatuses = {};
 
+  // Main-side self-healing watchdog: if a call is still `ringing` after
+  // the Source's MISSED `call_status` was lost/delayed (socket died, queue
+  // never flushed, the user swiped the ringing notification with no dismiss
+  // callback wired), the timer auto-converts it to `missed` locally so the
+  // notification isn't frozen on "Çalıyor" forever. Per-call timers, keyed
+  // by call id, cancelled on every terminal transition. Local-only: never
+  // sends anything to the Source (the Source's MISSED stays authoritative,
+  // and a stray `call_rejected` would risk calling `rejectCall` there).
+  final Map<String, Timer> _ringingWatchdogs = {};
+  static const Duration _ringingWatchdogTimeout = Duration(seconds: 90);
+
   CallFacade({
     required this._ref,
     required this._logger,
@@ -102,6 +113,9 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
     state = state
         .map((e) => e.id == id ? e.copyWith(status: status) : e)
         .toList();
+    // Any terminal transition cancels the watchdog -- only `ringing` calls
+    // need self-healing; once answered/missed/rejected/ended it's decided.
+    if (status != 'ringing') _cancelWatchdog(id);
   }
 
   /// Patches the caller's number/contact name on an already-tracked call
@@ -122,6 +136,7 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
   }
 
   Future<void> remove(String id) async {
+    _cancelWatchdog(id);
     await _dao.delete(id);
     state = state.where((e) => e.id != id).toList();
   }
@@ -130,6 +145,7 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
   Future<void> removeMany(Iterable<String> ids) async {
     final idSet = ids.toSet();
     for (final id in idSet) {
+      _cancelWatchdog(id);
       await _dao.delete(id);
     }
     state = state.where((e) => !idSet.contains(e.id)).toList();
@@ -137,6 +153,7 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
 
   /// Permanently deletes all calls (used by "clear all" / device reset).
   Future<void> removeAll() async {
+    _cancelAllWatchdogs();
     await _dao.deleteAll();
     state = [];
   }
@@ -300,13 +317,18 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
         if (pendingStatus != null) {
           await updateStatus(id, pendingStatus);
         }
-        final l = appL10n(_ref);
-        await _notify(
-          id: int.tryParse(id) ?? 1,
-          title: event.displayName(l),
-          body: event.statusLabel(l),
-          payload: NotificationPayload(type: 'call', id: id),
-        );
+        // Render the notification from the *current* state (which may now
+        // be `missed` after the buffered status above) instead of the
+        // immutable local `event` (still `ringing`), so the body shows the
+        // live status, not a stale "Çalıyor".
+        final current = _findCall(id) ?? event;
+        await _notifyCall(current);
+        // Arm the self-healing watchdog: if the Source's MISSED never
+        // arrives (socket died, queue lost) and the call is still
+        // `ringing` after the timeout, it'll be auto-converted to `missed`
+        // locally. Cancelled by updateStatus/remove* on any terminal
+        // transition, so already-decided calls aren't touched.
+        if (current.status == 'ringing') _armWatchdog(id);
         break;
 
       case MessageTypes.callRejected:
@@ -345,15 +367,7 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
         // reflects the live status (Cevaplandı/Cevapsız/Sonlandı) instead
         // of just sitting there saying "Çalıyor" forever.
         final updated = _findCall(id);
-        if (updated != null) {
-          final l = appL10n(_ref);
-          await _notify(
-            id: int.tryParse(id) ?? 1,
-            title: updated.displayName(l),
-            body: updated.statusLabel(l),
-            payload: NotificationPayload(type: 'call', id: id),
-          );
-        }
+        if (updated != null) await _notifyCall(updated);
         break;
 
       case MessageTypes.callInfo:
@@ -365,15 +379,7 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
           contactName: payload['contact_name'] as String?,
         );
         final enriched = _findCall(id);
-        if (enriched != null) {
-          final l = appL10n(_ref);
-          await _notify(
-            id: int.tryParse(id) ?? 1,
-            title: enriched.displayName(l),
-            body: enriched.statusLabel(l),
-            payload: NotificationPayload(type: 'call', id: id),
-          );
-        }
+        if (enriched != null) await _notifyCall(enriched);
         break;
 
       default:
@@ -381,9 +387,57 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
     }
   }
 
-  CallEvent? _findCall(String id) {
-    final callMap = _ref.read(callEventMapProvider);
-    return callMap[id];
+  CallEvent? _findCall(String id) =>
+      state.where((e) => e.id == id).firstOrNull;
+
+  /// Renders (or replaces, by id) the call notification from [event]'s
+  /// current state. Single source of truth for notification rendering --
+  /// callers always pass the *post-update* event so the body reflects the
+  /// live status (missed/answered/ended) instead of a stale snapshot.
+  Future<void> _notifyCall(CallEvent event) async {
+    final l = appL10n(_ref);
+    await _notify(
+      id: int.tryParse(event.id) ?? 1,
+      title: event.displayName(l),
+      body: event.statusLabel(l),
+      payload: NotificationPayload(type: 'call', id: event.id),
+    );
+  }
+
+  // -----------------------------------------------------------------------
+  // Watchdog (Main side only) -- self-healing for stuck "ringing" calls
+  // -----------------------------------------------------------------------
+
+  /// Arms a one-shot watchdog for a newly created `ringing` call. If the
+  /// Source's MISSED `call_status` never arrives within the timeout, the
+  /// call is locally converted to `missed` and its notification re-rendered
+  /// so it doesn't sit on "Çalıyor" forever. Cancelled on every terminal
+  /// transition via [_cancelWatchdog].
+  void _armWatchdog(String id) {
+    _cancelWatchdog(id);
+    _ringingWatchdogs[id] = Timer(_ringingWatchdogTimeout, () async {
+      _ringingWatchdogs.remove(id);
+      final current = _findCall(id);
+      if (current == null || current.status != 'ringing') return;
+      await updateStatus(id, 'missed');
+      final missed = _findCall(id);
+      if (missed != null) await _notifyCall(missed);
+    });
+  }
+
+  /// Cancels the watchdog for [id] if one is armed, and discards it. Called
+  /// on every terminal transition (updateStatus, remove, removeMany,
+  /// removeAll) so already-decided calls are never touched.
+  void _cancelWatchdog(String id) {
+    final timer = _ringingWatchdogs.remove(id);
+    timer?.cancel();
+  }
+
+  void _cancelAllWatchdogs() {
+    for (final timer in _ringingWatchdogs.values) {
+      timer.cancel();
+    }
+    _ringingWatchdogs.clear();
   }
 
   // -----------------------------------------------------------------------
@@ -410,5 +464,11 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
       'id': callId,
       'timestamp': DateTime.now().millisecondsSinceEpoch,
     });
+  }
+
+  @override
+  void dispose() {
+    _cancelAllWatchdogs();
+    super.dispose();
   }
 }
