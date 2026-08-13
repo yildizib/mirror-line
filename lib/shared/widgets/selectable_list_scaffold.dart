@@ -99,6 +99,7 @@ class _SelectableListScaffoldState<T> extends State<SelectableListScaffold<T>> {
       floatingActionButton: (_selecting || widget.useAppBarEntryPoint)
           ? null
           : FloatingActionButton(
+              heroTag: null,
               tooltip: widget.selectModeTooltip,
               onPressed: () => setState(() => _selecting = true),
               child: const Icon(Icons.checklist_rounded),
