@@ -174,15 +174,13 @@ class NotificationFacade extends StateNotifier<List<NotificationEvent>> {
   }
 
   Future<void> handleNativeRemoval(Map<dynamic, dynamic> data) async {
-    final packageName = (data['packageName'] as String?) ?? 'unknown';
-    final nativeId = (data['id'] as String?) ?? '';
-    if (nativeId.isEmpty) return;
-
-    await removeByNativeId(packageName, nativeId);
-    await _sendOrQueue(MessageTypes.notificationRemoved, {
-      'packageName': packageName,
-      'nativeId': nativeId,
-    });
+    // Intentionally a no-op. Android fires onNotificationRemoved for many
+    // reasons (dismiss, auto-cancel on open, summary regrouping) that don't
+    // mean the user wants the mirrored record gone. We keep events in the
+    // DB, matching how Call/SMS are persisted regardless of the source
+    // notification's lifecycle. The native listener no longer forwards
+    // removals here either (issue #59); this is kept as a safety net.
+    _logger.i('NotificationFacade: native removal ignored (event kept)');
   }
 
   // -----------------------------------------------------------------------
@@ -225,11 +223,10 @@ class NotificationFacade extends StateNotifier<List<NotificationEvent>> {
         break;
 
       case MessageTypes.notificationRemoved:
-        final packageName = payload['packageName'] as String? ?? 'unknown';
-        final nativeId = payload['nativeId'] as String? ?? '';
-        if (nativeId.isNotEmpty) {
-          await removeByNativeId(packageName, nativeId);
-        }
+        // No-op: keep events in the DB. Older source devices may still
+        // send this message; we intentionally ignore it so notifications
+        // persist on the Main device too (issue #59).
+        _logger.i('NotificationFacade: peer removal ignored (event kept)');
         break;
 
       default:

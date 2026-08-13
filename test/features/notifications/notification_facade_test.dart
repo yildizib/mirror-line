@@ -111,7 +111,7 @@ void main() {
   );
 
   test(
-    'a native dismissal removes the stored event and sends notificationRemoved',
+    'a native dismissal is ignored -- the stored event is kept (issue #59)',
     () async {
       final sent = <MapEntry<String, Map<String, dynamic>>>[];
       final container = buildContainer(sent);
@@ -121,7 +121,7 @@ void main() {
 
       // Seed directly via add() (bypasses the watched-package gate, which
       // is already covered by the test above) so this test only exercises
-      // dismissal: native removal -> DAO delete + peer message.
+      // dismissal: native removal is now a no-op, the event must remain.
       await facade.add(
         NotificationEvent(
           id: 'evt-1',
@@ -142,15 +142,12 @@ void main() {
         'id': 'native-1',
       });
 
-      expect(facade.state, isEmpty);
+      // Event must still be present -- native removals no longer delete.
+      expect(facade.state, hasLength(1));
       expect(
-        sent.any(
-          (e) =>
-              e.key == 'notification_removed' &&
-              e.value['packageName'] == 'com.example.chat' &&
-              e.value['nativeId'] == 'native-1',
-        ),
-        isTrue,
+        sent.any((e) => e.key == 'notification_removed'),
+        isFalse,
+        reason: 'no notificationRemoved peer message should be queued',
       );
     },
   );
