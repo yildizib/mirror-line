@@ -6,7 +6,7 @@ import 'package:sqflite/sqflite.dart';
 class AppDatabase {
   static final AppDatabase instance = AppDatabase._internal();
   static Database? _database;
-  static const int schemaVersion = 5;
+  static const int schemaVersion = 6;
 
   AppDatabase._internal();
 
@@ -31,16 +31,28 @@ class AppDatabase {
   /// upgrade path a real device would go through -- see
   /// test/database_migration_test.dart.
   @visibleForTesting
-  Future<void> upgradeTables(Database db, int oldVersion, int newVersion) async {
+  Future<void> upgradeTables(
+    Database db,
+    int oldVersion,
+    int newVersion,
+  ) async {
     if (oldVersion < 2) {
-      await db.execute('ALTER TABLE peer ADD COLUMN device_name TEXT NOT NULL DEFAULT "";');
+      await db.execute(
+        'ALTER TABLE peer ADD COLUMN device_name TEXT NOT NULL DEFAULT "";',
+      );
     }
     if (oldVersion < 3) {
-      await db.execute('ALTER TABLE peer ADD COLUMN public_key TEXT NOT NULL DEFAULT "";');
+      await db.execute(
+        'ALTER TABLE peer ADD COLUMN public_key TEXT NOT NULL DEFAULT "";',
+      );
     }
     if (oldVersion < 4) {
-      await db.execute('ALTER TABLE call_event ADD COLUMN contact_name TEXT NOT NULL DEFAULT "";');
-      await db.execute('ALTER TABLE sms_message ADD COLUMN contact_name TEXT NOT NULL DEFAULT "";');
+      await db.execute(
+        'ALTER TABLE call_event ADD COLUMN contact_name TEXT NOT NULL DEFAULT "";',
+      );
+      await db.execute(
+        'ALTER TABLE sms_message ADD COLUMN contact_name TEXT NOT NULL DEFAULT "";',
+      );
     }
     if (oldVersion < 5) {
       await db.execute('''
@@ -51,6 +63,21 @@ class AppDatabase {
           port INTEGER NOT NULL,
           last_seen_at INTEGER NOT NULL,
           PRIMARY KEY (peer_id, subnet_prefix)
+        )
+      ''');
+    }
+    if (oldVersion < 6) {
+      await db.execute('''
+        CREATE TABLE notification_event (
+          id TEXT PRIMARY KEY,
+          native_id TEXT NOT NULL,
+          package_name TEXT NOT NULL,
+          app_name TEXT NOT NULL DEFAULT "",
+          title TEXT NOT NULL DEFAULT "",
+          text TEXT NOT NULL DEFAULT "",
+          encrypted TEXT NOT NULL,
+          timestamp INTEGER NOT NULL,
+          created_at INTEGER NOT NULL
         )
       ''');
     }
@@ -121,6 +148,20 @@ class AppDatabase {
         PRIMARY KEY (peer_id, subnet_prefix)
       )
     ''');
+
+    await db.execute('''
+      CREATE TABLE notification_event (
+        id TEXT PRIMARY KEY,
+        native_id TEXT NOT NULL,
+        package_name TEXT NOT NULL,
+        app_name TEXT NOT NULL DEFAULT "",
+        title TEXT NOT NULL DEFAULT "",
+        text TEXT NOT NULL DEFAULT "",
+        encrypted TEXT NOT NULL,
+        timestamp INTEGER NOT NULL,
+        created_at INTEGER NOT NULL
+      )
+    ''');
   }
 
   Future<void> close() async {
@@ -135,5 +176,6 @@ class AppDatabase {
     await db.delete('sms_message');
     await db.delete('offline_queue');
     await db.delete('known_network');
+    await db.delete('notification_event');
   }
 }

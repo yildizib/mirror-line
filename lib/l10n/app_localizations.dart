@@ -110,6 +110,12 @@ abstract class AppLocalizations {
   /// **'İki telefon, uçtan uca şifreli bağlantı'**
   String get splashTagline;
 
+  /// No description provided for @navHome.
+  ///
+  /// In tr, this message translates to:
+  /// **'Akış'**
+  String get navHome;
+
   /// No description provided for @navCalls.
   ///
   /// In tr, this message translates to:
@@ -122,11 +128,23 @@ abstract class AppLocalizations {
   /// **'SMS'**
   String get navSms;
 
+  /// No description provided for @navNotifications.
+  ///
+  /// In tr, this message translates to:
+  /// **'Bildirimler'**
+  String get navNotifications;
+
   /// No description provided for @navSettings.
   ///
   /// In tr, this message translates to:
   /// **'Ayarlar'**
   String get navSettings;
+
+  /// No description provided for @homeFeedEmpty.
+  ///
+  /// In tr, this message translates to:
+  /// **'Henüz etkinlik yok'**
+  String get homeFeedEmpty;
 
   /// No description provided for @roleTitle.
   ///
@@ -584,6 +602,96 @@ abstract class AppLocalizations {
   /// **'Diğer telefondan bildirimleri yansıtmak için gerekli'**
   String get settingsNotifAccessDesc;
 
+  /// No description provided for @settingsWatchedApps.
+  ///
+  /// In tr, this message translates to:
+  /// **'İzlenen uygulamalar'**
+  String get settingsWatchedApps;
+
+  /// No description provided for @settingsWatchedAppsDesc.
+  ///
+  /// In tr, this message translates to:
+  /// **'Bildirimleri yansıtılacak uygulamaları seç'**
+  String get settingsWatchedAppsDesc;
+
+  /// No description provided for @watchedAppsTitle.
+  ///
+  /// In tr, this message translates to:
+  /// **'İzlenen uygulamalar'**
+  String get watchedAppsTitle;
+
+  /// No description provided for @watchedAppsSearchHint.
+  ///
+  /// In tr, this message translates to:
+  /// **'Uygulama ara...'**
+  String get watchedAppsSearchHint;
+
+  /// No description provided for @settingsRunTests.
+  ///
+  /// In tr, this message translates to:
+  /// **'Testleri çalıştır'**
+  String get settingsRunTests;
+
+  /// No description provided for @settingsRunTestsDesc.
+  ///
+  /// In tr, this message translates to:
+  /// **'Eşleşen cihaza sahte arama, SMS ve bildirim gönder'**
+  String get settingsRunTestsDesc;
+
+  /// No description provided for @runTestsTitle.
+  ///
+  /// In tr, this message translates to:
+  /// **'Testleri çalıştır'**
+  String get runTestsTitle;
+
+  /// No description provided for @runTestsButton.
+  ///
+  /// In tr, this message translates to:
+  /// **'Testleri çalıştır'**
+  String get runTestsButton;
+
+  /// No description provided for @runTestsEmpty.
+  ///
+  /// In tr, this message translates to:
+  /// **'Henüz test çalıştırılmadı'**
+  String get runTestsEmpty;
+
+  /// No description provided for @runTestsSent.
+  ///
+  /// In tr, this message translates to:
+  /// **'Gönderildi'**
+  String get runTestsSent;
+
+  /// No description provided for @runTestsQueued.
+  ///
+  /// In tr, this message translates to:
+  /// **'Sıraya alındı'**
+  String get runTestsQueued;
+
+  /// No description provided for @runTestsCallType.
+  ///
+  /// In tr, this message translates to:
+  /// **'Test araması'**
+  String get runTestsCallType;
+
+  /// No description provided for @runTestsSmsType.
+  ///
+  /// In tr, this message translates to:
+  /// **'Test SMS\'i'**
+  String get runTestsSmsType;
+
+  /// No description provided for @runTestsNotificationType.
+  ///
+  /// In tr, this message translates to:
+  /// **'Test bildirimi'**
+  String get runTestsNotificationType;
+
+  /// No description provided for @runTestsNotConnected.
+  ///
+  /// In tr, this message translates to:
+  /// **'Testleri çalıştırmak için eşleşmiş bir cihaza bağlı olmalısınız'**
+  String get runTestsNotConnected;
+
   /// No description provided for @settingsKeepPermissions.
   ///
   /// In tr, this message translates to:
@@ -655,6 +763,12 @@ abstract class AppLocalizations {
   /// In tr, this message translates to:
   /// **'Cihaz sıfırlandı'**
   String get settingsResetDone;
+
+  /// No description provided for @settingsDangerZone.
+  ///
+  /// In tr, this message translates to:
+  /// **'Tehlikeli Bölge'**
+  String get settingsDangerZone;
 
   /// No description provided for @settingsLanguage.
   ///
@@ -884,6 +998,84 @@ abstract class AppLocalizations {
   /// **'Yanıtınızı yazın...'**
   String get smsReplyHint;
 
+  /// No description provided for @runTestsCallLabel.
+  ///
+  /// In tr, this message translates to:
+  /// **'MirrorLine Test Araması'**
+  String get runTestsCallLabel;
+
+  /// No description provided for @runTestsSmsBody.
+  ///
+  /// In tr, this message translates to:
+  /// **'Bu, MirrorLine tanılamasından gelen bir test SMS\'idir.'**
+  String get runTestsSmsBody;
+
+  /// No description provided for @runTestsNotificationApp.
+  ///
+  /// In tr, this message translates to:
+  /// **'MirrorLine Testi'**
+  String get runTestsNotificationApp;
+
+  /// No description provided for @runTestsNotificationTitle.
+  ///
+  /// In tr, this message translates to:
+  /// **'Test Bildirimi'**
+  String get runTestsNotificationTitle;
+
+  /// No description provided for @runTestsNotificationBody.
+  ///
+  /// In tr, this message translates to:
+  /// **'Bu, MirrorLine tanılamasından gelen bir test bildirimidir.'**
+  String get runTestsNotificationBody;
+
+  /// No description provided for @notificationsEmpty.
+  ///
+  /// In tr, this message translates to:
+  /// **'Henüz bildirim yok'**
+  String get notificationsEmpty;
+
+  /// No description provided for @notificationsSelectedCount.
+  ///
+  /// In tr, this message translates to:
+  /// **'{count} seçili'**
+  String notificationsSelectedCount(int count);
+
+  /// No description provided for @notificationsDeleteSelected.
+  ///
+  /// In tr, this message translates to:
+  /// **'Seçilen bildirimleri sil'**
+  String get notificationsDeleteSelected;
+
+  /// No description provided for @notificationsDeleteConfirmBody.
+  ///
+  /// In tr, this message translates to:
+  /// **'{count} bildirim kalıcı olarak silinecek.'**
+  String notificationsDeleteConfirmBody(int count);
+
+  /// No description provided for @notificationsDeleted.
+  ///
+  /// In tr, this message translates to:
+  /// **'Seçilen bildirimler silindi'**
+  String get notificationsDeleted;
+
+  /// No description provided for @notificationsEventCount.
+  ///
+  /// In tr, this message translates to:
+  /// **'{count} bildirim'**
+  String notificationsEventCount(int count);
+
+  /// No description provided for @notificationsSelectMode.
+  ///
+  /// In tr, this message translates to:
+  /// **'Bildirimleri seç'**
+  String get notificationsSelectMode;
+
+  /// No description provided for @notificationsDeleteOne.
+  ///
+  /// In tr, this message translates to:
+  /// **'{count} bildirim kalıcı olarak silinecek.'**
+  String notificationsDeleteOne(int count);
+
   /// No description provided for @commonDelete.
   ///
   /// In tr, this message translates to:
@@ -925,6 +1117,12 @@ abstract class AppLocalizations {
   /// In tr, this message translates to:
   /// **'Bugün'**
   String get commonToday;
+
+  /// No description provided for @commonYesterday.
+  ///
+  /// In tr, this message translates to:
+  /// **'Dün'**
+  String get commonYesterday;
 }
 
 class _AppLocalizationsDelegate

@@ -27,7 +27,9 @@ class SmsBubble extends StatelessWidget {
       child: Container(
         margin: const EdgeInsets.symmetric(vertical: 4),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
+        constraints: BoxConstraints(
+          maxWidth: MediaQuery.of(context).size.width * 0.75,
+        ),
         decoration: BoxDecoration(
           color: bubbleColor,
           borderRadius: BorderRadius.only(
@@ -41,13 +43,19 @@ class SmsBubble extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.end,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(message.body, style: TextStyle(color: textColor, fontSize: 15)),
+            Text(
+              message.body,
+              style: TextStyle(color: textColor, fontSize: 15),
+            ),
             const SizedBox(height: 4),
             Text(
               isOutgoing
                   ? '${_formatTime(message.timestamp)} · ${message.statusLabel(l)}'
                   : _formatTime(message.timestamp),
-              style: TextStyle(fontSize: 11, color: textColor.withValues(alpha: 0.75)),
+              style: TextStyle(
+                fontSize: 11,
+                color: textColor.withValues(alpha: 0.75),
+              ),
             ),
           ],
         ),

@@ -5,11 +5,9 @@ class QueueService {
   final QueueDao _dao = QueueDao();
 
   Future<void> enqueue(String type, String payload) async {
-    await _dao.insert(QueueItem(
-      type: type,
-      payload: payload,
-      createdAt: DateTime.now(),
-    ));
+    await _dao.insert(
+      QueueItem(type: type, payload: payload, createdAt: DateTime.now()),
+    );
   }
 
   Future<List<QueueItem>> pendingItems() => _dao.getAll();

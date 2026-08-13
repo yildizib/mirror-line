@@ -4,10 +4,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mirrorline/core/data/models/peer.dart';
 import 'package:mirrorline/core/security/key_store.dart';
 import 'package:mirrorline/core/theme/theme.dart';
-import 'package:mirrorline/features/connection/connection_provider.dart';
+import 'package:mirrorline/features/connection/connection_facade.dart';
 import 'package:mirrorline/features/connection/connection_status_provider.dart';
-import 'package:mirrorline/features/pairing/pairing_provider.dart';
-import 'package:mirrorline/features/pairing/peer_provider.dart';
+import 'package:mirrorline/features/pairing/pairing_controller.dart';
+import 'package:mirrorline/features/pairing/pairing_facade.dart';
+import 'package:mirrorline/features/pairing/peer_facade.dart';
 import 'package:mirrorline/features/pairing/role_selection_screen.dart';
 import 'package:mirrorline/features/pairing/widgets/qr_display.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
@@ -35,14 +36,14 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
       // connection status (never into the peer record -- after pairing that
       // row belongs to the *other* device, and overwriting it with our own
       // address is what made Settings show the same IP for both devices).
-      ref.read(connectionProvider.notifier).updateLocalIp();
+      ref.read(connectionFacadeProvider.notifier).updateLocalIp();
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    final peer = ref.watch(peerProvider);
-    final pairingState = ref.watch(pairingProvider);
+    final peer = ref.watch(peerFacadeProvider);
+    final pairingState = ref.watch(pairingFacadeProvider);
     final status = ref.watch(connectionStatusProvider);
     final l = AppLocalizations.of(context);
 
@@ -67,8 +68,14 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
           title: Text(l.pairingTitle),
           bottom: TabBar(
             tabs: [
-              Tab(text: l.pairingShowQr, icon: const Icon(Icons.qr_code_rounded)),
-              Tab(text: l.pairingScanQr, icon: const Icon(Icons.qr_code_scanner_rounded)),
+              Tab(
+                text: l.pairingShowQr,
+                icon: const Icon(Icons.qr_code_rounded),
+              ),
+              Tab(
+                text: l.pairingScanQr,
+                icon: const Icon(Icons.qr_code_scanner_rounded),
+              ),
             ],
           ),
         ),
@@ -82,7 +89,11 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
     );
   }
 
-  Widget _buildShowQrTab(Peer? peer, PairingState pairingState, String? localIp) {
+  Widget _buildShowQrTab(
+    Peer? peer,
+    PairingState pairingState,
+    String? localIp,
+  ) {
     final theme = Theme.of(context);
     final l = AppLocalizations.of(context);
 
@@ -101,7 +112,9 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
               FilledButton(
                 onPressed: () => Navigator.push(
                   context,
-                  MaterialPageRoute(builder: (_) => const RoleSelectionScreen()),
+                  MaterialPageRoute(
+                    builder: (_) => const RoleSelectionScreen(),
+                  ),
                 ),
                 child: Text(l.pairingSelectRoleButton),
               ),
@@ -155,7 +168,9 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
                       const SizedBox(width: AppSpacing.sm),
                       Text(
                         l.pairingRequestReceived,
-                        style: TextStyle(color: theme.status.onSuccessContainer),
+                        style: TextStyle(
+                          color: theme.status.onSuccessContainer,
+                        ),
                       ),
                     ],
                   ),
@@ -216,7 +231,9 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
             const CircularProgressIndicator(),
             const SizedBox(height: 24),
             Text(
-              l.pairingWaiting(pairingState.remoteDeviceName ?? l.pairingUnknownDevice),
+              l.pairingWaiting(
+                pairingState.remoteDeviceName ?? l.pairingUnknownDevice,
+              ),
               style: const TextStyle(fontSize: 16),
               textAlign: TextAlign.center,
             ),
@@ -224,17 +241,22 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
             if (pairingState.verificationCode != null)
               Column(
                 children: [
-                  _verificationCodeBadge(context, pairingState.verificationCode!),
+                  _verificationCodeBadge(
+                    context,
+                    pairingState.verificationCode!,
+                  ),
                   const SizedBox(height: AppSpacing.sm),
                   Text(
                     l.pairingCodeMatch,
-                    style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
                   ),
                 ],
               ),
             const SizedBox(height: 24),
             FilledButton.tonal(
-              onPressed: () => ref.read(pairingProvider.notifier).reset(),
+              onPressed: () => ref.read(pairingFacadeProvider.notifier).reset(),
               child: Text(l.pairingCancel),
             ),
           ],
@@ -248,17 +270,25 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.error_outline_rounded, size: 64, color: Theme.of(context).colorScheme.error),
+            Icon(
+              Icons.error_outline_rounded,
+              size: 64,
+              color: Theme.of(context).colorScheme.error,
+            ),
             const SizedBox(height: AppSpacing.md),
             Text(
-              pairingErrorText(l, pairingState.errorCode!, pairingState.errorDetail),
+              pairingErrorText(
+                l,
+                pairingState.errorCode!,
+                pairingState.errorDetail,
+              ),
               style: const TextStyle(fontSize: 16),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: AppSpacing.lg),
             FilledButton(
               onPressed: () {
-                ref.read(pairingProvider.notifier).reset();
+                ref.read(pairingFacadeProvider.notifier).reset();
                 setState(() {});
               },
               child: Text(l.pairingRetry),
@@ -289,16 +319,10 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
             child: Stack(
               children: [
                 Container(
-                  decoration: const BoxDecoration(
-                    color: Colors.transparent,
-                  ),
+                  decoration: const BoxDecoration(color: Colors.transparent),
                 ),
                 Center(
-                  child: Container(
-                    height: 250,
-                    width: 250,
-                    color: Colors.red,
-                  ),
+                  child: Container(height: 250, width: 250, color: Colors.red),
                 ),
               ],
             ),
@@ -340,7 +364,9 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
             width: 88,
             height: 88,
             decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.5),
+              color: Theme.of(
+                context,
+              ).colorScheme.primaryContainer.withValues(alpha: 0.5),
               shape: BoxShape.circle,
             ),
             child: Icon(
@@ -350,10 +376,7 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
             ),
           ),
           const SizedBox(height: AppSpacing.md),
-          Text(
-            l.pairingScanPrompt,
-            style: const TextStyle(fontSize: 16),
-          ),
+          Text(l.pairingScanPrompt, style: const TextStyle(fontSize: 16)),
           const SizedBox(height: AppSpacing.lg),
           FilledButton.icon(
             onPressed: () => setState(() => _isScanning = true),
@@ -373,92 +396,94 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
       builder: (ctx) {
         final dl = AppLocalizations.of(ctx);
         return AlertDialog(
-        title: Text(l.pairingRequestTitle),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              dl.pairingRequestFrom(pairingState.remoteDeviceName ?? dl.pairingUnknownDevice),
+          title: Text(l.pairingRequestTitle),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                dl.pairingRequestFrom(
+                  pairingState.remoteDeviceName ?? dl.pairingUnknownDevice,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.md),
+              _verificationCodeBadge(ctx, pairingState.verificationCode ?? ''),
+              const SizedBox(height: AppSpacing.sm),
+              Text(
+                dl.pairingCodeMatch,
+                style: TextStyle(
+                  color: Theme.of(ctx).colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () async {
+                final socketManager = ref
+                    .read(connectionFacadeProvider.notifier)
+                    .socketManager;
+                if (socketManager != null) {
+                  final notifier = ref.read(pairingFacadeProvider.notifier);
+                  await notifier.rejectRequest(socketManager: socketManager);
+                }
+                if (mounted) {
+                  setState(() => _isProcessing = false);
+                }
+                if (ctx.mounted) {
+                  Navigator.of(ctx).pop();
+                }
+              },
+              child: Text(l.pairingReject),
             ),
-            const SizedBox(height: AppSpacing.md),
-            _verificationCodeBadge(ctx, pairingState.verificationCode ?? ''),
-            const SizedBox(height: AppSpacing.sm),
-            Text(
-              dl.pairingCodeMatch,
-              style: TextStyle(color: Theme.of(ctx).colorScheme.onSurfaceVariant),
+            FilledButton(
+              onPressed: () async {
+                final hadSocket = await ref
+                    .read(pairingControllerProvider)
+                    .acceptPairingRequest();
+                // acceptRequest now waits for the scanner's ack before
+                // committing (see pairing_facade.dart) -- it can come back
+                // with an errorCode if that ack never arrived, so this can
+                // no longer unconditionally claim success.
+                final latest = ref.read(pairingFacadeProvider);
+                final errorCode = latest.errorCode;
+                final succeeded = hadSocket && errorCode == null;
+                if (mounted) {
+                  setState(() => _isProcessing = false);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        succeeded
+                            ? l.pairingPairedWith(
+                                pairingState.remoteDeviceName ??
+                                    l.pairingUnknownDevice,
+                              )
+                            : (errorCode == null
+                                  ? l.pairingInvalidQr
+                                  : pairingErrorText(
+                                      l,
+                                      errorCode,
+                                      latest.errorDetail,
+                                    )),
+                      ),
+                      backgroundColor: succeeded
+                          ? Theme.of(context).status.success
+                          : Theme.of(context).colorScheme.error,
+                    ),
+                  );
+                }
+                if (ctx.mounted) {
+                  Navigator.of(ctx).pop();
+                }
+                if (succeeded) {
+                  Future.delayed(const Duration(milliseconds: 500), () {
+                    if (mounted) Navigator.of(context).pop();
+                  });
+                }
+              },
+              child: Text(l.pairingConfirm),
             ),
           ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () async {
-              final socketManager =
-                  ref.read(connectionProvider.notifier).socketManager;
-              if (socketManager != null) {
-                final notifier = ref.read(pairingProvider.notifier);
-                await notifier.rejectRequest(socketManager: socketManager);
-              }
-              if (mounted) {
-                setState(() => _isProcessing = false);
-              }
-              if (ctx.mounted) {
-                Navigator.of(ctx).pop();
-              }
-            },
-            child: Text(l.pairingReject),
-          ),
-          FilledButton(
-            onPressed: () async {
-              final socketManager =
-                  ref.read(connectionProvider.notifier).socketManager;
-              if (socketManager != null) {
-                final notifier = ref.read(pairingProvider.notifier);
-                final scannerInfo = notifier.pendingScannerInfo ?? {};
-                final status = ref.read(connectionStatusProvider);
-                final myIp = status.localIp ?? '';
-                await notifier.acceptRequest(
-                  socketManager: socketManager,
-                  scannerInfo: scannerInfo,
-                  myIp: myIp,
-                );
-                await ref.read(connectionProvider.notifier).refresh();
-              }
-              // acceptRequest now waits for the scanner's ack before
-              // committing (see pairing_provider.dart) -- it can come back
-              // with an errorCode if that ack never arrived, so this can
-              // no longer unconditionally claim success.
-              final latest = ref.read(pairingProvider);
-              final errorCode = latest.errorCode;
-              final succeeded = socketManager != null && errorCode == null;
-              if (mounted) {
-                setState(() => _isProcessing = false);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(succeeded
-                        ? l.pairingPairedWith(
-                            pairingState.remoteDeviceName ?? l.pairingUnknownDevice)
-                        : (errorCode == null
-                            ? l.pairingInvalidQr
-                            : pairingErrorText(l, errorCode, latest.errorDetail))),
-                    backgroundColor: succeeded
-                        ? Theme.of(context).status.success
-                        : Theme.of(context).colorScheme.error,
-                  ),
-                );
-              }
-              if (ctx.mounted) {
-                Navigator.of(ctx).pop();
-              }
-              if (succeeded) {
-                Future.delayed(const Duration(milliseconds: 500), () {
-                  if (mounted) Navigator.of(context).pop();
-                });
-              }
-            },
-            child: Text(l.pairingConfirm),
-          ),
-        ],
-      );
+        );
       },
     );
   }
@@ -477,9 +502,9 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
         _isProcessing = false;
         _isScanning = false;
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(l.pairingInvalidQr)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(l.pairingInvalidQr)));
       return;
     }
 
@@ -488,32 +513,37 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
     final scannedPort = int.tryParse(parts[2]) ?? 45678;
     final scannedKey = parts[3];
 
-    final hasRole = parts.length >= 6 && (parts.last == 'source' || parts.last == 'main');
+    final hasRole =
+        parts.length >= 6 && (parts.last == 'source' || parts.last == 'main');
     final hasPublicKey = parts.length >= 7;
 
     final scannedPublicKey = hasPublicKey ? parts[parts.length - 1] : '';
     final scannedName = hasPublicKey
         ? parts.sublist(4, parts.length - 2).join('|')
         : (hasRole
-            ? parts.sublist(4, parts.length - 1).join('|')
-            : (parts.length > 4 ? parts.sublist(4).join('|') : l.pairingUnknownDevice));
+              ? parts.sublist(4, parts.length - 1).join('|')
+              : (parts.length > 4
+                    ? parts.sublist(4).join('|')
+                    : l.pairingUnknownDevice));
 
-    final myPeer = ref.read(peerProvider);
+    final myPeer = ref.read(peerFacadeProvider);
     if (myPeer == null) {
       setState(() {
         _isProcessing = false;
         _isScanning = false;
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(l.pairingSelectRoleFirst)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(l.pairingSelectRoleFirst)));
       return;
     }
 
     final myRole = myPeer.role; // 'main' or 'source'
 
-    final verificationCode =
-        PeerNotifier.generateVerificationCode(scannedKey, scannedId);
+    final verificationCode = PeerFacade.generateVerificationCode(
+      scannedKey,
+      scannedId,
+    );
 
     if (!mounted) return;
     final confirmed = await showDialog<bool>(
@@ -522,37 +552,39 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
       builder: (ctx) {
         final dl = AppLocalizations.of(ctx);
         return AlertDialog(
-        title: Text(dl.pairingConfirmTitle),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(dl.pairingConfirmBody(scannedName)),
-            const SizedBox(height: AppSpacing.md),
-            _verificationCodeBadge(ctx, verificationCode),
-            const SizedBox(height: AppSpacing.sm),
-            Text(
-              dl.pairingCodeMatch,
-              style: TextStyle(color: Theme.of(ctx).colorScheme.onSurfaceVariant),
+          title: Text(dl.pairingConfirmTitle),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(dl.pairingConfirmBody(scannedName)),
+              const SizedBox(height: AppSpacing.md),
+              _verificationCodeBadge(ctx, verificationCode),
+              const SizedBox(height: AppSpacing.sm),
+              Text(
+                dl.pairingCodeMatch,
+                style: TextStyle(
+                  color: Theme.of(ctx).colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                setState(() {
+                  _isProcessing = false;
+                  _isScanning = false;
+                });
+                Navigator.of(ctx).pop(false);
+              },
+              child: Text(dl.pairingCancel),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: Text(dl.pairingConfirm),
             ),
           ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              setState(() {
-                _isProcessing = false;
-                _isScanning = false;
-              });
-              Navigator.of(ctx).pop(false);
-            },
-            child: Text(dl.pairingCancel),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: Text(dl.pairingConfirm),
-          ),
-        ],
-      );
+        );
       },
     );
 
@@ -560,12 +592,14 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
       return;
     }
 
-    // Send pairing request via PairingNotifier.
+    // Send pairing request via PairingController.
     final myPublicKey = await KeyStore.ensureDeviceKeyPair();
     final status = ref.read(connectionStatusProvider);
     final myIp = status.localIp ?? '';
 
-    await ref.read(pairingProvider.notifier).sendRequest(
+    await ref
+        .read(pairingControllerProvider)
+        .sendPairingRequest(
           scannedId: scannedId,
           scannedIp: scannedIp,
           scannedPort: scannedPort,
@@ -579,10 +613,8 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
           myIp: myIp,
         );
 
-    await ref.read(connectionProvider.notifier).refresh();
-
     if (!mounted) return;
-    final pairingState = ref.read(pairingProvider);
+    final pairingState = ref.read(pairingFacadeProvider);
     if (pairingState.errorCode == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(

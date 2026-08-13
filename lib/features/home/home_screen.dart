@@ -2,12 +2,17 @@ import 'package:flutter/material.dart';
 import 'package:mirrorline/l10n/app_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logger/logger.dart';
+import 'package:mirrorline/core/data/models/notification_event.dart';
 import 'package:mirrorline/core/services/notification_service.dart';
 import 'package:mirrorline/core/services/permission_service.dart';
 import 'package:mirrorline/core/theme/theme.dart';
 import 'package:mirrorline/features/calls/calls_screen.dart';
-import 'package:mirrorline/features/connection/connection_provider.dart';
+import 'package:mirrorline/features/connection/connection_facade.dart';
 import 'package:mirrorline/features/connection/widgets/connection_banner.dart';
+import 'package:mirrorline/features/home/home_feed_screen.dart';
+import 'package:mirrorline/features/notifications/notification_facade.dart';
+import 'package:mirrorline/features/notifications/notification_group_detail_screen.dart';
+import 'package:mirrorline/features/notifications/notifications_screen.dart';
 import 'package:mirrorline/features/settings/settings_screen.dart';
 import 'package:mirrorline/features/sms/sms_screen.dart';
 import 'package:mirrorline/features/sms/sms_thread_screen.dart';
@@ -23,8 +28,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   int _selectedIndex = 0;
 
   final _pages = const [
+    HomeFeedScreen(),
     CallsScreen(),
     SmsScreen(),
+    NotificationsScreen(),
     SettingsScreen(),
   ];
 
@@ -61,10 +68,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final payload = req.payload;
     switch (payload.type) {
       case 'call':
-        setState(() => _selectedIndex = 0);
+        setState(() => _selectedIndex = 1);
         break;
       case 'sms':
-        setState(() => _selectedIndex = 1);
+        setState(() => _selectedIndex = 2);
         if (payload.address != null && payload.address!.isNotEmpty) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (!mounted) return;
@@ -77,9 +84,31 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           });
         }
         break;
-      case 'mirrored':
-        // Mirrored notifications don't deep-link anywhere -- the app just
-        // comes to the foreground; leave the current tab as-is.
+      case 'mirrored_notification':
+        setState(() => _selectedIndex = 3);
+        final eventId = payload.id;
+        if (eventId != null) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            final events = ref.read(notificationFacadeProvider);
+            NotificationEvent? match;
+            for (final e in events) {
+              if (e.id == eventId) {
+                match = e;
+                break;
+              }
+            }
+            if (match == null) return;
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => NotificationGroupDetailScreen(
+                  packageName: match!.packageName,
+                ),
+              ),
+            );
+          });
+        }
         break;
     }
   }
@@ -92,9 +121,20 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     }
   }
 
+  /// Localized title for the active tab, shown in the shared AppBar
+  /// instead of a generic app title for every tab.
+  String _tabTitle(AppLocalizations l, int index) => switch (index) {
+    0 => l.navHome,
+    1 => l.navCalls,
+    2 => l.navSms,
+    3 => l.navNotifications,
+    4 => l.navSettings,
+    _ => l.appTitle,
+  };
+
   @override
   Widget build(BuildContext context) {
-    final isConnected = ref.watch(connectionProvider);
+    final isConnected = ref.watch(connectionFacadeProvider);
     final theme = Theme.of(context);
     final status = theme.status;
     final l = AppLocalizations.of(context);
@@ -104,7 +144,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         title: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(l.appTitle),
+            Text(_tabTitle(l, _selectedIndex)),
             const SizedBox(width: AppSpacing.sm),
             AnimatedContainer(
               duration: const Duration(milliseconds: 300),
@@ -112,7 +152,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               height: 8,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: isConnected ? status.success : theme.colorScheme.outlineVariant,
+                color: isConnected
+                    ? status.success
+                    : theme.colorScheme.outlineVariant,
               ),
             ),
           ],
@@ -122,20 +164,20 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         children: [
           ConnectionBanner(isConnected: isConnected),
           Expanded(
-            child: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 200),
-              child: KeyedSubtree(
-                key: ValueKey(_selectedIndex),
-                child: _pages[_selectedIndex],
-              ),
-            ),
+            child: IndexedStack(index: _selectedIndex, children: _pages),
           ),
         ],
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _selectedIndex,
-        onDestinationSelected: (index) => setState(() => _selectedIndex = index),
+        onDestinationSelected: (index) =>
+            setState(() => _selectedIndex = index),
         destinations: [
+          NavigationDestination(
+            icon: const Icon(Icons.dashboard_outlined),
+            selectedIcon: const Icon(Icons.dashboard_rounded),
+            label: l.navHome,
+          ),
           NavigationDestination(
             icon: const Icon(Icons.call_outlined),
             selectedIcon: const Icon(Icons.call_rounded),
@@ -145,6 +187,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             icon: const Icon(Icons.message_outlined),
             selectedIcon: const Icon(Icons.message_rounded),
             label: l.navSms,
+          ),
+          NavigationDestination(
+            icon: const Icon(Icons.notifications_outlined),
+            selectedIcon: const Icon(Icons.notifications_rounded),
+            label: l.navNotifications,
           ),
           NavigationDestination(
             icon: const Icon(Icons.settings_outlined),

@@ -1,7 +1,9 @@
 import 'package:flutter/services.dart';
 
 class TelephonyChannel {
-  static const MethodChannel _channel = MethodChannel('com.thinksolve.mirrorline/telephony');
+  static const MethodChannel _channel = MethodChannel(
+    'com.thinksolve.mirrorline/telephony',
+  );
 
   static Future<void> startListening() async {
     try {
@@ -69,7 +71,10 @@ class TelephonyChannel {
 
   static Future<bool> isNotificationListenerEnabled() async {
     try {
-      return await _channel.invokeMethod<bool>('isNotificationListenerEnabled') ?? false;
+      return await _channel.invokeMethod<bool>(
+            'isNotificationListenerEnabled',
+          ) ??
+          false;
     } on MissingPluginException {
       return false;
     } on PlatformException {
@@ -93,7 +98,8 @@ class TelephonyChannel {
   /// wording in Settings, versus a generic "App info" fallback.
   static Future<bool> hasKnownAutoStartSettings() async {
     try {
-      return await _channel.invokeMethod<bool>('hasKnownAutoStartSettings') ?? false;
+      return await _channel.invokeMethod<bool>('hasKnownAutoStartSettings') ??
+          false;
     } on MissingPluginException {
       return false;
     } on PlatformException {
@@ -119,7 +125,10 @@ class TelephonyChannel {
   /// "battery saver" list -- not covered by either of those).
   static Future<bool> hasKnownBatterySaverSettings() async {
     try {
-      return await _channel.invokeMethod<bool>('hasKnownBatterySaverSettings') ?? false;
+      return await _channel.invokeMethod<bool>(
+            'hasKnownBatterySaverSettings',
+          ) ??
+          false;
     } on MissingPluginException {
       return false;
     } on PlatformException {
@@ -146,7 +155,9 @@ class TelephonyChannel {
   /// if READ_CONTACTS isn't granted here or nothing matches.
   static Future<String?> resolveContactName(String number) async {
     try {
-      return await _channel.invokeMethod<String>('resolveContactName', {'number': number});
+      return await _channel.invokeMethod<String>('resolveContactName', {
+        'number': number,
+      });
     } on MissingPluginException {
       return null;
     } on PlatformException {
@@ -166,7 +177,9 @@ class TelephonyChannel {
     }
   }
 
-  static void setEventHandler(void Function(String type, Map<dynamic, dynamic> data) handler) {
+  static void setEventHandler(
+    void Function(String type, Map<dynamic, dynamic> data) handler,
+  ) {
     _channel.setMethodCallHandler((call) async {
       switch (call.method) {
         case 'onCall':

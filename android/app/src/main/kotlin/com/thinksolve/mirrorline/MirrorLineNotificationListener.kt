@@ -4,6 +4,7 @@ import android.app.Notification
 import android.content.pm.PackageManager
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
+import android.util.Log
 
 class MirrorLineNotificationListener : NotificationListenerService() {
 
@@ -62,14 +63,14 @@ class MirrorLineNotificationListener : NotificationListenerService() {
         if (sbn == null) return
         val packageName = sbn.packageName ?: "unknown"
         if (packageName == this.packageName) return
+        // Only clear the dedup cache so a future repost of the same key is
+        // treated as fresh. We intentionally do NOT forward this event to
+        // Dart anymore -- Android fires removals for many reasons (user
+        // dismiss, source app auto-cancel, summary regrouping) that have
+        // nothing to do with the user wanting the mirrored record gone.
+        // Keeping the event in the DB matches how Call/SMS are persisted
+        // regardless of the system notification's lifecycle (issue #59).
         lastContentByKey.remove(sbn.key)
-
-        val payload = mapOf(
-            "packageName" to packageName,
-            "id" to sbn.key
-        )
-
-        MirrorLineChannel.channel?.invokeMethod("onNotificationRemoved", payload)
     }
 }
 
@@ -81,7 +82,8 @@ object AppLabelResolver {
             val pm = context.packageManager
             val appInfo = pm.getApplicationInfo(packageName, PackageManager.GET_META_DATA)
             pm.getApplicationLabel(appInfo).toString()
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.w("MirrorLine", "Failed to resolve app label for $packageName: ${e.message}")
             packageName
         }
     }
@@ -97,7 +99,8 @@ object DefaultAppResolver {
             val defaultDialer = telecomManager?.defaultDialerPackage
             val defaultSms = android.provider.Telephony.Sms.getDefaultSmsPackage(context)
             packageName == defaultDialer || packageName == defaultSms
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.w("MirrorLine", "Failed to resolve default dialer/SMS app: ${e.message}")
             false
         }
     }

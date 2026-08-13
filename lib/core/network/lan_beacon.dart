@@ -15,11 +15,39 @@ abstract class BeaconConfig {
   static const Duration intervalSlow = Duration(seconds: 15);
 }
 
+mixin _BeaconTransportMixin {
+  Logger get _logger;
+
+  Future<List<InternetAddress>> broadcastTargets() async {
+    final targets = <InternetAddress>{InternetAddress('255.255.255.255')};
+    try {
+      final interfaces = await NetworkInterface.list(
+        type: InternetAddressType.IPv4,
+      );
+      for (final interface in interfaces) {
+        for (final addr in interface.addresses) {
+          if (addr.isLoopback) continue;
+          final parts = addr.address.split('.');
+          if (parts.length == 4) {
+            targets.add(
+              InternetAddress('${parts[0]}.${parts[1]}.${parts[2]}.255'),
+            );
+          }
+        }
+      }
+    } catch (e) {
+      _logger.e('Failed to get network interfaces: $e');
+    }
+    return targets.toList();
+  }
+}
+
 class BeaconInfo {
   final String peerId;
   final int tcpPort;
   final String deviceName;
   final String ip;
+
   /// All IPs the sender claims to have (WiFi + VPN TUN + etc.). The
   /// receiver tries each in order if the datagram source IP (`ip`) is
   /// unreachable. Empty if the sender didn't include them (old version).
@@ -34,7 +62,8 @@ class BeaconInfo {
   });
 
   @override
-  String toString() => 'BeaconInfo($peerId, $ip:$tcpPort, $deviceName, ips=$ips)';
+  String toString() =>
+      'BeaconInfo($peerId, $ip:$tcpPort, $deviceName, ips=$ips)';
 }
 
 class BeaconCodec {
@@ -43,15 +72,14 @@ class BeaconCodec {
     required int tcpPort,
     required String deviceName,
     List<String>? ips,
-  }) =>
-      jsonEncode({
-        'app': BeaconConfig.app,
-        'v': 2,
-        'id': peerId,
-        'port': tcpPort,
-        'name': deviceName,
-        if (ips != null && ips.isNotEmpty) 'ips': ips,
-      });
+  }) => jsonEncode({
+    'app': BeaconConfig.app,
+    'v': 2,
+    'id': peerId,
+    'port': tcpPort,
+    'name': deviceName,
+    if (ips != null && ips.isNotEmpty) 'ips': ips,
+  });
 
   static BeaconInfo? decode(String raw, String senderIp) {
     try {
@@ -81,7 +109,8 @@ class BeaconCodec {
 
 /// Periodically broadcasts a UDP beacon on the LAN so that the paired
 /// 'main' device can discover this device's current IP address.
-class BeaconBroadcaster {
+class BeaconBroadcaster with _BeaconTransportMixin {
+  @override
   final Logger _logger = Logger();
   RawDatagramSocket? _socket;
   Timer? _timer;
@@ -107,23 +136,26 @@ class BeaconBroadcaster {
   /// tearing down and rebinding the socket. No-op if already at the
   /// requested cadence.
   void setThrottle(bool connected) {
-    final target = connected ? BeaconConfig.intervalSlow : BeaconConfig.intervalFast;
+    final target = connected
+        ? BeaconConfig.intervalSlow
+        : BeaconConfig.intervalFast;
     if (target == _interval) return;
     _interval = target;
     _timer?.cancel();
     final p = _payload;
     if (p == null) return; // not started yet, nothing to send
-    void sendOnce() async {
-      final targets = await _broadcastTargets();
-      for (final target in targets) {
-        try {
-          _socket?.send(p, target, BeaconConfig.port);
-        } catch (e) {
-          _logger.w('Beacon send to $target failed: $e');
-        }
+    _timer = Timer.periodic(_interval, (_) => _sendOnce(p));
+  }
+
+  Future<void> _sendOnce(Uint8List payload) async {
+    final targets = await broadcastTargets();
+    for (final target in targets) {
+      try {
+        _socket?.send(payload, target, BeaconConfig.port);
+      } catch (e) {
+        _logger.w('Beacon send to $target failed: $e');
       }
     }
-    _timer = Timer.periodic(_interval, (_) => sendOnce());
   }
 
   Future<void> start({
@@ -143,51 +175,26 @@ class BeaconBroadcaster {
       _socket = socket;
 
       _payload = Uint8List.fromList(
-        utf8.encode(BeaconCodec.encode(peerId: peerId, tcpPort: tcpPort, deviceName: deviceName, ips: ips)),
+        utf8.encode(
+          BeaconCodec.encode(
+            peerId: peerId,
+            tcpPort: tcpPort,
+            deviceName: deviceName,
+            ips: ips,
+          ),
+        ),
       );
 
-      void sendOnce() async {
-        final targets = await _broadcastTargets();
-        for (final target in targets) {
-          try {
-            socket.send(payload, target, BeaconConfig.port);
-          } catch (e) {
-            _logger.w('Beacon send to $target failed: $e');
-          }
-        }
-      }
-
-      sendOnce();
-      _timer = Timer.periodic(_interval, (_) => sendOnce());
-      _logger.i('Beacon broadcaster started (peerId=$peerId, tcpPort=$tcpPort)');
+      _sendOnce(_payload!);
+      _timer = Timer.periodic(_interval, (_) => _sendOnce(_payload!));
+      _logger.i(
+        'Beacon broadcaster started (peerId=$peerId, tcpPort=$tcpPort)',
+      );
     } catch (e) {
       _logger.e('Failed to start beacon broadcaster: $e');
       await stop();
     }
   }
-
-  Future<List<InternetAddress>> _broadcastTargets() async {
- final targets = <InternetAddress>{InternetAddress('255.255.255.255')};
- try {
- final interfaces = await NetworkInterface.list(type: InternetAddressType.IPv4);
- _logger.d('Found ${interfaces.length} network interfaces for beacon broadcast');
- for (final interface in interfaces) {
- _logger.d('Interface: ${interface.name} - ${interface.addresses.map((a) => a.address).join(', ')}');
- for (final addr in interface.addresses) {
- if (addr.isLoopback) continue;
- final parts = addr.address.split('.');
- if (parts.length == 4) {
- final broadcast = InternetAddress('${parts[0]}.${parts[1]}.${parts[2]}.255');
- targets.add(broadcast);
- _logger.d('Adding broadcast target: $broadcast');
- }
- }
- }
- } catch (e) {
- _logger.e('Failed to get network interfaces: $e');
- }
- return targets.toList();
- }
 
   Future<void> stop() async {
     _timer?.cancel();
@@ -207,32 +214,34 @@ class BeaconBroadcaster {
     final tcpPort = _myTcpPort;
     final deviceName = _myDeviceName;
     final socket = _socket;
-    if (peerId == null || tcpPort == null || deviceName == null || socket == null) return;
-
-    _payload = Uint8List.fromList(
-      utf8.encode(BeaconCodec.encode(peerId: peerId, tcpPort: tcpPort, deviceName: deviceName, ips: _myIps)),
-    );
-
-    void sendOnce() async {
-      final targets = await _broadcastTargets();
-      for (final target in targets) {
-        try {
-          socket.send(payload, target, BeaconConfig.port);
-        } catch (e) {
-          _logger.w('Beacon send to $target failed: $e');
-        }
-      }
+    if (peerId == null ||
+        tcpPort == null ||
+        deviceName == null ||
+        socket == null) {
+      return;
     }
 
-    sendOnce();
+    _payload = Uint8List.fromList(
+      utf8.encode(
+        BeaconCodec.encode(
+          peerId: peerId,
+          tcpPort: tcpPort,
+          deviceName: deviceName,
+          ips: _myIps,
+        ),
+      ),
+    );
+
+    _sendOnce(_payload!);
     _timer?.cancel();
-    _timer = Timer.periodic(_interval, (_) => sendOnce());
+    _timer = Timer.periodic(_interval, (_) => _sendOnce(_payload!));
   }
 }
 
 /// Listens for UDP beacons broadcast by the paired device and also broadcasts own beacons.
 /// Bidirectional beacon ensures both devices can discover each other's IP.
-class BeaconListener {
+class BeaconListener with _BeaconTransportMixin {
+  @override
   final Logger _logger = Logger();
   RawDatagramSocket? _socket;
   void Function(BeaconInfo)? _onBeacon;
@@ -249,7 +258,9 @@ class BeaconListener {
   /// tearing down the listener socket. No-op if already at the requested
   /// cadence or if broadcasting isn't running.
   void setThrottle(bool connected) {
-    final target = connected ? BeaconConfig.intervalSlow : BeaconConfig.intervalFast;
+    final target = connected
+        ? BeaconConfig.intervalSlow
+        : BeaconConfig.intervalFast;
     if (target == _interval) return;
     _interval = target;
     if (_myPeerId != null && _myTcpPort != null && _myDeviceName != null) {
@@ -288,7 +299,9 @@ class BeaconListener {
           _logger.d('Received beacon from ${datagram.address.address}: $raw');
           final info = BeaconCodec.decode(raw, datagram.address.address);
           if (info != null) {
-            _logger.i('Beacon received from ${info.deviceName} at ${info.ip}:${info.tcpPort}');
+            _logger.i(
+              'Beacon received from ${info.deviceName} at ${info.ip}:${info.tcpPort}',
+            );
             _onBeacon?.call(info);
           } else {
             _logger.w('Invalid beacon format from ${datagram.address.address}');
@@ -306,52 +319,55 @@ class BeaconListener {
     }
   }
 
-  void _startBroadcasting(String peerId, int tcpPort, String deviceName, [List<String>? ips]) {
-    final payload = utf8.encode(
-      BeaconCodec.encode(peerId: peerId, tcpPort: tcpPort, deviceName: deviceName, ips: ips),
+  void _startBroadcasting(
+    String peerId,
+    int tcpPort,
+    String deviceName, [
+    List<String>? ips,
+  ]) {
+    final payload = Uint8List.fromList(
+      utf8.encode(
+        BeaconCodec.encode(
+          peerId: peerId,
+          tcpPort: tcpPort,
+          deviceName: deviceName,
+          ips: ips,
+        ),
+      ),
     );
 
-    void sendOnce() async {
-      final targets = await _broadcastTargets();
-      for (final target in targets) {
-        try {
-          _socket?.send(payload, target, BeaconConfig.port);
-          _logger.d('Beacon sent to $target');
-        } catch (e) {
-          _logger.w('Beacon send to $target failed: $e');
-        }
-      }
-    }
-
-    sendOnce();
-    _broadcastTimer = Timer.periodic(_interval, (_) => sendOnce());
+    _broadcastOnce(payload);
+    _broadcastTimer = Timer.periodic(_interval, (_) => _broadcastOnce(payload));
     _logger.i('Beacon broadcaster started (peerId=$peerId, tcpPort=$tcpPort)');
   }
 
-  Future<List<InternetAddress>> _broadcastTargets() async {
-    final targets = <InternetAddress>{InternetAddress('255.255.255.255')};
-    try {
-      final interfaces = await NetworkInterface.list(type: InternetAddressType.IPv4);
-      for (final interface in interfaces) {
-        for (final addr in interface.addresses) {
-          if (addr.isLoopback) continue;
-          final parts = addr.address.split('.');
-          if (parts.length == 4) {
-            targets.add(InternetAddress('${parts[0]}.${parts[1]}.${parts[2]}.255'));
-          }
-        }
+  Future<void> _broadcastOnce(Uint8List payload) async {
+    final targets = await broadcastTargets();
+    for (final target in targets) {
+      try {
+        _socket?.send(payload, target, BeaconConfig.port);
+        _logger.d('Beacon sent to $target');
+      } catch (e) {
+        _logger.w('Beacon send to $target failed: $e');
       }
-    } catch (_) {}
-    return targets.toList();
+    }
   }
 
-  void updateBroadcastInfo({String? peerId, int? tcpPort, String? deviceName, List<String>? ips}) {
+  void updateBroadcastInfo({
+    String? peerId,
+    int? tcpPort,
+    String? deviceName,
+    List<String>? ips,
+  }) {
     if (peerId != null) _myPeerId = peerId;
     if (tcpPort != null) _myTcpPort = tcpPort;
     if (deviceName != null) _myDeviceName = deviceName;
     if (ips != null) _myIps = ips;
 
-    if (_broadcastTimer != null && _myPeerId != null && _myTcpPort != null && _myDeviceName != null) {
+    if (_broadcastTimer != null &&
+        _myPeerId != null &&
+        _myTcpPort != null &&
+        _myDeviceName != null) {
       _broadcastTimer?.cancel();
       _startBroadcasting(_myPeerId!, _myTcpPort!, _myDeviceName!, _myIps);
     }

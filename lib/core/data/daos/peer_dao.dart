@@ -23,7 +23,11 @@ class PeerDao {
 
   Future<void> insert(Peer peer) async {
     final db = await _database;
-    await db.insert('peer', peer.toJson(), conflictAlgorithm: ConflictAlgorithm.replace);
+    await db.insert(
+      'peer',
+      peer.toJson(),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
   }
 
   /// Gets the first peer (legacy compatibility).
@@ -43,7 +47,12 @@ class PeerDao {
 
   Future<void> update(Peer peer) async {
     final db = await _database;
-    await db.update('peer', peer.toJson(), where: 'id = ?', whereArgs: [peer.id]);
+    await db.update(
+      'peer',
+      peer.toJson(),
+      where: 'id = ?',
+      whereArgs: [peer.id],
+    );
   }
 
   /// Replaces the row keyed by [oldId] with [newPeer], which may have a
@@ -58,7 +67,11 @@ class PeerDao {
       if (oldId != newPeer.id) {
         await txn.delete('peer', where: 'id = ?', whereArgs: [oldId]);
       }
-      await txn.insert('peer', newPeer.toJson(), conflictAlgorithm: ConflictAlgorithm.replace);
+      await txn.insert(
+        'peer',
+        newPeer.toJson(),
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
     });
   }
 

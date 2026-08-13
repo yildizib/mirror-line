@@ -13,10 +13,12 @@ class ConnectivityService {
   void startListening() {
     try {
       _subscription = _connectivity.onConnectivityChanged.listen((results) {
-        final isOnline = results.any((r) =>
-            r == ConnectivityResult.wifi ||
-            r == ConnectivityResult.ethernet ||
-            r == ConnectivityResult.mobile);
+        final isOnline = results.any(
+          (r) =>
+              r == ConnectivityResult.wifi ||
+              r == ConnectivityResult.ethernet ||
+              r == ConnectivityResult.mobile,
+        );
         onChanged?.call(isOnline);
       });
     } catch (e) {
@@ -27,10 +29,12 @@ class ConnectivityService {
   Future<bool> isOnline() async {
     try {
       final result = await _connectivity.checkConnectivity();
-      return result.any((r) =>
-          r == ConnectivityResult.wifi ||
-          r == ConnectivityResult.ethernet ||
-          r == ConnectivityResult.mobile);
+      return result.any(
+        (r) =>
+            r == ConnectivityResult.wifi ||
+            r == ConnectivityResult.ethernet ||
+            r == ConnectivityResult.mobile,
+      );
     } catch (_) {
       return true;
     }

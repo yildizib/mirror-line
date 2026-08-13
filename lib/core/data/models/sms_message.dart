@@ -26,32 +26,33 @@ class SmsMessage {
   });
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'thread_id': threadId,
-        'address': address,
-        'contact_name': contactName,
-        'body': body,
-        'encrypted': encrypted,
-        'direction': direction,
-        'status': status,
-        'timestamp': timestamp.millisecondsSinceEpoch,
-        'created_at': createdAt.millisecondsSinceEpoch,
-      };
+    'id': id,
+    'thread_id': threadId,
+    'address': address,
+    'contact_name': contactName,
+    'body': body,
+    'encrypted': encrypted,
+    'direction': direction,
+    'status': status,
+    'timestamp': timestamp.millisecondsSinceEpoch,
+    'created_at': createdAt.millisecondsSinceEpoch,
+  };
 
   factory SmsMessage.fromJson(Map<String, dynamic> json) => SmsMessage(
-        id: json['id'] as String,
-        threadId: json['thread_id'] as String,
-        address: json['address'] as String,
-        contactName: json['contact_name'] as String? ?? '',
-        body: json['body'] as String,
-        encrypted: json['encrypted'] as String,
-        direction: json['direction'] as String,
-        status: json['status'] as String,
-        timestamp: DateTime.fromMillisecondsSinceEpoch(json['timestamp'] as int),
-        createdAt: DateTime.fromMillisecondsSinceEpoch(json['created_at'] as int),
-      );
+    id: json['id'] as String,
+    threadId: json['thread_id'] as String,
+    address: json['address'] as String,
+    contactName: json['contact_name'] as String? ?? '',
+    body: json['body'] as String,
+    encrypted: json['encrypted'] as String,
+    direction: json['direction'] as String,
+    status: json['status'] as String,
+    timestamp: DateTime.fromMillisecondsSinceEpoch(json['timestamp'] as int),
+    createdAt: DateTime.fromMillisecondsSinceEpoch(json['created_at'] as int),
+  );
 
-  SmsMessage copyWith({String? status, String? body, String? encrypted}) => SmsMessage(
+  SmsMessage copyWith({String? status, String? body, String? encrypted}) =>
+      SmsMessage(
         id: id,
         threadId: threadId,
         address: address,
@@ -77,11 +78,11 @@ class SmsMessage {
 
   /// Status label for the SMS list UI.
   String statusLabel(AppLocalizations l) => switch (status) {
-        'received' => l.smsStatusReceived,
-        'sent' => l.smsStatusSent,
-        'delivered' => l.smsStatusDelivered,
-        'pending' => l.smsStatusSending,
-        'failed' => l.smsStatusFailed,
-        _ => status,
-      };
+    'received' => l.smsStatusReceived,
+    'sent' => l.smsStatusSent,
+    'delivered' => l.smsStatusDelivered,
+    'pending' => l.smsStatusSending,
+    'failed' => l.smsStatusFailed,
+    _ => status,
+  };
 }

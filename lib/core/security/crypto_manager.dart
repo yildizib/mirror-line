@@ -2,25 +2,27 @@ import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart' as crypto;
 import 'package:cryptography/cryptography.dart';
 
 class CryptoManager {
   static final AesGcm _algorithm = AesGcm.with256bits();
   static final Random _random = Random.secure();
 
-  static SecretKey generateKey() {
-    final bytes = Uint8List(32);
+  static Uint8List _randomBytes(int length) {
+    final bytes = Uint8List(length);
     for (var i = 0; i < bytes.length; i++) {
       bytes[i] = _random.nextInt(256);
     }
-    return SecretKey(bytes);
+    return bytes;
+  }
+
+  static SecretKey generateKey() {
+    return SecretKey(_randomBytes(32));
   }
 
   static Future<String> encrypt(SecretKey key, String plainText) async {
-    final nonceBytes = Uint8List(12);
-    for (var i = 0; i < nonceBytes.length; i++) {
-      nonceBytes[i] = _random.nextInt(256);
-    }
+    final nonceBytes = _randomBytes(12);
 
     final secretBox = await _algorithm.encrypt(
       utf8.encode(plainText),
@@ -28,10 +30,17 @@ class CryptoManager {
       nonce: nonceBytes,
     );
 
-    final combined = Uint8List(nonceBytes.length + secretBox.cipherText.length + secretBox.mac.bytes.length);
+    final combined = Uint8List(
+      nonceBytes.length +
+          secretBox.cipherText.length +
+          secretBox.mac.bytes.length,
+    );
     combined.setAll(0, nonceBytes);
     combined.setAll(nonceBytes.length, secretBox.cipherText);
-    combined.setAll(nonceBytes.length + secretBox.cipherText.length, secretBox.mac.bytes);
+    combined.setAll(
+      nonceBytes.length + secretBox.cipherText.length,
+      secretBox.mac.bytes,
+    );
 
     return base64Encode(combined);
   }
@@ -46,11 +55,7 @@ class CryptoManager {
       final cipherText = combined.sublist(12, macStart);
       final macBytes = combined.sublist(macStart);
 
-      final secretBox = SecretBox(
-        cipherText,
-        nonce: nonce,
-        mac: Mac(macBytes),
-      );
+      final secretBox = SecretBox(cipherText, nonce: nonce, mac: Mac(macBytes));
 
       final decrypted = await _algorithm.decrypt(secretBox, secretKey: key);
       return utf8.decode(decrypted);
@@ -95,15 +100,26 @@ class CryptoManager {
 
   /// Generates a random nonce as a base64 string (32 bytes).
   static String generateNonce() {
-    final bytes = Uint8List(32);
-    for (var i = 0; i < bytes.length; i++) {
-      bytes[i] = _random.nextInt(256);
-    }
-    return base64Encode(bytes);
+    return base64Encode(_randomBytes(32));
   }
 
   /// Reconstructs a SimplePublicKey from a base64 string.
   static SimplePublicKey publicKeyFromBase64(String base64) {
     return SimplePublicKey(base64Decode(base64), type: KeyPairType.ed25519);
+  }
+
+  /// Generates a cryptographically sound 6-digit verification code from a
+  /// shared key and peer ID. Used to derive a code for manual verification
+  /// during pairing that's deterministic and collision-resistant.
+  static String verificationCodeFromKey(String keyBase64, String peerId) {
+    final keyBytes = base64Decode(keyBase64);
+    final peerBytes = utf8.encode(peerId);
+    final combined = Uint8List(keyBytes.length + peerBytes.length)
+      ..setAll(0, keyBytes)
+      ..setAll(keyBytes.length, peerBytes);
+
+    final hash = crypto.sha256.convert(combined).bytes;
+    final value = (hash[0] << 16) | (hash[1] << 8) | hash[2];
+    return (value % 1000000).toString().padLeft(6, '0');
   }
 }

@@ -119,7 +119,7 @@ void main() {
   test('beacon-discovered IP refines the peer IP after pairing', () async {
     // After pairing, beacon discovery may find the peer at a new address
     // (e.g. it roamed to a different subnet). The new IP must overwrite the
-    // handshake-claimed IP -- this is what ConnectionNotifier.
+    // handshake-claimed IP -- this is what ConnectionFacade.
     // _recordDiscoveredAddress does.
     final db = await databaseFactory.openDatabase(
       inMemoryDatabasePath,

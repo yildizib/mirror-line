@@ -3,8 +3,7 @@ import 'package:mirrorline/l10n/app_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mirrorline/core/services/permission_service.dart';
 import 'package:mirrorline/core/theme/theme.dart';
-import 'package:mirrorline/features/connection/connection_provider.dart';
-import 'package:mirrorline/features/pairing/peer_provider.dart';
+import 'package:mirrorline/features/pairing/role_selection_controller.dart';
 
 class RoleSelectionScreen extends ConsumerWidget {
   const RoleSelectionScreen({super.key});
@@ -15,9 +14,7 @@ class RoleSelectionScreen extends ConsumerWidget {
     final l = AppLocalizations.of(context);
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(l.roleTitle),
-      ),
+      appBar: AppBar(title: Text(l.roleTitle)),
       body: Padding(
         padding: const EdgeInsets.all(AppSpacing.lg),
         child: Column(
@@ -25,12 +22,16 @@ class RoleSelectionScreen extends ConsumerWidget {
           children: [
             Text(
               l.rolePrompt,
-              style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800),
+              style: theme.textTheme.headlineSmall?.copyWith(
+                fontWeight: FontWeight.w800,
+              ),
             ),
             const SizedBox(height: AppSpacing.sm),
             Text(
               l.roleHint,
-              style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
             ),
             const SizedBox(height: AppSpacing.xl),
             _RoleCard(
@@ -52,9 +53,12 @@ class RoleSelectionScreen extends ConsumerWidget {
     );
   }
 
-  Future<void> _selectRole(BuildContext context, WidgetRef ref, String role) async {
-    await ref.read(peerProvider.notifier).createPeer(role);
-    await ref.read(connectionProvider.notifier).refresh();
+  Future<void> _selectRole(
+    BuildContext context,
+    WidgetRef ref,
+    String role,
+  ) async {
+    await ref.read(roleSelectionControllerProvider).selectRole(role);
     if (!context.mounted) return;
 
     // The Source device (the one holding the SIM) is the one that must
@@ -69,7 +73,11 @@ class RoleSelectionScreen extends ConsumerWidget {
       Navigator.pop(context);
       final l = AppLocalizations.of(context);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(role == 'main' ? l.roleMainSelected : l.roleSourceSelected)),
+        SnackBar(
+          content: Text(
+            role == 'main' ? l.roleMainSelected : l.roleSourceSelected,
+          ),
+        ),
       );
     }
   }
@@ -84,20 +92,20 @@ class RoleSelectionScreen extends ConsumerWidget {
       builder: (ctx) {
         final l = AppLocalizations.of(ctx);
         return AlertDialog(
-        icon: const Icon(Icons.battery_charging_full_rounded),
-        title: Text(l.batteryDialogTitle),
-        content: Text(l.batteryDialogBody),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: Text(l.later),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: Text(l.setupNow),
-          ),
-        ],
-      );
+          icon: const Icon(Icons.battery_charging_full_rounded),
+          title: Text(l.batteryDialogTitle),
+          content: Text(l.batteryDialogBody),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: Text(l.later),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: Text(l.setupNow),
+            ),
+          ],
+        );
       },
     );
 
@@ -144,17 +152,24 @@ class _RoleCard extends StatelessWidget {
                   children: [
                     Text(
                       title,
-                      style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                     const SizedBox(height: 4),
                     Text(
                       subtitle,
-                      style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
                     ),
                   ],
                 ),
               ),
-              Icon(Icons.chevron_right_rounded, color: theme.colorScheme.onSurfaceVariant),
+              Icon(
+                Icons.chevron_right_rounded,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
             ],
           ),
         ),

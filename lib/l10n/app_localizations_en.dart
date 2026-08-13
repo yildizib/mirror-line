@@ -15,13 +15,22 @@ class AppLocalizationsEn extends AppLocalizations {
   String get splashTagline => 'Two phones, end-to-end encrypted connection';
 
   @override
+  String get navHome => 'Home';
+
+  @override
   String get navCalls => 'Calls';
 
   @override
   String get navSms => 'SMS';
 
   @override
+  String get navNotifications => 'Notifications';
+
+  @override
   String get navSettings => 'Settings';
+
+  @override
+  String get homeFeedEmpty => 'No activity yet';
 
   @override
   String get roleTitle => 'Role Selection';
@@ -270,6 +279,54 @@ class AppLocalizationsEn extends AppLocalizations {
       'Required to mirror notifications from the other phone';
 
   @override
+  String get settingsWatchedApps => 'Watched apps';
+
+  @override
+  String get settingsWatchedAppsDesc =>
+      'Choose which apps\' notifications get mirrored';
+
+  @override
+  String get watchedAppsTitle => 'Watched apps';
+
+  @override
+  String get watchedAppsSearchHint => 'Search apps...';
+
+  @override
+  String get settingsRunTests => 'Run tests';
+
+  @override
+  String get settingsRunTestsDesc =>
+      'Send a fake call, SMS and notification to the paired device';
+
+  @override
+  String get runTestsTitle => 'Run tests';
+
+  @override
+  String get runTestsButton => 'Run tests';
+
+  @override
+  String get runTestsEmpty => 'No tests run yet';
+
+  @override
+  String get runTestsSent => 'Sent';
+
+  @override
+  String get runTestsQueued => 'Queued';
+
+  @override
+  String get runTestsCallType => 'Test call';
+
+  @override
+  String get runTestsSmsType => 'Test SMS';
+
+  @override
+  String get runTestsNotificationType => 'Test notification';
+
+  @override
+  String get runTestsNotConnected =>
+      'You must be connected to a paired device to run tests';
+
+  @override
   String get settingsKeepPermissions => 'Don\'t remove permissions when unused';
 
   @override
@@ -309,6 +366,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsResetDone => 'Device reset';
+
+  @override
+  String get settingsDangerZone => 'Danger Zone';
 
   @override
   String get settingsLanguage => 'Language';
@@ -440,6 +500,55 @@ class AppLocalizationsEn extends AppLocalizations {
   String get smsReplyHint => 'Type your reply...';
 
   @override
+  String get runTestsCallLabel => 'MirrorLine Test Call';
+
+  @override
+  String get runTestsSmsBody =>
+      'This is a test SMS from MirrorLine diagnostics.';
+
+  @override
+  String get runTestsNotificationApp => 'MirrorLine Test';
+
+  @override
+  String get runTestsNotificationTitle => 'Test Notification';
+
+  @override
+  String get runTestsNotificationBody =>
+      'This is a test notification from MirrorLine diagnostics.';
+
+  @override
+  String get notificationsEmpty => 'No notifications yet';
+
+  @override
+  String notificationsSelectedCount(int count) {
+    return '$count selected';
+  }
+
+  @override
+  String get notificationsDeleteSelected => 'Delete selected notifications';
+
+  @override
+  String notificationsDeleteConfirmBody(int count) {
+    return '$count notification(s) will be permanently deleted.';
+  }
+
+  @override
+  String get notificationsDeleted => 'Selected notifications deleted';
+
+  @override
+  String notificationsEventCount(int count) {
+    return '$count notifications';
+  }
+
+  @override
+  String get notificationsSelectMode => 'Select notifications';
+
+  @override
+  String notificationsDeleteOne(int count) {
+    return '$count notification(s) will be permanently deleted.';
+  }
+
+  @override
   String get commonDelete => 'Delete';
 
   @override
@@ -461,4 +570,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get commonToday => 'Today';
+
+  @override
+  String get commonYesterday => 'Yesterday';
 }

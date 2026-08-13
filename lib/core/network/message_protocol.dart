@@ -14,22 +14,23 @@ class MirrorMessage {
   });
 
   Map<String, dynamic> toJson() => {
-        'type': type,
-        'id': id,
-        'timestamp': timestamp,
-        'payload': payload,
-      };
+    'type': type,
+    'id': id,
+    'timestamp': timestamp,
+    'payload': payload,
+  };
 
   factory MirrorMessage.fromJson(Map<String, dynamic> json) => MirrorMessage(
-        type: json['type'] as String,
-        id: json['id'] as String,
-        timestamp: json['timestamp'] as int,
-        payload: json['payload'] as String,
-      );
+    type: json['type'] as String,
+    id: json['id'] as String,
+    timestamp: json['timestamp'] as int,
+    payload: json['payload'] as String,
+  );
 
   String encode() => jsonEncode(toJson());
 
-  static MirrorMessage decode(String raw) => MirrorMessage.fromJson(jsonDecode(raw));
+  static MirrorMessage decode(String raw) =>
+      MirrorMessage.fromJson(jsonDecode(raw));
 }
 
 abstract class MessageTypes {
@@ -49,6 +50,10 @@ abstract class MessageTypes {
   static const String ping = 'ping';
   static const String pong = 'pong';
   static const String notificationMirrored = 'notification_mirrored';
+  // Source -> Main: a previously-mirrored notification was dismissed on
+  // the source device -- clear the mirrored copy. Payload: {packageName,
+  // nativeId}.
+  static const String notificationRemoved = 'notification_removed';
 
   // ---- Pairing handshake ----------------------------------------------
   // Scanner -> Scanned:  "Ben {deviceName} ({myId}) seninle eşleşmek istiyorum"
