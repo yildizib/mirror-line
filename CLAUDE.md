@@ -383,3 +383,141 @@ PR review → approve → merge to develop
 This keeps the mainline (`develop`/`main`) clean and ensures all changes are reviewed before landing. No direct commits to `develop`/`main` at any time.
 
 ---
+
+# Release Workflow (Simple Explanation)
+
+## Flow Summary
+
+```
+develop ──●──●──●──●──●──●──●──●── merge main (back-sync)
+              \               /
+               release/v0.3.0
+                  │
+                squash merge
+                  ↓
+main ──────────────S ← tag v0.3.0 → Actions → APK
+```
+
+In 3 sentences:
+1. **Open a release branch from develop, bump the version, squash merge it into main**
+2. **Tag main → GitHub Actions automatically builds the APK**
+3. **Back-merge main into develop so develop stays up to date**
+
+## Step by Step
+
+### Starting state
+
+```
+develop:  A──B──C──D──E    (50 commits accumulated)
+main:     A                  (old release)
+```
+
+Develop is ahead, main is behind. We need to release.
+
+### Step 1 — Create release branch (from develop)
+
+```
+git checkout develop && git pull origin develop
+git checkout -b release/v0.3.0-59
+```
+
+```
+develop:  A──B──C──D──E
+                 \
+                  R      ← release/v0.3.0-59
+```
+
+### Step 2 — Version bump
+
+```
+# pubspec.yaml: 0.2.1+2 → 0.3.0+3
+git add pubspec.yaml
+git commit -m "chore(release): Bump version to v0.3.0"
+```
+
+Only `pubspec.yaml` changes. No other code changes.
+
+### Step 3 — Create PR (target: main!)
+
+```
+git push -u origin release/v0.3.0-59
+gh pr create --title "Release: v0.3.0" --base main --body "..."
+```
+
+**Important:** The PR target is **main** (not develop).
+
+### Step 4 — Squash merge (into main)
+
+```
+gh pr merge <PR#> --squash --admin
+```
+
+```
+develop:  A──B──C──D──E
+main:     A──────────────S    ← S = squash (50 commits into one)
+```
+
+**Squash =** compresses 50 commits into a single commit, keeping main clean.
+
+### Step 5 — Tag (on main)
+
+```
+git checkout main && git pull origin main
+git tag -a v0.3.0 -m "Release v0.3.0"
+git push origin v0.3.0
+```
+
+Pushing the tag triggers **GitHub Actions** (`android-release.yml`) automatically:
+- Builds the APK
+- Creates a GitHub Release
+- Attaches the APK to the Release
+
+### Step 6 — Back-merge (main → develop)
+
+```
+git checkout develop
+git merge main --no-edit
+git push origin develop
+```
+
+```
+develop:  A──B──C──D──E──M    ← M = merge main
+main:     A──────────────S
+```
+
+**Why?** Develop must always contain main. Otherwise the next release will have conflicts.
+
+### Step 7 — Cleanup
+
+```
+git branch -d release/v0.3.0-59
+git push origin --delete release/v0.3.0-59
+```
+
+## Version Number (Semantic Versioning)
+
+```
+v0.3.0+3
+  ^  ^  ^
+  │  │  └── patch: bug fix (0.3.1)
+  │  └───── minor: new feature (0.3.0 → 0.4.0)
+  └──────── major: breaking change (0.x → 1.0.0)
+```
+
+- Bug fix → patch bump (`0.3.0` → `0.3.1`)
+- New feature → minor bump (`0.3.0` → `0.4.0`)
+- Breaking change → major bump (`0.x` → `1.0.0`)
+
+`pubspec.yaml` format: `version: MAJOR.MINOR.PATCH+BUILD_NUMBER`
+
+## Key Points
+
+- PR base = **main** (releases merge into main, not develop)
+- Tag is placed **on main** (CI builds the release commit on main)
+- Squash merge: main stays clean (50 commits → 1 commit)
+- Develop back-merges main afterwards (Gitflow rule: develop ≥ main)
+- Don't wait for builds — use `--admin --squash` to force merge
+- `pubspec.lock` is never included in commits
+- Release branch is deleted after the release is done (not permanent)
+
+---
