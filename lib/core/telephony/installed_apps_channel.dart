@@ -7,12 +7,12 @@ class InstalledApp {
   InstalledApp({required this.packageName, required this.appName});
 }
 
-/// Reuses the existing single "com.thinksolve.mirrorline/telephony" channel
+/// Reuses the existing single "io.github.yildizib.mirrorlink/telephony" channel
 /// (see TelephonyChannel) rather than opening a second one -- the native
 /// side already routes everything through one MirrorLineChannel singleton.
 class InstalledAppsChannel {
   static const MethodChannel _channel = MethodChannel(
-    'com.thinksolve.mirrorline/telephony',
+    'io.github.yildizib.mirrorlink/telephony',
   );
 
   static Future<List<InstalledApp>> getInstalledApps() async {

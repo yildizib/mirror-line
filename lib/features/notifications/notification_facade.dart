@@ -135,7 +135,7 @@ class NotificationFacade extends StateNotifier<List<NotificationEvent>> {
     required DateTime now,
   }) async {
     final packageName = (data['packageName'] as String?) ?? 'unknown';
-    if (packageName == 'com.thinksolve.mirrorline') return;
+    if (packageName == 'io.github.yildizib.mirrorlink') return;
     // Read live, not captured at construction -- the watched set can
     // change any time via the Watched Apps screen.
     if (!_ref.read(watchedAppsProvider.notifier).isWatched(packageName)) {

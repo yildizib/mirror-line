@@ -5,11 +5,11 @@ Projeyi `test_app` isminden `mirrorline` haline getirmek ve MVP (Faz 0) özellik
 
 ## User Review Required
 - Proje dizin adı `test_app` → `mirrorline` şeklinde değişecek. Kullanıcının Finder/terminal ile fiziksel klasör adını elle değiştirmesi gerekiyor; sandbox buna izin vermiyor.
-- Paket adı `com.example.test_app` → `com.thinksolve.mirrorline` olacak.
+- Paket adı `com.example.test_app` → `io.github.yildizib.mirrorlink` olacak.
 - Uygulama başlığı/adı `test_app` → `MirrorLine` olacak.
 
 ## Open Questions
-- Yeni paket adı `com.thinksolve.mirrorline` uygun mu? (Think & Solve Different Solutions FZE bağlamında)
+- Yeni paket adı `io.github.yildizib.mirrorlink` uygun mu? (Think & Solve Different Solutions FZE bağlamında)
 - `telephony` paketi yetersiz kalırsa minimal `MethodChannel` Kotlin köprüsü eklenebilir; şimdilik planlanan tüm işlevler Flutter paketleriyle çözülecek.
 
 ## Proposed Changes
@@ -23,13 +23,13 @@ Projeyi `test_app` isminden `mirrorline` haline getirmek ve MVP (Faz 0) özellik
 - `test_app` → `MirrorLine` ve uygulama açıklaması ekle.
 
 #### [MODIFY] android/app/build.gradle.kts
-- `namespace` ve `applicationId` → `com.thinksolve.mirrorline`.
+- `namespace` ve `applicationId` → `io.github.yildizib.mirrorlink`.
 
 #### [MODIFY] android/app/src/main/AndroidManifest.xml
 - `android:label` → `MirrorLine`.
 
 #### [MODIFY] android/app/src/main/kotlin/com/example/test_app/MainActivity.kt
-- Paket yolu ve dosya konumu → `com.thinksolve.mirrorline`.
+- Paket yolu ve dosya konumu → `io.github.yildizib.mirrorlink`.
 
 #### [MODIFY] linux/CMakeLists.txt
 - `BINARY_NAME` ve `APPLICATION_ID` → `mirrorline`.

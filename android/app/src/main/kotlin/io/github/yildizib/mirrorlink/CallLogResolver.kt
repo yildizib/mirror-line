@@ -1,4 +1,4 @@
-package com.thinksolve.mirrorline
+package io.github.yildizib.mirrorlink
 
 import android.content.Context
 import android.provider.CallLog

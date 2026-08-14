@@ -133,7 +133,7 @@ dev_dependencies:
 - `compileSdk = 37`, `targetSdk = 37`
 - AGP 9.1.0, Gradle 9.6.1
 - Core library desugaring açık (`desugar_jdk_libs:2.1.5`)
-- Paket adı: `com.thinksolve.mirrorline`
+- Paket adı: `io.github.yildizib.mirrorlink`
 
 ## Test Stratejisi
 - Unit testler: crypto, queue retry, DAO'lar.

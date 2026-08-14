@@ -1,4 +1,4 @@
-package com.thinksolve.mirrorline
+package io.github.yildizib.mirrorlink
 
 import android.Manifest
 import android.content.Context
