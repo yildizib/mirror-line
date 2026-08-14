@@ -50,3 +50,5 @@ app.*.map.json
 .claude/
 .remember/
 .opencode/
+.mlinemap/
+.raw*/
