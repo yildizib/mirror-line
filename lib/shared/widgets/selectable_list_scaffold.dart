@@ -15,15 +15,21 @@ typedef OnDeleteSelected<T> =
     Future<void> Function(BuildContext context, List<T> selected);
 
 class SelectableListScaffold<T> extends StatefulWidget {
-  final List<T> items;
-  final String Function(T) itemKey;
-  final SelectableItemBuilder<T> itemBuilder;
-  final OnDeleteSelected<T> onDeleteSelected;
-  final String emptyMessage;
-  final String selectModeTooltip;
-  final String Function(int count) selectedCountLabel;
-  final String deleteTooltip;
-  final String deleteTitle;
+ final List<T> items;
+ final String Function(T) itemKey;
+ final SelectableItemBuilder<T> itemBuilder;
+ final OnDeleteSelected<T> onDeleteSelected;
+ final String emptyMessage;
+ final String selectModeTooltip;
+ final String Function(int count) selectedCountLabel;
+ final String deleteTooltip;
+ final String deleteTitle;
+
+ /// Page size for incremental list rendering. The first [pageSize] items
+ /// render immediately; more are appended as the user scrolls. Defaults
+ /// to 25. Set to 0 (or null) to disable pagination and render everything
+ /// at once (legacy behaviour).
+ final int? pageSize;
 
   /// Builds the confirm-dialog body from the currently-selected items --
   /// a builder (not a plain String) because callers may need more than a
@@ -71,6 +77,7 @@ class SelectableListScaffold<T> extends StatefulWidget {
     this.useAppBarEntryPoint = false,
     this.nonSelectingTitle,
     this.dateHeaderOf,
+    this.pageSize = 25,
     super.key,
   }) : assert(
          !useAppBarEntryPoint || nonSelectingTitle != null,
@@ -83,8 +90,58 @@ class SelectableListScaffold<T> extends StatefulWidget {
 }
 
 class _SelectableListScaffoldState<T> extends State<SelectableListScaffold<T>> {
-  bool _selecting = false;
-  final Set<String> _selected = {};
+ bool _selecting = false;
+ final Set<String> _selected = {};
+ final ScrollController _scrollController = ScrollController();
+ int _visibleCount = 25;
+ bool _isLoadingMore = false;
+
+ @override
+ void initState() {
+ super.initState();
+ _visibleCount = widget.pageSize ?? 25;
+ _scrollController.addListener(_onScroll);
+ }
+
+ @override
+ void didUpdateWidget(covariant SelectableListScaffold<T> oldWidget) {
+ super.didUpdateWidget(oldWidget);
+ // Clamp visible count if the source list shrank.
+ if (_visibleCount > widget.items.length) {
+ _visibleCount = widget.items.length;
+ }
+ }
+
+ @override
+ void dispose() {
+ _scrollController.removeListener(_onScroll);
+ _scrollController.dispose();
+ super.dispose();
+ }
+
+ void _onScroll() {
+ if (!_scrollController.hasClients) return;
+ final pos = _scrollController.position;
+ if (pos.pixels >= pos.maxScrollExtent - 200) {
+ _loadMore();
+ }
+ }
+
+ void _loadMore() {
+ if (_isLoadingMore) return;
+ if (_visibleCount >= widget.items.length) return;
+ final pageSize = widget.pageSize ?? 25;
+ if (pageSize <= 0) return; // pagination disabled
+ setState(() => _isLoadingMore = true);
+ Future.microtask(() {
+ if (!mounted) return;
+ setState(() {
+ _visibleCount =
+ (_visibleCount + pageSize).clamp(0, widget.items.length);
+ _isLoadingMore = false;
+ });
+ });
+ }
 
   @override
   Widget build(BuildContext context) {
@@ -108,34 +165,67 @@ class _SelectableListScaffoldState<T> extends State<SelectableListScaffold<T>> {
   }
 
   Widget _buildList(BuildContext context) {
-    final dateHeaderOf = widget.dateHeaderOf;
-    if (dateHeaderOf == null) {
-      return ListView.separated(
-        padding: const EdgeInsets.all(16),
-        itemCount: widget.items.length,
-        separatorBuilder: (_, _) => const SizedBox(height: 8),
-        itemBuilder: (context, index) => _buildItem(context, widget.items[index]),
-      );
-    }
+  final dateHeaderOf = widget.dateHeaderOf;
+  final pageSize = widget.pageSize ?? 25;
+  final paginate = pageSize > 0;
+  final visibleCount = paginate ? _visibleCount : widget.items.length;
 
-    // Grouped path: flatten into a header/item widget list up front, since
-    // headers aren't part of widget.items and don't participate in
-    // selection -- ListView.separated's fixed one-widget-per-index
-    // mapping can't express that, so this switches to a plain ListView.
-    final children = <Widget>[];
-    DateTime? previousDay;
-    for (final item in widget.items) {
-      final timestamp = dateHeaderOf(item);
-      final day = DateTime(timestamp.year, timestamp.month, timestamp.day);
-      if (previousDay == null || day != previousDay) {
-        if (children.isNotEmpty) children.add(const SizedBox(height: 8));
-        children.add(DateHeader(date: day));
-        previousDay = day;
-      }
-      children.add(const SizedBox(height: 8));
-      children.add(_buildItem(context, item));
-    }
-    return ListView(padding: const EdgeInsets.all(16), children: children);
+  if (dateHeaderOf == null) {
+  return ListView.separated(
+  controller: paginate ? _scrollController : null,
+  padding: const EdgeInsets.all(16),
+  itemCount: visibleCount + (paginate ? 1 : 0),
+  separatorBuilder: (_, _) => const SizedBox(height: 8),
+  itemBuilder: (context, index) {
+  if (paginate && index == visibleCount) {
+  return _buildFooter();
+  }
+  return _buildItem(context, widget.items[index]);
+  },
+  );
+  }
+
+  // Grouped path: flatten into a header/item widget list up front, since
+  // headers aren'''t part of widget.items and don'''t participate in
+  // selection -- ListView.separated'''s fixed one-widget-per-index
+  // mapping can'''t express that, so this switches to a plain ListView.
+  final children = <Widget>[];
+  DateTime? previousDay;
+  final visibleItems = paginate ? widget.items.take(visibleCount).toList() : widget.items;
+  for (final item in visibleItems) {
+  final timestamp = dateHeaderOf(item);
+  final day = DateTime(timestamp.year, timestamp.month, timestamp.day);
+  if (previousDay == null||day != previousDay) {
+  if (children.isNotEmpty) children.add(const SizedBox(height: 8));
+  children.add(DateHeader(date: day));
+  previousDay = day;
+  }
+  children.add(const SizedBox(height: 8));
+  children.add(_buildItem(context, item));
+  }
+  if (paginate) children.add(_buildFooter());
+  return ListView(
+  controller: paginate ? _scrollController : null,
+  padding: const EdgeInsets.all(16),
+  children: children,
+  );
+  }
+
+  Widget _buildFooter() {
+  final hasMore = _visibleCount < widget.items.length;
+  if (hasMore || _isLoadingMore) {
+  return const Padding(
+  padding: EdgeInsets.symmetric(vertical: 16),
+  child: Center(
+  child: SizedBox(
+  width: 24,
+  height: 24,
+  child: CircularProgressIndicator(strokeWidth: 2),
+  ),
+  ),
+  );
+  }
+  return const SizedBox(height: 16);
   }
 
   Widget _buildItem(BuildContext context, T item) {

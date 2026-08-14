@@ -24,20 +24,78 @@ class SmsThreadScreen extends ConsumerStatefulWidget {
 class _SmsThreadScreenState extends ConsumerState<SmsThreadScreen> {
   final _controller = TextEditingController();
   final _scrollController = ScrollController();
+  static const _pageSize = 25;
+  int _visibleFromBottom = _pageSize;
+  bool _isLoadingOlder = false;
+  double? _prevMaxScroll;
 
   @override
   void initState() {
     super.initState();
+    _scrollController.addListener(_onScrollChanged);
     WidgetsBinding.instance.addPostFrameCallback(
       (_) => _scrollToBottom(animate: false),
     );
   }
 
+ void _onScrollChanged() {
+ if (!_scrollController.hasClients) return;
+ final pos = _scrollController.position;
+ if (pos.pixels <= 200) {
+ final messages = ref
+ .read(smsFacadeProvider)
+ .where((m) => m.address == widget.address)
+ .toList();
+ _maybeLoadOlder(messages);
+ }
+ }
+
+ @override
+ void didUpdateWidget(covariant SmsThreadScreen oldWidget) {
+ super.didUpdateWidget(oldWidget);
+ final messages = ref
+ .read(smsFacadeProvider)
+ .where((m) => m.address == widget.address)
+ .toList();
+ if (_visibleFromBottom > messages.length) {
+ _visibleFromBottom = messages.length;
+ }
+ }
+
   @override
   void dispose() {
+    _scrollController.removeListener(_onScrollChanged);
     _controller.dispose();
     _scrollController.dispose();
     super.dispose();
+  }
+
+  void _maybeLoadOlder(List messages) {
+    if (!_scrollController.hasClients || _isLoadingOlder) return;
+    if (_visibleFromBottom >= messages.length) return;
+    final pos = _scrollController.position;
+    if (pos.pixels <= 200) {
+      _loadOlder(messages);
+    }
+  }
+
+  void _loadOlder(List messages) {
+    if (_isLoadingOlder || _visibleFromBottom >= messages.length) return;
+    _prevMaxScroll = _scrollController.position.maxScrollExtent;
+    setState(() => _isLoadingOlder = true);
+    Future.microtask(() {
+      if (!mounted) return;
+      setState(() {
+        _visibleFromBottom = (_visibleFromBottom + _pageSize).clamp(0, messages.length);
+        _isLoadingOlder = false;
+      });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !_scrollController.hasClients || _prevMaxScroll == null) return;
+        final newMax = _scrollController.position.maxScrollExtent;
+        _scrollController.jumpTo(newMax - _prevMaxScroll!);
+        _prevMaxScroll = null;
+      });
+    });
   }
 
   void _scrollToBottom({bool animate = true}) {
@@ -117,13 +175,28 @@ class _SmsThreadScreenState extends ConsumerState<SmsThreadScreen> {
             child: ListView(
               controller: _scrollController,
               padding: const EdgeInsets.all(AppSpacing.md),
-              children: buildDateGroupedItems(
-                context: context,
-                items: messages,
-                timestampOf: (message) => message.timestamp,
-                itemBuilder: (context, message) =>
-                    SmsBubble(message: message),
-              ),
+              children: [
+                if (_isLoadingOlder || _visibleFromBottom < messages.length)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 8),
+                    child: Center(
+                      child: SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    ),
+                  ),
+                ...buildDateGroupedItems(
+                  context: context,
+                  items: messages.length > _visibleFromBottom
+                      ? messages.sublist(messages.length - _visibleFromBottom)
+                      : messages,
+                  timestampOf: (message) => message.timestamp,
+                  itemBuilder: (context, message) =>
+                      SmsBubble(message: message),
+                ),
+              ],
             ),
           ),
           _ComposeBar(
