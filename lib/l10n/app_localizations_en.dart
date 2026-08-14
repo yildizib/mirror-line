@@ -9,7 +9,7 @@ class AppLocalizationsEn extends AppLocalizations {
   AppLocalizationsEn([String locale = 'en']) : super(locale);
 
   @override
-  String get appTitle => 'MirrorLine';
+  String get appTitle => 'MirrLine';
 
   @override
   String get splashTagline => 'Two phones, end-to-end encrypted connection';

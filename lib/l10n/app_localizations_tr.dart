@@ -9,7 +9,7 @@ class AppLocalizationsTr extends AppLocalizations {
   AppLocalizationsTr([String locale = 'tr']) : super(locale);
 
   @override
-  String get appTitle => 'MirrorLine';
+  String get appTitle => 'MirrLine';
 
   @override
   String get splashTagline => 'İki telefon, uçtan uca şifreli bağlantı';

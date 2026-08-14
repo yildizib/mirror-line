@@ -1,4 +1,4 @@
-package com.thinksolve.mirrorline
+package io.github.yildizib.mirrorline
 
 import android.Manifest
 import android.content.Context
@@ -20,7 +20,7 @@ import java.lang.ref.WeakReference
 import java.net.Inet4Address
 
 /**
- * Owns the "com.thinksolve.mirrorline/telephony" MethodChannel and its
+ * Owns the "io.github.yildizib.mirrorline/telephony" MethodChannel and its
  * handler, wired to the shared engine (see MirrorLineEngine) instead of to
  * any single Activity instance.
  *
@@ -34,7 +34,7 @@ import java.net.Inet4Address
  * resumed, if any.
  */
 object MirrorLineChannel {
-    const val CHANNEL_NAME = "com.thinksolve.mirrorline/telephony"
+    const val CHANNEL_NAME = "io.github.yildizib.mirrorline/telephony"
     const val TELEPHONY_PERMISSIONS_REQUEST_CODE = 1001
 
     var channel: MethodChannel? = null

@@ -5,10 +5,10 @@
 // 'flutter create' template.
 
 // The application's name. By default this is also the title of the Flutter window.
-PRODUCT_NAME = MirrorLine
+PRODUCT_NAME = MirrLine
 
 // The application's bundle identifier
-PRODUCT_BUNDLE_IDENTIFIER = com.thinksolve.mirrorline
+PRODUCT_BUNDLE_IDENTIFIER = io.github.yildizib.mirrorline
 
 // The copyright displayed in application information
 PRODUCT_COPYRIGHT = Copyright © 2026 Think & Solve Different Solutions FZE. All rights reserved.

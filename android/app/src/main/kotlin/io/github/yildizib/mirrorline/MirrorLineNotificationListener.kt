@@ -1,4 +1,4 @@
-package com.thinksolve.mirrorline
+package io.github.yildizib.mirrorline
 
 import android.app.Notification
 import android.content.pm.PackageManager

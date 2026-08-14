@@ -2,7 +2,7 @@ import 'package:flutter/services.dart';
 
 class TelephonyChannel {
   static const MethodChannel _channel = MethodChannel(
-    'com.thinksolve.mirrorline/telephony',
+    'io.github.yildizib.mirrorline/telephony',
   );
 
   static Future<void> startListening() async {

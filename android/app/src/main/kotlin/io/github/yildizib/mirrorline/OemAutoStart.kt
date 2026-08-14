@@ -1,4 +1,4 @@
-package com.thinksolve.mirrorline
+package io.github.yildizib.mirrorline
 
 import android.content.ComponentName
 import android.content.Context
@@ -7,7 +7,7 @@ import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import android.util.Log
-import com.thinksolve.mirrorline.OemAutoStart.open
+import io.github.yildizib.mirrorline.OemAutoStart.open
 
 /**
  * Many Android OEMs (Xiaomi/HyperOS, Huawei, OPPO, Vivo, Samsung...) layer

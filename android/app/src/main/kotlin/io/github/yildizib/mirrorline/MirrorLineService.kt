@@ -1,4 +1,4 @@
-package com.thinksolve.mirrorline
+package io.github.yildizib.mirrorline
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -21,8 +21,8 @@ import android.telephony.TelephonyManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
-import com.thinksolve.mirrorline.MirrorLineService.Companion.RINGING_DEBOUNCE_MS
-import com.thinksolve.mirrorline.MirrorLineService.Companion.SMS_DEBOUNCE_MS
+import io.github.yildizib.mirrorline.MirrorLineService.Companion.RINGING_DEBOUNCE_MS
+import io.github.yildizib.mirrorline.MirrorLineService.Companion.SMS_DEBOUNCE_MS
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.Future

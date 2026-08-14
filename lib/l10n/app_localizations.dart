@@ -101,7 +101,7 @@ abstract class AppLocalizations {
   /// No description provided for @appTitle.
   ///
   /// In tr, this message translates to:
-  /// **'MirrorLine'**
+  /// **'MirrLine'**
   String get appTitle;
 
   /// No description provided for @splashTagline.
