@@ -1,6 +1,6 @@
 {
-    "name": "MirrLine",
-    "short_name": "MirrLine",
+    "name": "MirrorLine",
+    "short_name": "MirrorLine",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#6C63FF",
