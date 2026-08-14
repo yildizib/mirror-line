@@ -379,4 +379,19 @@ v0.3.0+3
 - `pubspec.lock` is never included in commits
 - Release branch is deleted after the release is done (not permanent)
 
+## Architecture style 
+- Base services -> Facade -> UI service -> UI 
+- UIs cannot reach base services directly.
+- UI services cannot reach base services directly such as listeners, sockets, etc
+- Facades can reach base services and serve endpoints to UI services.
+- This rules cannot breakable.
+
+## QA 
+- Always test it what you write.
+- Use flutter analyze, dart analyse , compile and build app for errors.
+- run al tests.
+- If you add a new feature you should add that ones tests.
+- Tests should always updated and cover changes that you change, fix or add a new feature.
+- DO NOT reach, change any folders or files that they are located outside the project folder.
+
 ---
