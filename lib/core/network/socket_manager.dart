@@ -8,6 +8,8 @@ import 'package:mirrorline/core/network/message_protocol.dart';
 import 'package:mirrorline/core/security/crypto_manager.dart';
 import 'package:uuid/uuid.dart';
 
+enum _AuthPhase { none, awaitChallenge, awaitResponse, awaitOk, awaitAck }
+
 class _SocketSession {
   _SocketSession({required this.socket, required this.generation});
 
@@ -17,6 +19,8 @@ class _SocketSession {
   StreamSubscription<List<int>>? subscription;
   Completer<void>? authCompleter;
   Timer? authTimer;
+  _AuthPhase authPhase = _AuthPhase.none;
+  String? challengeNonce;
   Future<void> messagePipeline = Future<void>.value();
 }
 
@@ -346,6 +350,11 @@ class SocketManager {
           continue;
         }
         if (message.type == MessageTypes.authAck) {
+          if (session.authPhase != _AuthPhase.awaitAck) {
+            _logger.w('Unexpected auth ACK received. Closing connection.');
+            _closeSession(session);
+            continue;
+          }
           _onAuthSuccess(session);
           continue;
         }
@@ -428,6 +437,8 @@ class SocketManager {
   /// Server side: send a random nonce to the client.
   void _startServerAuth(_SocketSession session) {
     final nonce = CryptoManager.generateNonce();
+    session.authPhase = _AuthPhase.awaitResponse;
+    session.challengeNonce = nonce;
     _logger.i('Server sending auth challenge.');
     sendMessage(MessageTypes.authChallenge, {'nonce': nonce});
 
@@ -452,6 +463,7 @@ class SocketManager {
   /// Client side: wait for the server's challenge, sign it, and respond.
   void _startClientAuth(_SocketSession session) {
     session.authCompleter = Completer<void>();
+    session.authPhase = _AuthPhase.awaitChallenge;
     // Start heartbeat only after auth completes (in _onAuthSuccess).
     // Timeout: if server never challenges us, drop the connection.
     _stopAuthTimer(session);
@@ -472,6 +484,12 @@ class SocketManager {
     _SocketSession session,
     MirrorMessage message,
   ) async {
+    if (!_isCurrent(session) ||
+        session.authPhase != _AuthPhase.awaitChallenge) {
+      _logger.w('Unexpected auth challenge received. Closing connection.');
+      _closeSession(session);
+      return;
+    }
     final key = _key;
     final localKeyPair = _localKeyPair;
     if (key == null || localKeyPair == null) {
@@ -497,6 +515,7 @@ class SocketManager {
 
     final signature = await CryptoManager.sign(localKeyPair, nonce);
     if (!_isCurrent(session)) return;
+    session.authPhase = _AuthPhase.awaitOk;
     _logger.i('Client sending auth response (signed nonce).');
     await sendMessage(MessageTypes.authResponse, {
       'nonce': nonce,
@@ -509,6 +528,11 @@ class SocketManager {
     _SocketSession session,
     MirrorMessage message,
   ) async {
+    if (!_isCurrent(session) || session.authPhase != _AuthPhase.awaitResponse) {
+      _logger.w('Unexpected auth response received. Closing connection.');
+      _closeSession(session);
+      return;
+    }
     final key = _key;
     final peerPubKey = _peerPublicKeyBase64;
     if (key == null || peerPubKey == null) {
@@ -527,6 +551,11 @@ class SocketManager {
     final payload = jsonDecode(decrypted) as Map<String, dynamic>;
     final nonce = payload['nonce'] as String? ?? '';
     final signature = payload['signature'] as String? ?? '';
+    if (nonce.isEmpty || nonce != session.challengeNonce) {
+      _logger.w('Client authentication failed (invalid nonce).');
+      _closeSession(session);
+      return;
+    }
 
     // Verify the signature against the nonce using the peer's public key.
     final ok = await CryptoManager.verifySignature(
@@ -540,6 +569,7 @@ class SocketManager {
       _logger.i(
         'Client authenticated successfully. Sent authOk, awaiting ack.',
       );
+      session.authPhase = _AuthPhase.awaitAck;
       await sendMessage(MessageTypes.authOk, {});
       if (!_isCurrent(session)) return;
       // Don't call _onAuthSuccess() yet: if this authOk never reaches the
@@ -561,6 +591,11 @@ class SocketManager {
   /// server knows we actually received this before either side considers
   /// the connection established (see _handleAuthResponse above).
   void _onClientAuthOk(_SocketSession session) async {
+    if (!_isCurrent(session) || session.authPhase != _AuthPhase.awaitOk) {
+      _logger.w('Unexpected auth OK received. Closing connection.');
+      _closeSession(session);
+      return;
+    }
     await sendMessage(MessageTypes.authAck, {});
     if (!_isCurrent(session)) return;
     _onAuthSuccess(session);
@@ -569,6 +604,7 @@ class SocketManager {
   void _onAuthSuccess(_SocketSession session) {
     if (!_isCurrent(session) || _authed) return;
     _authed = true;
+    session.authPhase = _AuthPhase.none;
     _stopAuthTimer(session);
     _logger.i('Auth complete. Connection fully established.');
     final authCompleter = session.authCompleter;

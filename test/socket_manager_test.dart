@@ -353,4 +353,102 @@ void main() {
       await server.disconnect();
     },
   );
+
+  test(
+    'server rejects an authentication response with the wrong nonce',
+    () async {
+      final key = CryptoManager.generateKey();
+      final ed25519 = Ed25519();
+      final serverKeyPair = await ed25519.newKeyPair();
+      final clientKeyPair = await ed25519.newKeyPair();
+      final clientPub = base64Encode(
+        (await clientKeyPair.extractPublicKey()).bytes,
+      );
+      final server = SocketManager(
+        onMessage: (_) {},
+        onConnected: () {},
+        onDisconnected: () {},
+        authTimeout: const Duration(seconds: 2),
+      );
+      server.setAuthIdentity(
+        peerPublicKeyBase64: clientPub,
+        localKeyPair: serverKeyPair,
+      );
+      await server.startServer(45910, key);
+
+      final closed = Completer<void>();
+      final socket = await Socket.connect('127.0.0.1', 45910);
+      socket
+          .cast<List<int>>()
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .listen(
+            (line) async {
+              final message = MirrorMessage.decode(line);
+              if (message.type != MessageTypes.authChallenge) return;
+              final wrongNonce = CryptoManager.generateNonce();
+              final signature = await CryptoManager.sign(
+                clientKeyPair,
+                wrongNonce,
+              );
+              final encrypted = await CryptoManager.encrypt(
+                key,
+                jsonEncode({'nonce': wrongNonce, 'signature': signature}),
+              );
+              socket.write(
+                '${MirrorMessage(type: MessageTypes.authResponse, id: 'wrong-nonce', timestamp: DateTime.now().millisecondsSinceEpoch, payload: encrypted).encode()}\n',
+              );
+              await socket.flush();
+            },
+            onDone: () {
+              if (!closed.isCompleted) closed.complete();
+            },
+          );
+
+      await closed.future.timeout(const Duration(seconds: 3));
+      expect(server.isAuthed, isFalse);
+      await socket.close();
+      await server.disconnect();
+    },
+  );
+
+  test('server rejects an auth ACK before the expected response', () async {
+    final key = CryptoManager.generateKey();
+    final ed25519 = Ed25519();
+    final serverKeyPair = await ed25519.newKeyPair();
+    final clientKeyPair = await ed25519.newKeyPair();
+    final clientPub = base64Encode(
+      (await clientKeyPair.extractPublicKey()).bytes,
+    );
+    final server = SocketManager(
+      onMessage: (_) {},
+      onConnected: () {},
+      onDisconnected: () {},
+      authTimeout: const Duration(seconds: 2),
+    );
+    server.setAuthIdentity(
+      peerPublicKeyBase64: clientPub,
+      localKeyPair: serverKeyPair,
+    );
+    await server.startServer(45911, key);
+
+    final closed = Completer<void>();
+    final socket = await Socket.connect('127.0.0.1', 45911);
+    final encrypted = await CryptoManager.encrypt(key, '{}');
+    socket.write(
+      '${MirrorMessage(type: MessageTypes.authAck, id: 'early-ack', timestamp: DateTime.now().millisecondsSinceEpoch, payload: encrypted).encode()}\n',
+    );
+    await socket.flush();
+    socket.listen(
+      null,
+      onDone: () {
+        if (!closed.isCompleted) closed.complete();
+      },
+    );
+
+    await closed.future.timeout(const Duration(seconds: 3));
+    expect(server.isAuthed, isFalse);
+    await socket.close();
+    await server.disconnect();
+  });
 }
