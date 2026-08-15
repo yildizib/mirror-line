@@ -4,6 +4,7 @@ import 'package:mirrorline/core/data/daos/notification_event_dao.dart';
 import 'package:mirrorline/core/data/models/notification_event.dart';
 import 'package:mirrorline/core/network/message_protocol.dart';
 import 'package:mirrorline/core/services/notification_service.dart';
+import 'package:mirrorline/core/services/stable_notification_id.dart';
 import 'package:mirrorline/core/services/watched_apps_service.dart';
 import 'package:mirrorline/features/connection/connection_facade.dart';
 import 'package:uuid/uuid.dart';
@@ -26,20 +27,25 @@ final notificationFacadeProvider =
 /// field of ConnectionFacade) so NotificationsScreen/HomeFeedScreen can
 /// watch it independently.
 class NotificationFacade extends StateNotifier<List<NotificationEvent>> {
-  final NotificationEventDao _dao = NotificationEventDao();
+  final NotificationEventDao _dao;
   final Ref _ref;
   final Logger _logger;
   final SendOrQueue _sendOrQueue;
   final ShowNotification _notify;
+  late final Future<void> _initialized;
 
   NotificationFacade({
     required this._ref,
     required this._logger,
     required this._sendOrQueue,
     required this._notify,
-  }) : super([]) {
-    load();
+    NotificationEventDao? dao,
+  }) : _dao = dao ?? NotificationEventDao(),
+       super([]) {
+    _initialized = load();
   }
+
+  Future<void> get initialized => _initialized;
 
   // -----------------------------------------------------------------------
   // State
@@ -65,6 +71,7 @@ class NotificationFacade extends StateNotifier<List<NotificationEvent>> {
   }
 
   Future<void> add(NotificationEvent event) async {
+    await initialized;
     await _dao.insert(event);
     final exists = state.any((e) => e.id == event.id);
     state = exists
@@ -73,6 +80,7 @@ class NotificationFacade extends StateNotifier<List<NotificationEvent>> {
   }
 
   Future<void> removeByNativeId(String packageName, String nativeId) async {
+    await initialized;
     bool matches(NotificationEvent e) =>
         e.packageName == packageName && e.nativeId == nativeId;
     NotificationEvent? target;
@@ -89,7 +97,12 @@ class NotificationFacade extends StateNotifier<List<NotificationEvent>> {
         // Must match the id _notify() used when showing it (nativeId's
         // hash, not the local event id) or the wrong OS notification --
         // or none -- gets cancelled.
-        await NotificationService.cancel(target.nativeId.hashCode & 0x7fffffff);
+        await NotificationService.cancel(
+          stableNotificationId(
+            'mirrored_notification',
+            '$packageName:$nativeId',
+          ),
+        );
       } catch (e) {
         _logger.e('Failed to cancel mirrored notification: $e');
       }
@@ -98,6 +111,7 @@ class NotificationFacade extends StateNotifier<List<NotificationEvent>> {
 
   /// Permanently deletes every event in [ids] (used by multi-select clear).
   Future<void> removeMany(Iterable<String> ids) async {
+    await initialized;
     final idSet = ids.toSet();
     for (final id in idSet) {
       await _dao.delete(id);
@@ -107,6 +121,7 @@ class NotificationFacade extends StateNotifier<List<NotificationEvent>> {
 
   /// Permanently deletes all notifications (used by "clear all" / device reset).
   Future<void> removeAll() async {
+    await initialized;
     await _dao.deleteAll();
     state = [];
   }
@@ -147,6 +162,10 @@ class NotificationFacade extends StateNotifier<List<NotificationEvent>> {
     required String id,
     required DateTime now,
   }) async {
+    await Future.wait([
+      initialized,
+      _ref.read(watchedAppsProvider.notifier).initialized,
+    ]);
     final packageName = (data['packageName'] as String?) ?? 'unknown';
     if (packageName == 'io.github.yildizib.mirrorline') return;
     // Read live, not captured at construction -- the watched set can
@@ -187,6 +206,10 @@ class NotificationFacade extends StateNotifier<List<NotificationEvent>> {
   }
 
   Future<void> handleNativeRemoval(Map<dynamic, dynamic> data) async {
+    await Future.wait([
+      initialized,
+      _ref.read(watchedAppsProvider.notifier).initialized,
+    ]);
     // Intentionally a no-op. Android fires onNotificationRemoved for many
     // reasons (dismiss, auto-cancel on open, summary regrouping) that don't
     // mean the user wants the mirrored record gone. We keep events in the
@@ -206,6 +229,7 @@ class NotificationFacade extends StateNotifier<List<NotificationEvent>> {
     MirrorMessage message,
     DateTime now,
   ) async {
+    await initialized;
     switch (type) {
       case MessageTypes.notificationMirrored:
         final packageName = payload['packageName'] as String? ?? 'unknown';
@@ -214,7 +238,10 @@ class NotificationFacade extends StateNotifier<List<NotificationEvent>> {
         final text = payload['text'] as String? ?? '';
         final nativeId = payload['nativeId'] as String? ?? message.id;
         final event = NotificationEvent(
-          id: const Uuid().v4(),
+          id: stableNotificationId(
+            'mirrored_notification',
+            '$packageName:$nativeId',
+          ).toString(),
           nativeId: nativeId,
           packageName: packageName,
           appName: appName,
@@ -228,7 +255,10 @@ class NotificationFacade extends StateNotifier<List<NotificationEvent>> {
         );
         await add(event);
         await _notify(
-          id: nativeId.hashCode & 0x7fffffff,
+          id: stableNotificationId(
+            'mirrored_notification',
+            '$packageName:$nativeId',
+          ),
           title: appName,
           body: (title.isNotEmpty && title != appName) ? '$title: $text' : text,
           payload: NotificationPayload(

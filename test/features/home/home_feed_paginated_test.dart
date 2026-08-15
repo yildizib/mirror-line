@@ -219,4 +219,36 @@ void main() {
 
     expect(state.hasReachedEnd, isTrue);
   });
+
+  test('retains all 75 fetched records across home-feed pages', () async {
+    final container = buildContainer();
+    final callFacade = container.read(callFacadeProvider.notifier);
+    final smsFacade = container.read(smsFacadeProvider.notifier);
+    final notifFacade = container.read(notificationFacadeProvider.notifier);
+    await callFacade.load();
+    await smsFacade.load();
+    await notifFacade.load();
+
+    final now = DateTime.now();
+    for (var i = 0; i < 25; i++) {
+      await callFacade.add(makeCall('c$i', now.subtract(Duration(minutes: i))));
+      await smsFacade.add(
+        makeSms('s$i', now.subtract(Duration(minutes: i + 25))),
+      );
+      await notifFacade.add(
+        makeNotif('n$i', now.subtract(Duration(minutes: i + 50))),
+      );
+    }
+
+    final notifier = container.read(homeFeedPaginatedProvider.notifier);
+    await notifier.loadInitial();
+    await notifier.loadMore();
+    await notifier.loadMore();
+    await notifier.loadMore();
+    final state = container.read(homeFeedPaginatedProvider);
+
+    expect(state.items, hasLength(75));
+    expect(state.items.map((item) => item.id).toSet(), hasLength(75));
+    expect(state.hasReachedEnd, isTrue);
+  });
 }

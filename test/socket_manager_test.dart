@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -136,6 +137,167 @@ void main() {
 
     await c2.disconnect();
     await server.disconnect();
+  });
+
+  test('stale socket close cannot tear down its replacement', () async {
+    final key = CryptoManager.generateKey();
+    final received = Completer<void>();
+    final server = SocketManager(
+      onMessage: (message) {
+        if (message.type == 'replacement_message' && !received.isCompleted) {
+          received.complete();
+        }
+      },
+      onConnected: () {},
+      onDisconnected: () {},
+    );
+    await server.startServer(45906, key);
+
+    final firstClient = SocketManager(onMessage: (_) {});
+    final secondClient = SocketManager(onMessage: (_) {});
+    expect(await firstClient.connect('127.0.0.1', 45906, key), isTrue);
+
+    // The server replaces the first socket. Its delayed onDone callback must
+    // remain scoped to that old session rather than closing the replacement.
+    expect(await secondClient.connect('127.0.0.1', 45906, key), isTrue);
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+    expect(server.isConnected, isTrue);
+    expect(await secondClient.sendMessage('replacement_message', {}), isTrue);
+    await received.future.timeout(const Duration(seconds: 5));
+    expect(server.isConnected, isTrue);
+
+    await firstClient.disconnect();
+    await secondClient.disconnect();
+    await server.disconnect();
+  });
+
+  test('async message handlers complete in wire order', () async {
+    final key = CryptoManager.generateKey();
+    final completed = <String>[];
+    final bothHandled = Completer<void>();
+    final server = SocketManager(
+      onMessage: (message) async {
+        if (message.type == 'first') {
+          await Future<void>.delayed(const Duration(milliseconds: 100));
+        }
+        completed.add(message.type);
+        if (completed.length == 2) bothHandled.complete();
+      },
+    );
+    await server.startServer(45907, key);
+
+    final client = SocketManager(onMessage: (_) {});
+    expect(await client.connect('127.0.0.1', 45907, key), isTrue);
+    expect(await client.sendMessage('first', {}), isTrue);
+    expect(await client.sendMessage('second', {}), isTrue);
+
+    await bothHandled.future.timeout(const Duration(seconds: 5));
+    expect(completed, ['first', 'second']);
+
+    await client.disconnect();
+    await server.disconnect();
+  });
+
+  test('superseded auth timeout cannot close a newer connection', () async {
+    final key = CryptoManager.generateKey();
+    final ed25519 = Ed25519();
+    final serverKeyPair = await ed25519.newKeyPair();
+    final clientKeyPair = await ed25519.newKeyPair();
+    final serverPub = base64Encode(
+      (await serverKeyPair.extractPublicKey()).bytes,
+    );
+
+    // The first server accepts TCP but never starts authentication.
+    final silentSockets = <Socket>[];
+    final silentServer = await ServerSocket.bind(
+      InternetAddress.loopbackIPv4,
+      45908,
+    );
+    final silentSubscription = silentServer.listen(silentSockets.add);
+
+    final client = SocketManager(
+      onMessage: (_) {},
+      authTimeout: const Duration(milliseconds: 800),
+    );
+    client.setAuthIdentity(
+      peerPublicKeyBase64: serverPub,
+      localKeyPair: clientKeyPair,
+    );
+    final staleAttempt = client.connect('127.0.0.1', 45908, key);
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+    await client.disconnectClient();
+
+    // Delay the replacement challenge until after the first session timer
+    // would have fired, but before the replacement session timeout.
+    final replacementSockets = <Socket>[];
+    final replacementSocketSubscriptions = <StreamSubscription<String>>[];
+    final replacementAck = Completer<void>();
+    final replacementServer = await ServerSocket.bind(
+      InternetAddress.loopbackIPv4,
+      45909,
+    );
+    final replacementServerSubscription = replacementServer.listen((socket) {
+      replacementSockets.add(socket);
+      replacementSocketSubscriptions.add(
+        socket
+            .cast<List<int>>()
+            .transform(utf8.decoder)
+            .transform(const LineSplitter())
+            .listen((line) async {
+              final message = MirrorMessage.decode(line);
+              if (message.type == MessageTypes.authResponse) {
+                final encrypted = await CryptoManager.encrypt(key, '{}');
+                final authOk = MirrorMessage(
+                  type: MessageTypes.authOk,
+                  id: 'replacement-auth-ok',
+                  timestamp: DateTime.now().millisecondsSinceEpoch,
+                  payload: encrypted,
+                );
+                socket.write('${authOk.encode()}\n');
+                await socket.flush();
+              } else if (message.type == MessageTypes.authAck &&
+                  !replacementAck.isCompleted) {
+                replacementAck.complete();
+              }
+            }),
+      );
+      unawaited(
+        Future<void>.delayed(const Duration(milliseconds: 650), () async {
+          final encrypted = await CryptoManager.encrypt(
+            key,
+            jsonEncode({'nonce': CryptoManager.generateNonce()}),
+          );
+          final challenge = MirrorMessage(
+            type: MessageTypes.authChallenge,
+            id: 'replacement-challenge',
+            timestamp: DateTime.now().millisecondsSinceEpoch,
+            payload: encrypted,
+          );
+          socket.write('${challenge.encode()}\n');
+          await socket.flush();
+        }),
+      );
+    });
+
+    expect(await staleAttempt, isFalse);
+    expect(await client.connect('127.0.0.1', 45909, key), isTrue);
+    await replacementAck.future.timeout(const Duration(seconds: 2));
+    expect(client.isAuthed, isTrue);
+
+    await client.disconnect();
+    await replacementServerSubscription.cancel();
+    for (final subscription in replacementSocketSubscriptions) {
+      await subscription.cancel();
+    }
+    for (final socket in replacementSockets) {
+      socket.destroy();
+    }
+    await replacementServer.close();
+    await silentSubscription.cancel();
+    for (final socket in silentSockets) {
+      socket.destroy();
+    }
+    await silentServer.close();
   });
 
   test(

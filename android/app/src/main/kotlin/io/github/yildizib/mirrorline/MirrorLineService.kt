@@ -16,16 +16,14 @@ import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
 import android.telephony.PhoneStateListener
-import android.telephony.SmsMessage
 import android.telephony.TelephonyManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
-import androidx.core.content.ContextCompat
 import io.github.yildizib.mirrorline.MirrorLineService.Companion.RINGING_DEBOUNCE_MS
-import io.github.yildizib.mirrorline.MirrorLineService.Companion.SMS_DEBOUNCE_MS
 import java.util.concurrent.ExecutorService
-import java.util.concurrent.Executors
 import java.util.concurrent.Future
+import java.util.concurrent.FutureTask
+import java.util.concurrent.RejectedExecutionException
 
 class MirrorLineService : Service() {
 
@@ -35,7 +33,9 @@ class MirrorLineService : Service() {
     private var wifiLock: WifiManager.WifiLock? = null
 
     // Executor for CallLog enrichment thread pool (replaces raw Thread usage)
-    private val callLogExecutor: ExecutorService = Executors.newSingleThreadExecutor()
+    private val callLogExecutor: ExecutorService = BoundedExecutors.single("mirrorline-telephony")
+    private val callLogBaselineExecutor: ExecutorService =
+        BoundedExecutors.single("mirrorline-call-baseline", capacity = 8)
     private val pendingCallLogTasks = mutableSetOf<Future<*>>()
 
     // Independent second source for the live incoming number, alongside
@@ -58,43 +58,41 @@ class MirrorLineService : Service() {
     private var pendingRinging: Runnable? = null
     private var pendingRingingNumber: String = ""
     private var pendingRingingContact: String = ""
+    private var pendingRingingSessionId: String? = null
 
     // Tracks the previous EXTRA_STATE so transitions can be classified
     // (e.g. RINGING -> IDLE means missed, OFFHOOK -> IDLE means the
     // answered call ended). Dart correlates these with the currently
     // "ringing" CallEvent itself -- native only reports the transition.
     private var lastCallState: String? = null
-
-    // SMS parts for one logical (possibly multi-part) message can arrive
-    // as several separate broadcasts in quick succession. Buffered per
-    // sender and flushed as one notification after a short quiet period,
-    // instead of each broadcast becoming its own mirrored message.
-    private val smsHandler = Handler(Looper.getMainLooper())
-    private val pendingSms = HashMap<String, PendingSms>()
-
-    private data class PendingSms(var body: String, var contactName: String, val flush: Runnable)
+    private val callSessionFactory = CallSessionFactory()
+    private var activeCallSession: CallSession? = null
+    private val smsFingerprints = ExactFingerprintCache()
+    private var receiverRegistrationAttempts = 0
+    private val registrationHandler = Handler(Looper.getMainLooper())
 
     override fun onCreate() {
         super.onCreate()
-        // Guarantee the shared Dart engine exists even if this service is
-        // (re)started by the OS (START_STICKY) without any Activity ever
-        // having launched in this process instance -- e.g. after the app's
-        // process was killed and Android restarts the foreground service.
-        MirrorLineEngine.getOrCreate(this)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (!MirroringServiceController.isEligible(this)) {
+            Watchdog.cancel(this)
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
         ensureChannel()
         val notification = buildNotification()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(
                 NOTIFICATION_ID,
                 notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_REMOTE_MESSAGING
             )
         } else {
             startForeground(NOTIFICATION_ID, notification)
         }
+        MirrorLineEngine.getOrCreate(this)
         registerReceivers()
         acquireLocks()
 
@@ -114,6 +112,8 @@ class MirrorLineService : Service() {
             pendingCallLogTasks.clear()
         }
         callLogExecutor.shutdownNow()
+        callLogBaselineExecutor.shutdownNow()
+        registrationHandler.removeCallbacksAndMessages(null)
 
         super.onDestroy()
     }
@@ -135,11 +135,13 @@ class MirrorLineService : Service() {
      */
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
-        try {
-            val restartIntent = Intent(applicationContext, MirrorLineService::class.java)
-            ContextCompat.startForegroundService(applicationContext, restartIntent)
-        } catch (e: Exception) {
-            Log.e("MirrorLine", "Failed to restart service from onTaskRemoved: ${e.message}", e)
+        if (MirroringServiceController.isEligible(this)) {
+            val result = MirroringServiceController.start(applicationContext)
+            if (result.outcome == ServiceOutcome.FAILED) {
+                Log.e("MirrorLine", "Failed to restart service from onTaskRemoved: ${result.error}")
+            }
+        } else {
+            Watchdog.cancel(this)
         }
     }
 
@@ -208,12 +210,14 @@ class MirrorLineService : Service() {
         wifiLock = null
     }
 
-    private fun invokeFlutter(method: String, arguments: Map<String, Any>) {
-        try {
-            MirrorLineChannel.channel?.invokeMethod(method, arguments)
-        } catch (_: Exception) {
-            // Flutter engine not available; event dropped.
-        }
+    private fun invokeFlutter(
+        method: String,
+        arguments: Map<String, Any>,
+        routerGeneration: Long? = null,
+    ): Boolean {
+        if (!MirroringServiceController.isEligible(this)) return false
+        return if (routerGeneration == null) NativeEventRouter.route(method, arguments)
+        else NativeEventRouter.routeIfCurrent(routerGeneration, method, arguments)
     }
 
     /**
@@ -228,40 +232,108 @@ class MirrorLineService : Service() {
      * CallEvent.copyWith) only ever improves on what it already has -- an
      * empty result here is simply a no-op.
      */
-    private fun enrichFromCallLogThenNotify(context: Context, state: String) {
+    private fun enrichFromCallLogThenNotify(
+        context: Context,
+        state: String,
+        window: CallWindow,
+        session: CallSession,
+    ) {
         val mainHandler = Handler(Looper.getMainLooper())
-        val callEndedAt = System.currentTimeMillis()
-        val task = callLogExecutor.submit {
+        val routerGeneration = session.lifecycleGeneration
+        val work = Runnable {
             try {
+                window.baseline.await(CALL_LOG_BASELINE_WAIT_MS)
                 var info: CallLogResolver.Entry? = null
                 for (delayMs in CALL_LOG_RETRY_DELAYS_MS) {
                     if (Thread.currentThread().isInterrupted) {
                         Log.w("MirrorLine", "CallLog enrichment interrupted")
-                        return@submit
+                        return@Runnable
                     }
                     try {
                         Thread.sleep(delayMs)
                     } catch (_: InterruptedException) {
                         Thread.currentThread().interrupt()
-                        return@submit
+                        return@Runnable
                     }
-                    info = CallLogResolver.latestEntry(context, sinceMs = callEndedAt)
+                    info = CallLogResolver.matchingEntry(context, window)
                     if (info != null) break
                 }
                 mainHandler.post {
-                    val args = mutableMapOf<String, Any>("state" to state)
+                    if (!MirroringServiceController.isEligible(this)) return@post
+                    val args = mutableMapOf<String, Any>(
+                        "state" to state,
+                        "callSessionId" to session.id,
+                    )
                     if (info != null) {
                         args["number"] = info.number
                         if (info.name.isNotEmpty()) args["contactName"] = info.name
                     }
-                    invokeFlutter("onCall", args)
+                    invokeFlutter("onCall", args, routerGeneration)
                 }
             } catch (e: Exception) {
                 Log.e("MirrorLine", "CallLog enrichment failed: ${e.message}", e)
             }
         }
+        val task = object : FutureTask<Unit>(work, Unit) {
+            override fun done() {
+                synchronized(pendingCallLogTasks) { pendingCallLogTasks.remove(this) }
+            }
+        }
         synchronized(pendingCallLogTasks) {
             pendingCallLogTasks.add(task)
+        }
+        try {
+            callLogExecutor.execute(task)
+        } catch (_: RejectedExecutionException) {
+            synchronized(pendingCallLogTasks) { pendingCallLogTasks.remove(task) }
+            emitTerminalCall(state, session, routerGeneration)
+        }
+    }
+
+    private fun emitTerminalCall(
+        state: String,
+        session: CallSession,
+        routerGeneration: Long? = session.lifecycleGeneration,
+    ) {
+        invokeFlutter(
+            "onCall",
+            mapOf("state" to state, "callSessionId" to session.id),
+            routerGeneration,
+        )
+    }
+
+    private fun captureCallLogBaseline(
+        context: Context,
+        session: CallSession,
+        attempt: Int = 0,
+    ) {
+        if (session.callLogBaseline.snapshot().resolved) return
+        if (!MirroringServiceController.isEligible(this) ||
+            !NativeEventRouter.isGenerationCurrent(session.lifecycleGeneration)
+        ) return
+
+        val retry = {
+            if (attempt < CALL_LOG_BASELINE_RETRY_COUNT) {
+                registrationHandler.postDelayed(
+                    { captureCallLogBaseline(context, session, attempt + 1) },
+                    CALL_LOG_BASELINE_RETRY_DELAY_MS,
+                )
+            }
+        }
+        try {
+            callLogBaselineExecutor.execute {
+                val result = CallLogResolver.captureBaseline(context)
+                if (result.successful &&
+                    MirroringServiceController.isEligible(this) &&
+                    NativeEventRouter.isGenerationCurrent(session.lifecycleGeneration)
+                ) {
+                    session.callLogBaseline.resolve(result.rowId)
+                } else {
+                    retry()
+                }
+            }
+        } catch (_: RejectedExecutionException) {
+            retry()
         }
     }
 
@@ -274,19 +346,28 @@ class MirrorLineService : Service() {
      * call is reported as-is and the existing callInfo/call-log
      * enrichment path still backfills it later.
      */
-    private fun startRingingDebounce(number: String, contactName: String) {
+    private fun startRingingDebounce(
+        number: String,
+        contactName: String,
+        session: CallSession,
+    ) {
         cancelRingingDebounce()
         pendingRingingNumber = number
         pendingRingingContact = contactName
+        pendingRingingSessionId = session.id
+        val routerGeneration = session.lifecycleGeneration
         val r = Runnable {
+            if (activeCallSession?.id != session.id) return@Runnable
             pendingRinging = null
             invokeFlutter(
                 "onCall",
                 mapOf(
                     "number" to pendingRingingNumber,
                     "contactName" to pendingRingingContact,
-                    "state" to "RINGING"
-                )
+                    "state" to "RINGING",
+                    "callSessionId" to session.id,
+                ),
+                routerGeneration,
             )
         }
         pendingRinging = r
@@ -300,11 +381,17 @@ class MirrorLineService : Service() {
      * out with it; if we already reported, emit a RINGING_UPDATE so Dart
      * merges it into the tracked call as before.
      */
-    private fun feedRingingUpdate(number: String, contactName: String) {
+    private fun feedRingingUpdate(
+        number: String,
+        contactName: String,
+        session: CallSession,
+        routerGeneration: Long? = session.lifecycleGeneration,
+    ) {
+        if (activeCallSession?.id != session.id) return
         val empty = number.isBlank()
         if (empty && contactName.isBlank()) return
         val pending = pendingRinging
-        if (pending != null) {
+        if (pending != null && pendingRingingSessionId == session.id) {
             if (number.isNotBlank()) pendingRingingNumber = number
             if (contactName.isNotBlank()) pendingRingingContact = contactName
             return
@@ -315,8 +402,10 @@ class MirrorLineService : Service() {
             mapOf(
                 "number" to number,
                 "contactName" to contactName,
-                "state" to "RINGING_UPDATE"
-            )
+                "state" to "RINGING_UPDATE",
+                "callSessionId" to session.id,
+            ),
+            routerGeneration,
         )
     }
 
@@ -325,6 +414,7 @@ class MirrorLineService : Service() {
         pendingRinging = null
         pendingRingingNumber = ""
         pendingRingingContact = ""
+        pendingRingingSessionId = null
     }
 
     /**
@@ -334,7 +424,8 @@ class MirrorLineService : Service() {
      * fired, so Dart has a ringing call to apply the transition to. No-op
      * if RINGING already went out.
      */
-    private fun flushPendingRinging() {
+    private fun flushPendingRinging(session: CallSession) {
+        if (pendingRingingSessionId != session.id) return
         val r = pendingRinging ?: return
         callHandler.removeCallbacks(r)
         pendingRinging = null
@@ -343,16 +434,19 @@ class MirrorLineService : Service() {
             mapOf(
                 "number" to pendingRingingNumber,
                 "contactName" to pendingRingingContact,
-                "state" to "RINGING"
-            )
+                "state" to "RINGING",
+                "callSessionId" to session.id,
+            ),
+            session.lifecycleGeneration,
         )
         pendingRingingNumber = ""
         pendingRingingContact = ""
+        pendingRingingSessionId = null
     }
 
     private fun registerReceivers() {
         if (phoneStateReceiver == null) {
-            phoneStateReceiver = object : BroadcastReceiver() {
+            val receiver = object : BroadcastReceiver() {
                 override fun onReceive(context: Context, intent: Intent) {
                     val state = intent.getStringExtra(TelephonyManager.EXTRA_STATE) ?: return
                     val previous = lastCallState
@@ -360,9 +454,17 @@ class MirrorLineService : Service() {
 
                     when (state) {
                         TelephonyManager.EXTRA_STATE_RINGING -> {
+                            if (previous != TelephonyManager.EXTRA_STATE_RINGING) {
+                                activeCallSession = callSessionFactory.create(
+                                    System.currentTimeMillis(),
+                                    CallDirection.INCOMING,
+                                    NativeEventRouter.generation(),
+                                )
+                                captureCallLogBaseline(context, activeCallSession!!)
+                            }
+                            val session = activeCallSession ?: return
                             val number = intent.getStringExtra(TelephonyManager.EXTRA_INCOMING_NUMBER)
                                 ?: ""
-                            val contactName = ContactResolver.resolveName(context, number) ?: ""
                             // Android commonly re-broadcasts RINGING for the
                             // *same* call (often once without the number,
                             // then again with it a moment later). Only a
@@ -371,19 +473,40 @@ class MirrorLineService : Service() {
                             // an info update (e.g. the number finally
                             // resolved) for the call already being tracked.
                             val isNewCall = previous != TelephonyManager.EXTRA_STATE_RINGING
-                            if (isNewCall) {
-                                startRingingDebounce(number, contactName)
-                            } else {
-                                // A repeat RINGING for the already-tracked
-                                // call. If this one carries a number and we
-                                // haven't reported yet, fold it into the
-                                // pending report so it goes out with it; if
-                                // we already reported, treat it as the
-                                // usual RINGING_UPDATE info merge.
-                                feedRingingUpdate(number, contactName)
+                            if (isNewCall) startRingingDebounce(number, "", session)
+                            else feedRingingUpdate(number, "", session)
+                            try {
+                                val routerGeneration = session.lifecycleGeneration
+                                callLogExecutor.execute {
+                                    val contactName = ContactResolver.resolveName(context, number) ?: ""
+                                    callHandler.post {
+                                        if (MirroringServiceController.isEligible(
+                                                this@MirrorLineService,
+                                            )
+                                        ) {
+                                            feedRingingUpdate(
+                                                number,
+                                                contactName,
+                                                session,
+                                                routerGeneration,
+                                            )
+                                        }
+                                    }
+                                }
+                            } catch (_: RejectedExecutionException) {
+                                // The number-bearing ringing event was already retained.
                             }
                         }
                         TelephonyManager.EXTRA_STATE_OFFHOOK -> {
+                            if (activeCallSession == null) {
+                                activeCallSession = callSessionFactory.create(
+                                    System.currentTimeMillis(),
+                                    CallDirection.OUTGOING,
+                                    NativeEventRouter.generation(),
+                                )
+                                captureCallLogBaseline(context, activeCallSession!!)
+                            }
+                            val session = activeCallSession ?: return
                             // A ringing call was just answered. (If we were
                             // already OFFHOOK, e.g. an outgoing call, this
                             // is a no-op event Dart ignores -- it only acts
@@ -393,56 +516,96 @@ class MirrorLineService : Service() {
                                 // debounced, flush it now so Dart has a
                                 // ringing call to mark answered; otherwise
                                 // the ANSWERED transition would be dropped.
-                                flushPendingRinging()
-                                invokeFlutter("onCall", mapOf("state" to "ANSWERED"))
+                                flushPendingRinging(session)
+                                invokeFlutter(
+                                    "onCall",
+                                    mapOf(
+                                        "state" to "ANSWERED",
+                                        "callSessionId" to session.id,
+                                    ),
+                                    session.lifecycleGeneration,
+                                )
                             }
                         }
                         TelephonyManager.EXTRA_STATE_IDLE -> {
+                            val session = activeCallSession ?: return
+                            val endedAt = System.currentTimeMillis()
+                            val window = CallWindow(
+                                session.startedAtMs,
+                                endedAt,
+                                session.direction,
+                                session.callLogBaseline,
+                            )
                             // Same race as OFFHOOK: a missed call can go
                             // RINGING -> IDLE faster than the debounce
                             // window, so make sure Dart has seen RINGING
                             // before reporting the MISSED transition.
                             when (previous) {
                                 TelephonyManager.EXTRA_STATE_RINGING -> {
-                                    flushPendingRinging()
-                                    enrichFromCallLogThenNotify(context, "MISSED")
+                                    flushPendingRinging(session)
+                                    enrichFromCallLogThenNotify(
+                                        context,
+                                        "MISSED",
+                                        window,
+                                        session,
+                                    )
                                 }
                                 TelephonyManager.EXTRA_STATE_OFFHOOK ->
-                                    enrichFromCallLogThenNotify(context, "ENDED")
+                                    enrichFromCallLogThenNotify(
+                                        context,
+                                        "ENDED",
+                                        window,
+                                        session,
+                                    )
                             }
+                            activeCallSession = null
                         }
                     }
                 }
             }
             val filter = IntentFilter(TelephonyManager.ACTION_PHONE_STATE_CHANGED)
-            registerExported(phoneStateReceiver!!, filter)
+            if (registerExported(receiver, filter)) phoneStateReceiver = receiver
         }
 
         if (smsReceiver == null) {
-            smsReceiver = object : BroadcastReceiver() {
+            val receiver = object : BroadcastReceiver() {
                 override fun onReceive(context: Context, intent: Intent) {
-                    val bundle = intent.extras ?: return
-                    val pdus = bundle.get("pdus") as? Array<*> ?: return
-                    val format = bundle.getString("format")
-                    val messages = pdus.mapNotNull { pdu ->
-                        (pdu as? ByteArray)?.let { SmsMessage.createFromPdu(it, format) }
-                    }
-                    if (messages.isEmpty()) return
-
-                    messages
-                        .groupBy { it.displayOriginatingAddress ?: it.originatingAddress ?: "" }
-                        .forEach { (address, group) ->
-                            val body = group.joinToString("") { it.messageBody ?: "" }
-                            bufferSms(context, address, body)
+                    val parts = android.provider.Telephony.Sms.Intents
+                        .getMessagesFromIntent(intent)
+                        .map {
+                            SmsPart(
+                                it.displayOriginatingAddress ?: it.originatingAddress ?: "",
+                                it.messageBody ?: "",
+                                it.timestampMillis,
+                            )
                         }
+                    SmsAssembler.assemble(parts).forEach { sms ->
+                        if (!smsFingerprints.addIfNew(sms.fingerprint)) return@forEach
+                        val routerGeneration = NativeEventRouter.generation()
+                        try {
+                            callLogExecutor.execute {
+                                val contactName = ContactResolver.resolveName(context, sms.address) ?: ""
+                                emitSms(sms, contactName, routerGeneration)
+                            }
+                        } catch (_: RejectedExecutionException) {
+                            emitSms(sms, "", routerGeneration)
+                        }
+                    }
                 }
             }
             val filter = IntentFilter(android.provider.Telephony.Sms.Intents.SMS_RECEIVED_ACTION)
             filter.priority = 999
-            registerExported(smsReceiver!!, filter)
+            if (registerExported(receiver, filter)) smsReceiver = receiver
         }
 
         registerCallStateListener()
+        if ((phoneStateReceiver == null || smsReceiver == null || phoneStateListener == null) &&
+            MirroringServiceController.isEligible(this) && receiverRegistrationAttempts++ < 3
+        ) {
+            registrationHandler.postDelayed({ registerReceivers() }, 1_000L)
+        } else if (phoneStateReceiver != null && smsReceiver != null && phoneStateListener != null) {
+            receiverRegistrationAttempts = 0
+        }
     }
 
     /**
@@ -475,13 +638,37 @@ class MirrorLineService : Service() {
                     if (state != TelephonyManager.CALL_STATE_RINGING) return
                     if (phoneNumber.isNullOrEmpty() || phoneNumber == lastListenerNumber) return
                     lastListenerNumber = phoneNumber
-                    val contactName = ContactResolver.resolveName(this@MirrorLineService, phoneNumber) ?: ""
-                    feedRingingUpdate(phoneNumber, contactName)
+                    val session = activeCallSession ?: return
+                    feedRingingUpdate(phoneNumber, "", session)
+                    val routerGeneration = NativeEventRouter.generation()
+                    try {
+                        callLogExecutor.execute {
+                            val contactName = ContactResolver.resolveName(
+                                this@MirrorLineService,
+                                phoneNumber,
+                            ) ?: ""
+                            callHandler.post {
+                                if (MirroringServiceController.isEligible(
+                                        this@MirrorLineService,
+                                    )
+                                ) {
+                                    feedRingingUpdate(
+                                        phoneNumber,
+                                        contactName,
+                                        session,
+                                        routerGeneration,
+                                    )
+                                }
+                            }
+                        }
+                    } catch (_: RejectedExecutionException) {
+                        // The number-bearing update was already emitted.
+                    }
                 }
             }
+            tm.listen(listener, PhoneStateListener.LISTEN_CALL_STATE)
             phoneStateListener = listener
             telephonyManager = tm
-            tm.listen(listener, PhoneStateListener.LISTEN_CALL_STATE)
         } catch (_: Exception) {
         }
     }
@@ -499,49 +686,34 @@ class MirrorLineService : Service() {
         lastListenerNumber = null
     }
 
-    /**
-     * Multi-part (long) SMS, or a burst of quick separate texts from the
-     * same sender, can arrive as several distinct broadcasts a few hundred
-     * milliseconds apart. Coalesce same-sender broadcasts that land within
-     * [SMS_DEBOUNCE_MS] of each other into a single mirrored message
-     * instead of one per broadcast.
-     */
-    private fun bufferSms(context: Context, address: String, bodyPart: String) {
-        val existing = pendingSms[address]
-        if (existing != null) {
-            smsHandler.removeCallbacks(existing.flush)
-            existing.body += bodyPart
-            smsHandler.postDelayed(existing.flush, SMS_DEBOUNCE_MS)
-            return
-        }
-
-        lateinit var pending: PendingSms
-        val flush = Runnable {
-            pendingSms.remove(address)
-            invokeFlutter(
-                "onSms",
-                mapOf(
-                    "address" to address,
-                    "contactName" to pending.contactName,
-                    "body" to pending.body,
-                    "threadId" to ""
-                )
-            )
-        }
-        pending = PendingSms(bodyPart, ContactResolver.resolveName(context, address) ?: "", flush)
-        pendingSms[address] = pending
-        smsHandler.postDelayed(flush, SMS_DEBOUNCE_MS)
-    }
-
-    private fun registerExported(receiver: BroadcastReceiver, filter: IntentFilter) {
+    private fun registerExported(receiver: BroadcastReceiver, filter: IntentFilter): Boolean =
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED)
             } else {
                 registerReceiver(receiver, filter)
             }
+            true
         } catch (_: Exception) {
+            false
         }
+
+    private fun emitSms(
+        sms: AssembledSms,
+        contactName: String,
+        routerGeneration: Long,
+    ) {
+        val routed = invokeFlutter(
+            "onSms",
+            mapOf(
+                "address" to sms.address,
+                "contactName" to contactName,
+                "body" to sms.body,
+                "threadId" to "",
+            ),
+            routerGeneration,
+        )
+        if (!routed) smsFingerprints.remove(sms.fingerprint)
     }
 
     private fun unregisterReceivers() {
@@ -569,10 +741,6 @@ class MirrorLineService : Service() {
         // ongoing call's later transitions will be reported then.
         cancelRingingDebounce()
 
-        // Flush anything still buffered rather than silently dropping it,
-        // then cancel so nothing fires after teardown.
-        pendingSms.values.toList().forEach { smsHandler.removeCallbacks(it.flush) }
-        pendingSms.values.toList().forEach { it.flush.run() }
     }
 
     private fun ensureChannel() {
@@ -602,7 +770,6 @@ class MirrorLineService : Service() {
     companion object {
         const val CHANNEL_ID = "mirrorline_service"
         const val NOTIFICATION_ID = 10001
-        const val SMS_DEBOUNCE_MS = 700L
         // How long to wait for the incoming number to resolve on the
         // first RINGING broadcast before giving up and reporting the call
         // with whatever (possibly empty) number we have. ~500ms is enough
@@ -613,5 +780,8 @@ class MirrorLineService : Service() {
         // Cumulative ~2s across up to 3 attempts -- enough slack for a ROM's
         // own caller-ID/spam lookup to finish writing the call-log entry.
         val CALL_LOG_RETRY_DELAYS_MS = longArrayOf(400L, 600L, 1000L)
+        const val CALL_LOG_BASELINE_RETRY_COUNT = 3
+        const val CALL_LOG_BASELINE_RETRY_DELAY_MS = 100L
+        const val CALL_LOG_BASELINE_WAIT_MS = 500L
     }
 }

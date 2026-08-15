@@ -19,6 +19,7 @@ import 'package:mirrorline/core/security/key_store.dart';
 import 'package:mirrorline/core/services/connectivity_service.dart';
 import 'package:mirrorline/core/services/notification_service.dart';
 import 'package:mirrorline/core/services/queue_service.dart';
+import 'package:mirrorline/core/services/watched_apps_service.dart';
 import 'package:mirrorline/core/telephony/telephony_channel.dart';
 import 'package:mirrorline/features/calls/call_facade.dart';
 import 'package:mirrorline/features/connection/connection_status_provider.dart';
@@ -27,6 +28,7 @@ import 'package:mirrorline/features/connection/peer_discovery_coordinator.dart';
 import 'package:mirrorline/features/connection/reconnect_scheduler.dart';
 import 'package:mirrorline/features/notifications/notification_facade.dart';
 import 'package:mirrorline/features/pairing/pairing_facade.dart';
+import 'package:mirrorline/features/pairing/pairing_transport.dart';
 import 'package:mirrorline/features/pairing/peer_facade.dart';
 import 'package:mirrorline/features/sms/sms_facade.dart';
 import 'package:uuid/uuid.dart';
@@ -47,6 +49,28 @@ typedef ShowNotification =
       required String body,
       NotificationPayload? payload,
     });
+
+class _SocketPairingTransport implements PairingTransport {
+  _SocketPairingTransport(this._socket, this._generation);
+
+  final SocketManager _socket;
+  final int _generation;
+
+  @override
+  Object get connectionToken => (_socket, _generation);
+
+  @override
+  bool get isCurrent => _socket.isSessionCurrent(_generation);
+
+  @override
+  String? get remoteAddress => isCurrent ? _socket.remoteAddress : null;
+
+  @override
+  Future<bool> send(String type, Map<String, dynamic> payload) async {
+    if (!isCurrent) return false;
+    return _socket.sendMessage(type, payload);
+  }
+}
 
 final connectionFacadeProvider = StateNotifierProvider<ConnectionFacade, bool>((
   ref,
@@ -87,13 +111,20 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
   final SubnetScanner _scanner = SubnetScanner();
 
   SocketManager? _socketManager;
+  _SocketPairingTransport? _pairingTransport;
   Peer? _peer;
   SecretKey? _key;
   Timer? _healthTimer;
   bool _connecting = false;
   bool _refreshing = false;
+  Completer<void>? _refreshDone;
   bool _scanning = false;
+  bool _networkingStopped = false;
+  bool _forceConnecting = false;
+  ScanCancellationToken? _scanCancellation;
   bool _telephonyHandlerRegistered = false;
+  void Function()? _clearTelephonyHandler;
+  bool _online = true;
   String? _lastDiscoveredIp;
   // Resolved once (KeyStore reads are async) and cached for
   // PeerDiscoveryCoordinator's sync getPeerId/getDeviceName callbacks --
@@ -119,6 +150,7 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
   // session -- this only needs to cover replay within one live session.
   int? _lastAcceptedMessageTimestamp;
   bool _disposed = false;
+  int _lifecycleGeneration = 0;
 
   // Owns the periodic/backoff reconnect timer against the stored peer
   // address. Callbacks are tear-offs of this instance (see the comment
@@ -163,8 +195,14 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
   bool get isSource => _peer?.role == 'source';
   bool get isConnecting => _connecting;
 
-  /// Exposed so PairingFacade can reply on the live connection.
-  SocketManager? get socketManager => _socketManager;
+  PairingTransport? get pairingTransport {
+    final socket = _socketManager;
+    final generation = socket?.sessionGeneration;
+    if (socket == null || generation == null) return null;
+    final current = _pairingTransport;
+    if (current?.connectionToken == (socket, generation)) return current;
+    return _pairingTransport = _SocketPairingTransport(socket, generation);
+  }
 
   void _init() async {
     WidgetsBinding.instance.addObserver(this);
@@ -178,15 +216,23 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
     _registerTelephonyHandler();
 
     _connectivity.onChanged = (isOnline) {
+      _online = isOnline;
+      _lifecycleGeneration++;
       if (isOnline) {
         _logger.i('Network back online. Reconnecting...');
-        refresh();
-        _maybeScheduleReconnect();
+        if (!_networkingStopped) {
+          _reconnectScheduler.start();
+          _refresh();
+          _maybeScheduleReconnect();
+        }
       } else {
         _logger.i(
           'Network offline. Dropping stale connection, pausing attempts.',
         );
         state = false;
+        _reconnectScheduler.pause();
+        _cancelActiveScan();
+        _peerDiscoveryCoordinator.cancelActiveScan();
         _peerDiscoveryCoordinator.markDisconnected();
         // Actually tear down the client-side connection, not just the UI
         // flag. Some network transitions (e.g. Wi-Fi AP roam) never deliver
@@ -204,9 +250,13 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
     _connectivity.startListening();
 
     try {
+      final lifecycleGeneration = _lifecycleGeneration;
       final isOnline = await _connectivity.isOnline();
-      if (isOnline) {
-        await refresh();
+      if (lifecycleGeneration == _lifecycleGeneration) {
+        _online = isOnline;
+      }
+      if (isOnline && lifecycleGeneration == _lifecycleGeneration) {
+        await _refresh();
       }
     } catch (e) {
       _logger.e('Connection init failed: $e');
@@ -219,12 +269,14 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
     // the same full (re)initialization that happens on a fresh app start,
     // so devices recover on their own instead of requiring the app to be
     // killed and reopened.
+    if (_disposed) return;
     _healthTimer ??= Timer.periodic(_retryInterval, (_) {
+      if (_disposed || _networkingStopped || !_online) return;
       _ref
           .read(smsFacadeProvider.notifier)
           .failStalePending(_pendingSmsTimeout);
-      if (_connecting || state) return;
-      refresh();
+      if (_networkingStopped || _connecting || state) return;
+      _refresh();
       _maybeRunFallbackScan();
     });
   }
@@ -234,7 +286,7 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
     if (_disposed) return;
     if (state == AppLifecycleState.resumed) {
       _socketManager?.setBackgroundMode(false);
-      refresh();
+      _refresh();
       _maybeScheduleReconnect();
     } else if (state == AppLifecycleState.paused) {
       _socketManager?.setBackgroundMode(true);
@@ -245,43 +297,109 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
   /// Call after pairing, role changes or resets, and also called
   /// periodically by _healthTimer as a self-healing check.
   Future<void> refresh() async {
-    if (_refreshing) return;
+    _networkingStopped = false;
+    _lifecycleGeneration++;
+    _reconnectScheduler.start();
+    await _refresh();
+  }
+
+  Future<void> _refresh() async {
+    if (_networkingStopped || _disposed) return;
+    if (_refreshing) {
+      await _refreshDone?.future;
+      if (_networkingStopped || _disposed) return;
+      return _refresh();
+    }
+    final lifecycleGeneration = _lifecycleGeneration;
     _refreshing = true;
+    _refreshDone = Completer<void>();
     try {
       try {
         _peer = await _peerDao.getPeer();
         _key = await KeyStore.getPeerKey();
+        if (!_isLifecycleCurrent(lifecycleGeneration)) return;
       } catch (e) {
         _logger.e('Failed to load peer info: $e');
+        return;
+      }
+
+      final peer = _peer;
+      final pairingValid =
+          peer != null && peer.publicKey.isNotEmpty && _key != null;
+      final nativeRole = _mirroringRole(peer?.role);
+      try {
+        await TelephonyChannel.syncMirroringEligibility(
+          enabled: pairingValid,
+          role: nativeRole,
+          paired: pairingValid,
+        );
+        if (!_isLifecycleCurrent(lifecycleGeneration)) {
+          await TelephonyChannel.nativeEventsNotReady();
+          return;
+        }
+        if (pairingValid && nativeRole != MirroringRole.unknown) {
+          await Future.wait([
+            _ref.read(callFacadeProvider.notifier).initialized,
+            _ref.read(smsFacadeProvider.notifier).initialized,
+            _ref.read(notificationFacadeProvider.notifier).initialized,
+            _ref.read(watchedAppsProvider.notifier).initialized,
+          ]);
+          if (!_isLifecycleCurrent(lifecycleGeneration)) {
+            await TelephonyChannel.nativeEventsNotReady();
+            return;
+          }
+          await TelephonyChannel.nativeEventsReady();
+          if (!_isLifecycleCurrent(lifecycleGeneration)) {
+            await TelephonyChannel.nativeEventsNotReady();
+            return;
+          }
+        }
+      } catch (e) {
+        _logger.e('Failed to synchronize native mirroring lifecycle: $e');
         return;
       }
 
       final statusNotifier = _ref.read(connectionStatusProvider.notifier);
       // Use getAllLocalIps for VPN support: collects WiFi + VPN TUN + etc.
       final allIps = await PeerDiscovery().getAllLocalIps();
+      if (!_isLifecycleCurrent(lifecycleGeneration)) return;
       _allLocalIps = allIps.map((e) => e.ip).toList();
       statusNotifier.setLocalIp(allIps.isNotEmpty ? allIps.first.ip : null);
       statusNotifier.setPeerIp(_peer?.ip);
 
-      if (_peer == null || _key == null) {
-        _logger.w('No peer info or key found. Waiting for pairing.');
+      if (!pairingValid) {
+        _logger.w('No valid paired peer or key found. Waiting for pairing.');
         await _stopMachinery();
         return;
       }
 
       try {
         if (isSource) {
-          await _startAsSource();
+          await _startAsSource(lifecycleGeneration);
         } else {
-          await _startAsMain();
+          await _startAsMain(lifecycleGeneration);
         }
       } catch (e) {
         _logger.e('Failed to start networking: $e');
       }
     } finally {
       _refreshing = false;
+      _refreshDone?.complete();
+      _refreshDone = null;
     }
   }
+
+  bool _isLifecycleCurrent(int generation) =>
+      generation == _lifecycleGeneration &&
+      _online &&
+      !_networkingStopped &&
+      !_disposed;
+
+  MirroringRole _mirroringRole(String? role) => switch (role) {
+    'source' => MirroringRole.source,
+    'main' => MirroringRole.main,
+    _ => MirroringRole.unknown,
+  };
 
   /// Refreshes the reported local IP without touching the peer record.
   /// Used when showing the pairing QR, where the address must be current but
@@ -306,15 +424,21 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
   /// Updated by [updateLocalIp] and [refresh].
   List<String> _allLocalIps = [];
 
-  Future<void> _startAsSource() async {
+  Future<void> _startAsSource(int lifecycleGeneration) async {
     final peer = _peer!;
     final key = _key!;
+    _reconnectScheduler.stop();
 
     _socketManager ??= _createSocketManager();
     await _configureAuth(_socketManager!);
+    if (!_isLifecycleCurrent(lifecycleGeneration)) return;
     if (_socketManager!.isConnected == false) {
       try {
         await _socketManager!.startServer(peer.port, key);
+        if (!_isLifecycleCurrent(lifecycleGeneration)) {
+          await _socketManager!.stopServer();
+          return;
+        }
         _ref.read(connectionStatusProvider.notifier).setServer(peer.port, true);
       } catch (e) {
         _logger.e('Server start failed: $e');
@@ -336,6 +460,7 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
     if (!_broadcaster.isBroadcasting) {
       final selfId = await KeyStore.getSelfId() ?? peer.id;
       final selfName = await KeyStore.getSelfDeviceName() ?? peer.deviceName;
+      if (!_isLifecycleCurrent(lifecycleGeneration)) return;
       // Include all local IPs (WiFi + VPN) in the beacon so the receiver
       // can try them all if the UDP source IP is unreachable.
       final allIps = _allLocalIps.isNotEmpty ? _allLocalIps : null;
@@ -345,10 +470,36 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
         deviceName: selfName,
         ips: allIps,
       );
+      if (!_isLifecycleCurrent(lifecycleGeneration)) {
+        await _broadcaster.stop();
+        return;
+      }
     }
 
     try {
-      await TelephonyChannel.startListening();
+      final result = await TelephonyChannel.startListening();
+      if (!_isLifecycleCurrent(lifecycleGeneration)) {
+        await TelephonyChannel.stopListening(
+          enabled: false,
+          role: MirroringRole.source,
+          paired: false,
+        );
+        return;
+      }
+      switch (result.outcome) {
+        case MirroringServiceOutcome.startRequested:
+          _logger.i('Native mirroring service start requested.');
+        case MirroringServiceOutcome.permissionsRequired:
+          _logger.w('Native mirroring permissions are required.');
+        case MirroringServiceOutcome.ineligible:
+          _logger.w('Native mirroring service is ineligible to start.');
+        case MirroringServiceOutcome.failed:
+          _logger.e('Native mirroring service failed: ${result.error}');
+        case MirroringServiceOutcome.unavailable:
+          _logger.d('Native mirroring service unavailable on this platform.');
+        case MirroringServiceOutcome.stopped:
+          _logger.w('Native mirroring start unexpectedly returned stopped.');
+      }
     } catch (e) {
       _logger.e('Telephony startListening failed: $e');
     }
@@ -357,10 +508,11 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
     );
   }
 
-  Future<void> _startAsMain() async {
+  Future<void> _startAsMain(int lifecycleGeneration) async {
     final peer = _peer!;
     final key = _key!;
     final isPaired = peer.publicKey.isNotEmpty;
+    _reconnectScheduler.start();
 
     if (!isPaired) {
       // Not yet paired to a specific device: also listen on our own port,
@@ -371,9 +523,14 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
       // _startAsSource).
       _socketManager ??= _createSocketManager();
       await _configureAuth(_socketManager!);
+      if (!_isLifecycleCurrent(lifecycleGeneration)) return;
       if (_socketManager!.isConnected == false) {
         try {
           await _socketManager!.startServer(peer.port, key);
+          if (!_isLifecycleCurrent(lifecycleGeneration)) {
+            await _socketManager!.stopServer();
+            return;
+          }
           _ref
               .read(connectionStatusProvider.notifier)
               .setServer(peer.port, true);
@@ -386,6 +543,7 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
 
     // Paired: pure client role. Tear down any leftover pairing-time server.
     await _socketManager?.stopServer();
+    if (!_isLifecycleCurrent(lifecycleGeneration)) return;
     _ref.read(connectionStatusProvider.notifier).setServer(0, false);
 
     // Resolved once and cached (KeyStore reads are async, but
@@ -396,8 +554,13 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
       _selfDiscoveryId = await KeyStore.getSelfId() ?? peer.id;
       _selfDiscoveryName =
           await KeyStore.getSelfDeviceName() ?? peer.deviceName;
+      if (!_isLifecycleCurrent(lifecycleGeneration)) return;
     }
     await _peerDiscoveryCoordinator.startListening();
+    if (!_isLifecycleCurrent(lifecycleGeneration)) {
+      await _peerDiscoveryCoordinator.stopListening();
+      return;
+    }
 
     // Periodic retries now come from the role-agnostic _healthTimer (see
     // _init()), which calls refresh() -- this immediate attempt just
@@ -407,11 +570,15 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
     // ReconnectScheduler would add a mandatory 2s+ delay this immediate
     // first-try attempt never had.
     if (!isSource && !state && !_connecting) {
+      _reconnectScheduler.markDisconnected(schedule: false);
+      _peerDiscoveryCoordinator.markDisconnected();
       final ip = _lastDiscoveredIp ?? peer.ip;
       if (ip.isEmpty || ip == 'unknown') {
         _ref
             .read(connectionStatusProvider.notifier)
             .recordConnectAttempt(ConnectionErrorCode.peerIpUnknown);
+        _maybeScheduleReconnect();
+        unawaited(_maybeRunFallbackScan(immediate: true));
       } else {
         await _connectTo(ip, peer.port);
       }
@@ -419,12 +586,15 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
   }
 
   SocketManager _createSocketManager() {
-    final sm = SocketManager(
-      onMessage: _handleIncomingMessage,
+    late final SocketManager sm;
+    sm = SocketManager(
+      onMessage: (message) => _handleIncomingMessage(sm, message),
       onConnected: () {
         state = true;
         _reconnectScheduler.markConnected();
         _peerDiscoveryCoordinator.markConnected();
+        _cancelActiveScan();
+        _peerDiscoveryCoordinator.cancelActiveScan();
         _lastAcceptedMessageTimestamp = null;
         _ref.read(connectionStatusProvider.notifier).clearError();
         _logger.i('Socket connected and authenticated!');
@@ -444,7 +614,15 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
         _peerDiscoveryCoordinator.setThrottle(true);
       },
       onDisconnected: () {
+        final pairingTransport = _pairingTransport;
+        if (pairingTransport != null) {
+          _ref
+              .read(pairingFacadeProvider.notifier)
+              .handleTransportDisconnected(pairingTransport);
+          _pairingTransport = null;
+        }
         state = false;
+        _reconnectScheduler.markDisconnected(schedule: false);
         _peerDiscoveryCoordinator.markDisconnected();
         _logger.w(
           'Socket disconnected. Will auto-reconnect when peer is reachable.',
@@ -488,6 +666,7 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
   /// broke Source's server, and only the next incoming connection from
   /// Main eventually revived it.
   void _maybeScheduleReconnect() {
+    if (!_online || _networkingStopped || _disposed) return;
     if (_peer == null || _key == null) return;
     if (isSource) return; // Source never dials out
     if (state || _connecting) return;
@@ -500,7 +679,14 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
     Duration? connectTimeout,
   }) async {
     final key = _key;
-    if (key == null || _connecting || state) return false;
+    if (!_online ||
+        _networkingStopped ||
+        _disposed ||
+        key == null ||
+        _connecting ||
+        state) {
+      return false;
+    }
 
     final generation = ++_connectGeneration;
     _connecting = true;
@@ -510,6 +696,8 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
           DiscoveryState.connecting,
           detail: 'Connecting to $ip:$port...',
         );
+    var shouldScheduleReconnect = false;
+    var result = false;
     try {
       _socketManager ??= _createSocketManager();
       await _configureAuth(_socketManager!);
@@ -522,7 +710,7 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
       if (generation != _connectGeneration) {
         // A forced reconnect abandoned this attempt while it was in flight;
         // the newer attempt it triggered now owns _connecting/scheduling.
-        return ok;
+        return false;
       }
       _ref
           .read(connectionStatusProvider.notifier)
@@ -538,6 +726,8 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
               detail: 'Connected to $ip:$port',
             );
         _rememberKnownNetwork(ip, port);
+        _lastDiscoveredIp = ip;
+        _recordDiscoveredAddress(ip, port);
       } else {
         _ref
             .read(connectionStatusProvider.notifier)
@@ -545,12 +735,29 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
               DiscoveryState.failed,
               detail: 'Failed to connect to $ip:$port',
             );
-        _maybeScheduleReconnect();
+        shouldScheduleReconnect = true;
       }
-      return ok;
+      result = ok;
+    } catch (e) {
+      if (generation == _connectGeneration) {
+        _logger.e('Connection attempt failed: $e');
+        _ref
+            .read(connectionStatusProvider.notifier)
+            .recordConnectAttempt(
+              ConnectionErrorCode.connectFailed,
+              errorDetail: '$ip:$port ($e)',
+            );
+        shouldScheduleReconnect = true;
+      }
     } finally {
       if (generation == _connectGeneration) _connecting = false;
     }
+    if (generation == _connectGeneration && shouldScheduleReconnect) {
+      _reconnectScheduler.markDisconnected(schedule: false);
+      _peerDiscoveryCoordinator.markDisconnected();
+      _maybeScheduleReconnect();
+    }
+    return result;
   }
 
   /// Records "this IP worked on this subnet" for the known-network fast
@@ -587,7 +794,7 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
     bool immediate = false,
     bool force = false,
   }) async {
-    if (isSource) return; // only Main ever dials out
+    if (!_online || _networkingStopped || _disposed || isSource) return;
     if (state || _connecting) return;
 
     if (await _tryKnownNetworkFastPath()) return;
@@ -610,10 +817,10 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
     int port, {
     required bool fromScan,
   }) async {
+    if (!_online || _networkingStopped || _disposed) return;
     if (fromScan) {
       if (state) return;
       _lastDiscoveredIp = ip;
-      _recordDiscoveredAddress(ip, port);
       if (_connecting) {
         _connectGeneration++;
         _connecting = false;
@@ -623,7 +830,6 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
     } else {
       _lastDiscoveredIp = ip;
       _ref.read(connectionStatusProvider.notifier).recordBeacon(ip);
-      _recordDiscoveredAddress(ip, port);
       if (!state && !_connecting) {
         await _connectTo(ip, port);
       }
@@ -641,7 +847,7 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
     final updated = peer.copyWith(ip: ip, port: port);
     _peer = updated;
     unawaited(_peerDao.update(updated));
-    _ref.read(peerFacadeProvider.notifier).applyUpdate(updated);
+    unawaited(_ref.read(peerFacadeProvider.notifier).applyUpdate(updated));
     _ref.read(connectionStatusProvider.notifier).setPeerIp(ip);
   }
 
@@ -674,6 +880,7 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
   Future<void> _handleNetworkChangedEvent(Map data) async {
     final newIp = data['localIp'] as String?;
     _logger.i('Native reported a network change (new local IP: $newIp).');
+    final lifecycleGeneration = ++_lifecycleGeneration;
 
     if (newIp != null) {
       if (!_isValidIpAddress(newIp)) {
@@ -682,12 +889,16 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
         _ref.read(connectionStatusProvider.notifier).setLocalIp(newIp);
       }
     }
+    if (!_isLifecycleCurrent(lifecycleGeneration)) return;
 
     // Abandon any connect attempt that's in flight on the old network so
     // the guards (_connecting) don't silently swallow the fast reconnect
     // below -- same pattern forceReconnect()/_maybeRunFallbackScan use.
     _connectGeneration++;
     _connecting = false;
+    _reconnectScheduler.pause();
+    _cancelActiveScan();
+    _peerDiscoveryCoordinator.cancelActiveScan();
 
     // Don't wait for the heartbeat timeout to notice the old socket is
     // dead -- same teardown _connectivity.onChanged's offline branch
@@ -706,6 +917,7 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
     // covers the new network's subnets (previously this was fire-and-forget
     // and the immediate scan could race it and probe the old subnet).
     final allIps = await PeerDiscovery().getAllLocalIps();
+    if (!_isLifecycleCurrent(lifecycleGeneration)) return;
     _allLocalIps = allIps.map((e) => e.ip).toList();
 
     if (isSource) {
@@ -781,36 +993,55 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
   /// beacon broadcaster) so a silently-dead socket or broadcaster can't keep
   /// blocking Main's incoming reconnect attempts.
   Future<void> forceReconnect() async {
-    if (state) return;
+    if (!_online || state || _forceConnecting) return;
+    _forceConnecting = true;
     final statusNotifier = _ref.read(connectionStatusProvider.notifier);
     statusNotifier.beginForceConnect();
+    var mainRecoveryPaused = false;
+    try {
+      _networkingStopped = false;
+      final lifecycleGeneration = ++_lifecycleGeneration;
+      _reconnectScheduler.start();
+      if (isSource) {
+        statusNotifier.logDiscovery(
+          'Re-initializing source device (server + beacon)...',
+        );
+        _lastDiscoveredIp = null;
+        await _socketManager?.disconnectClient();
+        if (!_isLifecycleCurrent(lifecycleGeneration)) return;
+        await _broadcaster.stop();
+        if (!_isLifecycleCurrent(lifecycleGeneration)) return;
+        await _peerDiscoveryCoordinator.stopListening();
+        if (!_isLifecycleCurrent(lifecycleGeneration)) return;
+        await _refresh();
+        if (!_isLifecycleCurrent(lifecycleGeneration)) return;
+        statusNotifier.logDiscovery('Source device ready.', isSuccess: true);
+        return;
+      }
 
-    if (isSource) {
-      statusNotifier.logDiscovery(
-        'Re-initializing source device (server + beacon)...',
-      );
+      _reconnectScheduler.pause();
+      mainRecoveryPaused = true;
+      _cancelActiveScan();
+      _peerDiscoveryCoordinator.cancelActiveScan();
+      if (_connecting) {
+        _connectGeneration++;
+        _connecting = false;
+        await _socketManager?.disconnectClient();
+        statusNotifier.logDiscovery('Cancelled previous attempt.');
+      }
       _lastDiscoveredIp = null;
-      await _socketManager?.disconnectClient();
-      await _broadcaster.stop();
-      await _peerDiscoveryCoordinator.stopListening();
-      await refresh();
-      statusNotifier.logDiscovery('Source device ready.', isSuccess: true);
+      await _parallelForceConnect(statusNotifier);
+    } finally {
+      if (mainRecoveryPaused &&
+          _online &&
+          !state &&
+          !_networkingStopped &&
+          !_disposed) {
+        _reconnectScheduler.forceReconnect();
+      }
       statusNotifier.endForceConnect();
-      return;
+      _forceConnecting = false;
     }
-
-    // Abandon any in-flight attempt so the parallel race below owns the
-    // generation and the busy guards.
-    if (_connecting) {
-      _connectGeneration++;
-      _connecting = false;
-      await _socketManager?.disconnectClient();
-      statusNotifier.logDiscovery('Cancelled previous attempt.');
-    }
-    _lastDiscoveredIp = null;
-
-    await _parallelForceConnect(statusNotifier);
-    statusNotifier.endForceConnect();
   }
 
   /// Races the three discovery paths in parallel to find candidate IPs,
@@ -911,6 +1142,8 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
     if (isSource || state || _connecting || _scanning) return null;
     if (localIps.isEmpty) return null;
     _scanning = true;
+    final cancellation = ScanCancellationToken();
+    _scanCancellation = cancellation;
     statusNotifier.setDiscoveryState(
       DiscoveryState.scanningSubnet,
       detail: 'Scanning ${localIps.length} subnets...',
@@ -922,7 +1155,9 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
       final found = await _scanner.findHostWithOpenPortMulti(
         localIps: localIps,
         port: port,
+        cancellationToken: cancellation,
         onProgress: (batch, total, subnet) {
+          if (cancellation.isCancelled) return;
           statusNotifier.setDiscoveryState(
             DiscoveryState.scanningSubnet,
             detail: 'Scanning $subnet.0/24 (batch $batch/$total)',
@@ -934,13 +1169,22 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
           }
         },
       );
-      if (found != null) {
+      if (found != null && !cancellation.isCancelled) {
         statusNotifier.logDiscovery('Scan found host: $found', isSuccess: true);
       }
       return found;
     } finally {
-      _scanning = false;
+      if (identical(_scanCancellation, cancellation)) {
+        _scanCancellation = null;
+        _scanning = false;
+      }
     }
+  }
+
+  void _cancelActiveScan() {
+    _scanCancellation?.cancel();
+    _scanCancellation = null;
+    _scanning = false;
   }
 
   // ---------------------------------------------------------------------
@@ -951,7 +1195,10 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
     if (_telephonyHandlerRegistered) return;
     _telephonyHandlerRegistered = true;
 
-    TelephonyChannel.setEventHandler((type, data) async {
+    _clearTelephonyHandler = TelephonyChannel.setEventHandler((
+      type,
+      data,
+    ) async {
       if (type == 'onNetworkChanged') {
         _handleNetworkChangedEvent(data);
         return;
@@ -984,11 +1231,16 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
   // Incoming peer messages
   // ---------------------------------------------------------------------
 
-  void _handleIncomingMessage(MirrorMessage message) async {
+  Future<void> _handleIncomingMessage(
+    SocketManager socketManager,
+    MirrorMessage message,
+  ) async {
     final key = _key;
-    if (key == null) return;
+    final sessionGeneration = socketManager.sessionGeneration;
+    if (key == null || sessionGeneration == null) return;
 
     final decrypted = await CryptoManager.decrypt(key, message.payload);
+    if (!socketManager.isSessionCurrent(sessionGeneration)) return;
     if (decrypted == null) {
       _logger.e('Decryption failed for message: ${message.id}');
       return;
@@ -1044,9 +1296,12 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
 
       case MessageTypes.pairingRequest:
         _logger.i('pairingRequest received from scanner.');
-        _ref
-            .read(pairingFacadeProvider.notifier)
-            .handleIncomingRequest(payload);
+        final transport = pairingTransport;
+        if (transport != null) {
+          await _ref
+              .read(pairingFacadeProvider.notifier)
+              .handleIncomingRequest(transport, payload);
+        }
         break;
 
       case MessageTypes.pairingAck:
@@ -1055,11 +1310,18 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
         // arrives on this device's regular socket (unlike pairingAccept/
         // pairingReject below, which the *scanner* receives on its own
         // separate handshake socket, never here).
-        _ref.read(pairingFacadeProvider.notifier).handlePairingAck();
+        final transport = pairingTransport;
+        if (transport != null) {
+          _ref
+              .read(pairingFacadeProvider.notifier)
+              .handlePairingAck(transport, payload);
+        }
         break;
 
       case MessageTypes.pairingAccept:
       case MessageTypes.pairingReject:
+      case MessageTypes.pairingComplete:
+      case MessageTypes.pairingAbort:
         // Handled by PairingFacade's own socket on the scanner side.
         // On the scanned side we never receive these (we send them).
         break;
@@ -1133,22 +1395,6 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
           .read(smsFacadeProvider.notifier)
           .sendSmsNotification(address, body, id: id);
 
-  Future<bool> sendReplySms(
-    String address,
-    String body, {
-    String? id,
-    String? contactName,
-    String? threadId,
-  }) => _ref
-      .read(smsFacadeProvider.notifier)
-      .sendReplySms(
-        address,
-        body,
-        id: id,
-        contactName: contactName,
-        threadId: threadId,
-      );
-
   Future<void> _flushQueue() async {
     final items = await _queue.pendingItems();
     if (items.isEmpty) return;
@@ -1171,10 +1417,8 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
     }
   }
 
-  /// Records a failed send attempt; if that was the last retry (item
-  /// permanently dropped), reflects it back onto the originating SMS/call
-  /// entry as 'failed' instead of the item just silently vanishing --
-  /// otherwise the sender has no way to know their message never arrived.
+  /// Records a failed mirror delivery without changing the authoritative
+  /// telephony outcome of the originating call or SMS.
   Future<void> _onQueueItemFailed(
     QueueItem item,
     Map<String, dynamic>? payload,
@@ -1192,12 +1436,12 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
       case MessageTypes.smsStatus:
         await _ref
             .read(smsFacadeProvider.notifier)
-            .updateStatus(entryId, 'failed');
+            .updateDeliveryStatus(entryId, 'failed');
         break;
       case MessageTypes.callIncoming:
         await _ref
             .read(callFacadeProvider.notifier)
-            .updateStatus(entryId, 'failed');
+            .updateDeliveryStatus(entryId, 'failed');
         break;
     }
   }
@@ -1221,6 +1465,14 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
     // back up; cancelling it here would permanently disable self-healing
     // for the rest of the app session (it's only ever created once, in
     // _init()).
+    _networkingStopped = true;
+    _lifecycleGeneration++;
+    _reconnectScheduler.stop();
+    _cancelActiveScan();
+    _peerDiscoveryCoordinator.cancelActiveScan();
+    _connectGeneration++;
+    _connecting = false;
+    await _disableNativeMirroring();
     await _broadcaster.stop();
     await _peerDiscoveryCoordinator.stopListening();
     await _socketManager?.disconnect();
@@ -1228,9 +1480,40 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
     _lastDiscoveredIp = null;
     state = false;
     _ref.read(connectionStatusProvider.notifier).setServer(0, false);
+  }
+
+  Future<void> _disableNativeMirroring() async {
+    final role = _mirroringRole(_peer?.role);
+    await _markNativeEventsNotReady();
     try {
-      await TelephonyChannel.stopListening();
-    } catch (_) {}
+      await TelephonyChannel.syncMirroringEligibility(
+        enabled: false,
+        role: role,
+        paired: false,
+      );
+    } catch (e) {
+      _logger.e('Failed to disable native mirroring eligibility: $e');
+    }
+    try {
+      final result = await TelephonyChannel.stopListening(
+        enabled: false,
+        role: role,
+        paired: false,
+      );
+      if (result.outcome == MirroringServiceOutcome.failed) {
+        _logger.e('Native mirroring service stop failed: ${result.error}');
+      }
+    } catch (e) {
+      _logger.e('Failed to stop native mirroring service: $e');
+    }
+  }
+
+  Future<void> _markNativeEventsNotReady() async {
+    try {
+      await TelephonyChannel.nativeEventsNotReady();
+    } catch (e) {
+      _logger.e('Failed to mark native events not ready: $e');
+    }
   }
 
   /// Stops networking (e.g. after device reset).
@@ -1247,6 +1530,13 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
   }
 
   Future<void> disconnect() async {
+    _networkingStopped = true;
+    _lifecycleGeneration++;
+    _reconnectScheduler.stop();
+    _cancelActiveScan();
+    _peerDiscoveryCoordinator.cancelActiveScan();
+    _connectGeneration++;
+    _connecting = false;
     await _socketManager?.disconnectClient();
     state = false;
   }
@@ -1254,9 +1544,16 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
   @override
   void dispose() {
     _disposed = true;
+    _lifecycleGeneration++;
+    _clearTelephonyHandler?.call();
+    _clearTelephonyHandler = null;
+    _telephonyHandlerRegistered = false;
+    unawaited(_markNativeEventsNotReady());
     WidgetsBinding.instance.removeObserver(this);
     _connectivity.stopListening();
     _healthTimer?.cancel();
+    _reconnectScheduler.dispose();
+    _cancelActiveScan();
     _broadcaster.stop();
     _peerDiscoveryCoordinator.dispose();
     _socketManager?.disconnect();

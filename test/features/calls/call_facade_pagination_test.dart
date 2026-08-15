@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:logger/logger.dart';
 import 'package:mirrorline/core/data/database.dart';
 import 'package:mirrorline/core/data/models/call_event.dart';
+import 'package:mirrorline/core/network/message_protocol.dart';
 import 'package:mirrorline/core/services/notification_service.dart';
 import 'package:mirrorline/features/calls/call_facade.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
@@ -41,15 +42,19 @@ void main() {
     await tempDir.delete(recursive: true);
   });
 
-  ProviderContainer buildContainer() {
+  ProviderContainer buildContainer({
+    bool Function()? isSource,
+    Future<bool> Function()? rejectCall,
+    Future<bool> Function(String, Map<String, dynamic>)? sendOrQueue,
+  }) {
     final container = ProviderContainer(
       overrides: [
         callFacadeProvider.overrideWith((ref) {
           return CallFacade(
             ref: ref,
             logger: Logger(),
-            isSource: () => false,
-            sendOrQueue: (type, payload) async => true,
+            isSource: isSource ?? () => false,
+            sendOrQueue: sendOrQueue ?? (type, payload) async => true,
             notify:
                 ({
                   required int id,
@@ -57,6 +62,7 @@ void main() {
                   required String body,
                   NotificationPayload? payload,
                 }) async {},
+            rejectCall: rejectCall,
           );
         }),
       ],
@@ -96,6 +102,215 @@ void main() {
     expect(recent.length, 10);
     expect(recent.first.id, 'c29');
     expect(recent.last.id, 'c20');
+  });
+
+  test(
+    'failed native rejection preserves ringing and sends no status',
+    () async {
+      final sentTypes = <String>[];
+      final container = buildContainer(
+        isSource: () => true,
+        rejectCall: () async => false,
+        sendOrQueue: (type, payload) async {
+          sentTypes.add(type);
+          return true;
+        },
+      );
+      final facade = container.read(callFacadeProvider.notifier);
+      await facade.initialized;
+      final now = DateTime(2025, 1, 1, 12);
+      await facade.handleNativeEvent(
+        {'state': 'RINGING', 'number': '+15555550100'},
+        id: 'active-call',
+        now: now,
+      );
+      sentTypes.clear();
+
+      final rejected = await facade.handleIncomingMessage(
+        MessageTypes.callRejected,
+        {'id': 'active-call'},
+        MirrorMessage(
+          type: MessageTypes.callRejected,
+          id: 'command',
+          timestamp: now.millisecondsSinceEpoch,
+          payload: '',
+        ),
+        now,
+      );
+
+      expect(rejected, false);
+      expect(facade.state.single.status, 'ringing');
+      expect(sentTypes, isEmpty);
+    },
+  );
+
+  test('delayed call A events update A without mutating call B', () async {
+    final sentTypes = <String>[];
+    final container = buildContainer(
+      isSource: () => true,
+      sendOrQueue: (type, payload) async {
+        sentTypes.add(type);
+        return true;
+      },
+    );
+    final facade = container.read(callFacadeProvider.notifier);
+    final now = DateTime(2025, 1, 1, 12);
+
+    await facade.handleNativeEvent(
+      {
+        'state': 'RINGING',
+        'callSessionId': 'session-a',
+        'number': '+15555550101',
+        'contactName': 'Call A',
+      },
+      id: 'call-a',
+      now: now,
+    );
+    await facade.handleNativeEvent(
+      {
+        'state': 'RINGING',
+        'callSessionId': 'session-b',
+        'number': '+15555550102',
+        'contactName': 'Call B',
+      },
+      id: 'call-b',
+      now: now.add(const Duration(seconds: 1)),
+    );
+    sentTypes.clear();
+
+    await facade.handleNativeEvent(
+      {
+        'state': 'RINGING_UPDATE',
+        'callSessionId': 'session-a',
+        'number': '+19999999999',
+        'contactName': 'Delayed A',
+      },
+      id: 'ignored-update',
+      now: now.add(const Duration(seconds: 2)),
+    );
+    await facade.handleNativeEvent(
+      {'state': 'MISSED', 'callSessionId': 'session-a'},
+      id: 'ignored-terminal',
+      now: now.add(const Duration(seconds: 3)),
+    );
+    await facade.handleNativeEvent(
+      {'state': 'RINGING_UPDATE', 'contactName': 'Missing Session'},
+      id: 'ignored-sessionless-update',
+      now: now.add(const Duration(milliseconds: 3500)),
+    );
+    await facade.handleNativeEvent(
+      {
+        'state': 'RINGING_UPDATE',
+        'callSessionId': 'unknown-session',
+        'contactName': 'Unknown Session',
+      },
+      id: 'ignored-unknown-update',
+      now: now.add(const Duration(milliseconds: 3750)),
+    );
+
+    final callA = facade.state.singleWhere((call) => call.id == 'call-a');
+    final callB = facade.state.singleWhere((call) => call.id == 'call-b');
+    expect(callA.status, 'missed');
+    expect(callA.number, '+19999999999');
+    expect(callA.contactName, 'Delayed A');
+    expect(callB.status, 'ringing');
+    expect(callB.number, '+15555550102');
+    expect(callB.contactName, 'Call B');
+    expect(sentTypes, [MessageTypes.callInfo, MessageTypes.callStatus]);
+
+    await facade.handleNativeEvent(
+      {'state': 'ENDED', 'callSessionId': 'session-b'},
+      id: 'call-b-terminal',
+      now: now.add(const Duration(seconds: 4)),
+    );
+
+    expect(
+      facade.state.singleWhere((call) => call.id == 'call-b').status,
+      'ended',
+    );
+    expect(sentTypes, [
+      MessageTypes.callInfo,
+      MessageTypes.callStatus,
+      MessageTypes.callStatus,
+    ]);
+  });
+
+  test('answered call retains session correlation until ended', () async {
+    final sentStatuses = <String>[];
+    var nativeRejectCalls = 0;
+    final container = buildContainer(
+      isSource: () => true,
+      rejectCall: () async {
+        nativeRejectCalls++;
+        return true;
+      },
+      sendOrQueue: (type, payload) async {
+        if (type == MessageTypes.callStatus) {
+          sentStatuses.add(payload['status'] as String);
+        }
+        return true;
+      },
+    );
+    final facade = container.read(callFacadeProvider.notifier);
+    final now = DateTime(2025, 1, 1, 12);
+
+    await facade.handleNativeEvent(
+      {
+        'state': 'RINGING',
+        'callSessionId': 'answered-session',
+        'number': '+15555550100',
+      },
+      id: 'answered-call',
+      now: now,
+    );
+    await facade.handleNativeEvent(
+      {'state': 'ANSWERED', 'callSessionId': 'answered-session'},
+      id: 'answered-transition',
+      now: now.add(const Duration(seconds: 1)),
+    );
+
+    expect(facade.state.single.status, 'answered');
+    final rejected = await facade.handleIncomingMessage(
+      MessageTypes.callRejected,
+      {'id': 'answered-call'},
+      MirrorMessage(
+        type: MessageTypes.callRejected,
+        id: 'reject-command',
+        timestamp: now.millisecondsSinceEpoch,
+        payload: '',
+      ),
+      now.add(const Duration(seconds: 2)),
+    );
+    expect(rejected, isFalse);
+    expect(nativeRejectCalls, 0);
+
+    await facade.handleNativeEvent(
+      {'state': 'ENDED', 'callSessionId': 'answered-session'},
+      id: 'ended-transition',
+      now: now.add(const Duration(seconds: 3)),
+    );
+
+    expect(facade.state.single.status, 'ended');
+    expect(sentStatuses, ['answered', 'ended']);
+  });
+
+  test('sessionless legacy call transitions remain correlated', () async {
+    final container = buildContainer(isSource: () => true);
+    final facade = container.read(callFacadeProvider.notifier);
+    final now = DateTime(2025, 1, 1, 12);
+
+    await facade.handleNativeEvent(
+      {'state': 'RINGING', 'number': '+15555550100'},
+      id: 'legacy-call',
+      now: now,
+    );
+    await facade.handleNativeEvent(
+      {'state': 'MISSED'},
+      id: 'legacy-terminal',
+      now: now.add(const Duration(seconds: 1)),
+    );
+
+    expect(facade.state.single.status, 'missed');
   });
 
   test('loadRecent filters by since', () async {

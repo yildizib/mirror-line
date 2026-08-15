@@ -123,7 +123,7 @@ class NotificationGroupPaginated
     for (final g in newGroups) {
       final prev = map[g.key];
       if (prev != null) {
-        final merged = dedupeById([...prev.events, ...g.events], (e) => e.id)
+        final merged = dedupeById([...g.events, ...prev.events], (e) => e.id)
           ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
         map[g.key] = NotificationGroup(
           key: g.key,
@@ -136,6 +136,46 @@ class NotificationGroupPaginated
     }
     final result = map.values.toList()
       ..sort((a, b) => b.lastEvent.timestamp.compareTo(a.lastEvent.timestamp));
+    return result;
+  }
+
+  @override
+  List<NotificationGroup> replaceRecentGroups(
+    List<NotificationGroup> existing,
+    List<NotificationGroup> fresh,
+  ) {
+    final cutoff = yesterdayStart();
+    final freshByKey = {for (final group in fresh) group.key: group};
+    final result = <NotificationGroup>[];
+    for (final group in existing) {
+      final recent = freshByKey.remove(group.key);
+      final older = group.events
+          .where((event) => event.timestamp.isBefore(cutoff))
+          .toList();
+      if (recent != null) {
+        final events = [...recent.events, ...older]
+          ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+        result.add(
+          NotificationGroup(
+            key: recent.key,
+            appName: recent.appName,
+            events: events,
+          ),
+        );
+      } else if (older.isNotEmpty) {
+        result.add(
+          NotificationGroup(
+            key: group.key,
+            appName: group.appName,
+            events: older,
+          ),
+        );
+      }
+    }
+    result.addAll(freshByKey.values);
+    result.sort(
+      (a, b) => b.lastEvent.timestamp.compareTo(a.lastEvent.timestamp),
+    );
     return result;
   }
 }

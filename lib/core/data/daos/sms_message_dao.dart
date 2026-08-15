@@ -155,6 +155,16 @@ class SmsMessageDao {
     );
   }
 
+  Future<void> updateDeliveryStatus(String id, String status) async {
+    final db = await _database;
+    await db.update(
+      'sms_message',
+      {'delivery_status': status},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
   Future<void> delete(String id) async {
     final db = await _database;
     await db.delete('sms_message', where: 'id = ?', whereArgs: [id]);

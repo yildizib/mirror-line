@@ -68,6 +68,16 @@ void main() {
     return container;
   }
 
+  SmsThreadDetailPaginated listenToThread(
+    ProviderContainer container,
+    String address,
+  ) {
+    final provider = smsThreadDetailPaginatedProvider(address);
+    final subscription = container.listen(provider, (_, _) {});
+    addTearDown(subscription.close);
+    return container.read(provider.notifier);
+  }
+
   SmsMessage makeMessage({
     required String id,
     required DateTime timestamp,
@@ -149,9 +159,7 @@ void main() {
       );
     }
 
-    final notifier = container.read(
-      smsThreadDetailPaginatedProvider('+111').notifier,
-    );
+    final notifier = listenToThread(container, '+111');
     await notifier.loadInitial();
     final state = container.read(smsThreadDetailPaginatedProvider('+111'));
 
@@ -178,9 +186,7 @@ void main() {
       );
     }
 
-    final notifier = container.read(
-      smsThreadDetailPaginatedProvider('+111').notifier,
-    );
+    final notifier = listenToThread(container, '+111');
     await notifier.loadInitial();
     var state = container.read(smsThreadDetailPaginatedProvider('+111'));
     expect(state.items.length, 25);
@@ -228,9 +234,7 @@ void main() {
       ),
     );
 
-    final notifier = container.read(
-      smsThreadDetailPaginatedProvider('+111').notifier,
-    );
+    final notifier = listenToThread(container, '+111');
     await notifier.loadInitial();
     final state = container.read(smsThreadDetailPaginatedProvider('+111'));
 
@@ -255,9 +259,7 @@ void main() {
         ),
       );
 
-      final notifier = container.read(
-        smsThreadDetailPaginatedProvider('+111').notifier,
-      );
+      final notifier = listenToThread(container, '+111');
       await notifier.loadInitial();
 
       await facade.add(
@@ -278,4 +280,80 @@ void main() {
       expect(state2.items.map((m) => m.id).toList(), ['m0', 'm1']);
     },
   );
+
+  test(
+    'thread detail provider is disposed when no longer listened to',
+    () async {
+      final container = buildContainer();
+      final provider = smsThreadDetailPaginatedProvider('+111');
+      final subscription = container.listen(provider, (_, _) {});
+      final first = container.read(provider.notifier);
+
+      subscription.close();
+      await container.pump();
+      final second = container.read(provider.notifier);
+      await container.read(smsFacadeProvider.notifier).initialized;
+      await Future<void>.delayed(Duration.zero);
+
+      expect(identical(first, second), isFalse);
+    },
+  );
+
+  test('thread detail refresh replaces a stale same-ID message', () async {
+    final container = buildContainer();
+    final facade = container.read(smsFacadeProvider.notifier);
+    await facade.load();
+    final timestamp = DateTime(2025, 1, 1, 12);
+    await facade.add(
+      makeMessage(
+        id: 'same',
+        timestamp: timestamp,
+        address: '+111',
+        contactName: 'Old',
+      ),
+    );
+
+    final notifier = listenToThread(container, '+111');
+    await notifier.loadInitial();
+    await facade.add(
+      SmsMessage(
+        id: 'same',
+        threadId: 'thread_alice',
+        address: '+111',
+        contactName: 'New',
+        body: 'updated',
+        encrypted: '',
+        direction: 'incoming',
+        status: 'received',
+        timestamp: timestamp,
+        createdAt: timestamp,
+      ),
+    );
+    await notifier.refresh();
+
+    final state = container.read(smsThreadDetailPaginatedProvider('+111'));
+    expect(state.items, hasLength(1));
+    expect(state.items.single.body, 'updated');
+    expect(state.items.single.contactName, 'New');
+  });
+
+  test('thread detail refresh removes deleted messages', () async {
+    final container = buildContainer();
+    final facade = container.read(smsFacadeProvider.notifier);
+    await facade.load();
+    final timestamp = DateTime(2025, 1, 1, 12);
+    await facade.add(
+      makeMessage(id: 'deleted', timestamp: timestamp, address: '+111'),
+    );
+    final notifier = listenToThread(container, '+111');
+    await notifier.loadInitial();
+
+    await facade.remove('deleted');
+    await notifier.refresh();
+
+    expect(
+      container.read(smsThreadDetailPaginatedProvider('+111')).items,
+      isEmpty,
+    );
+  });
 }

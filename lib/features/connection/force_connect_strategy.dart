@@ -63,15 +63,10 @@ class ForceConnectStrategy {
     bool Function() isConnected,
     bool Function() isConnecting,
   ) async {
-    if (storedIp == null || storedIp!.isEmpty) {
-      statusNotifier.logDiscovery('No peer configured.', isError: true);
-      return false;
-    }
-
     final candidateFutures = <Future<List<String>>>[];
 
     // Path 1: stored IP + beacon IPs.
-    if (storedIp!.isNotEmpty && storedIp != 'unknown') {
+    if (storedIp != null && storedIp!.isNotEmpty && storedIp != 'unknown') {
       final candidates = <String>[
         storedIp!,
         ...beaconIps.where((ip) => ip != storedIp),
@@ -120,17 +115,31 @@ class ForceConnectStrategy {
     final totalCount = candidateFutures.length;
 
     for (final f in candidateFutures) {
-      f.then((ips) {
-        for (final ip in ips) {
-          if (!discoveryDone && !isConnected()) {
-            candidateController.add(ip);
-          }
-        }
-        completedCount++;
-        if (completedCount >= totalCount && !candidateController.isClosed) {
-          candidateController.close();
-        }
-      });
+      unawaited(
+        f
+            .then((ips) {
+              for (final ip in ips) {
+                if (!discoveryDone &&
+                    !isConnected() &&
+                    !candidateController.isClosed) {
+                  candidateController.add(ip);
+                }
+              }
+            })
+            .catchError((Object error) {
+              statusNotifier.logDiscovery(
+                'Discovery path failed: $error',
+                isError: true,
+              );
+            })
+            .whenComplete(() {
+              completedCount++;
+              if (completedCount >= totalCount &&
+                  !candidateController.isClosed) {
+                unawaited(candidateController.close());
+              }
+            }),
+      );
     }
 
     // Listen for candidates as they arrive from any source (stored, beacon, scan).

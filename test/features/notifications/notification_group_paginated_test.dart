@@ -128,7 +128,12 @@ void main() {
       state.items.map((g) => g.key).toList(),
       containsAll(['com.app1', 'com.app2']),
     );
-    expect(state.hasReachedEnd, isTrue);
+    expect(state.hasReachedEnd, isFalse);
+
+    await notifier.loadMore();
+    final withHistory = container.read(notificationGroupsPaginatedProvider);
+    expect(withHistory.items.map((group) => group.key), contains('com.app3'));
+    expect(withHistory.hasReachedEnd, isTrue);
   });
 
   test('loadMore appends older groups', () async {

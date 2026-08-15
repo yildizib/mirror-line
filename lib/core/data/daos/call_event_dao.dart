@@ -72,6 +72,16 @@ class CallEventDao {
     );
   }
 
+  Future<void> updateDeliveryStatus(String id, String status) async {
+    final db = await _database;
+    await db.update(
+      'call_event',
+      {'delivery_status': status},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
   /// Patches number/contact_name in place (see CallFacade.updateCallerInfo).
   Future<void> updateCallerInfo(
     String id, {

@@ -3,7 +3,6 @@ package io.github.yildizib.mirrorline
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.os.Build
 import android.util.Log
 
 /**
@@ -17,24 +16,10 @@ import android.util.Log
 class WatchdogReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val appContext = context.applicationContext
-        MirrorLineEngine.getOrCreate(appContext)
-
-        if (MirrorLineChannel.hasAllPermissions(appContext)) {
-            val serviceIntent = Intent(appContext, MirrorLineService::class.java)
-            try {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    appContext.startForegroundService(serviceIntent)
-                } else {
-                    appContext.startService(serviceIntent)
-                }
-            } catch (e: Exception) {
-                Log.e("MirrorLine", "Watchdog failed to (re)start service: ${e.message}", e)
-            }
+        val result = MirroringServiceController.start(appContext)
+        if (result.outcome == ServiceOutcome.FAILED) {
+            Log.e("MirrorLine", "Watchdog failed to (re)start service: ${result.error}")
         }
-
-        // Re-arm regardless of whether we (re)started the service above --
-        // this chain needs to keep running for as long as the app is
-        // installed and permissioned, not just while mirroring is active.
-        Watchdog.schedule(appContext)
+        if (MirroringServiceController.isEligible(appContext)) Watchdog.schedule(appContext)
     }
 }

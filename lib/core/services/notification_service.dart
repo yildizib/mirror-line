@@ -67,13 +67,20 @@ class NotificationRouter {
 
   final ValueNotifier<NotificationNavigationRequest?> requests =
       ValueNotifier<NotificationNavigationRequest?>(null);
+  final List<NotificationNavigationRequest> _pending = [];
 
   void dispatch(NotificationPayload payload) {
-    requests.value = NotificationNavigationRequest(payload);
+    _pending.add(NotificationNavigationRequest(payload));
+    _publishNext();
   }
 
   void consume() {
-    requests.value = null;
+    if (_pending.isNotEmpty) _pending.removeAt(0);
+    _publishNext();
+  }
+
+  void _publishNext() {
+    requests.value = _pending.isEmpty ? null : _pending.first;
   }
 }
 

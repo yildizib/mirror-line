@@ -89,4 +89,17 @@ void main() {
     expect(subnetPrefixOf('1.2.3.4.5'), isNull);
     expect(subnetPrefixOf(''), isNull);
   });
+
+  test('race cancellation does not cancel the caller token', () {
+    final caller = ScanCancellationToken();
+    final race = ScanCancellationToken(parent: caller);
+
+    race.cancel();
+    expect(race.isCancelled, true);
+    expect(caller.isCancelled, false);
+
+    final linked = ScanCancellationToken(parent: caller);
+    caller.cancel();
+    expect(linked.isCancelled, true);
+  });
 }

@@ -33,9 +33,13 @@ class CallGroup {
 
   int get count => calls.length;
 
+  /// The newest call in this group that can actually be rejected.
+  CallEvent? get ringingCall =>
+      calls.where((c) => c.status == 'ringing').firstOrNull;
+
   /// True when there's still a ringing call in the group -- the calls list
   /// uses this to keep showing the reject button on the grouped row.
-  bool get hasActive => calls.any((c) => c.status == 'ringing');
+  bool get hasActive => ringingCall != null;
 
   /// Aggregated status label for the group row: if any call is still
   /// ringing, that; otherwise the most recent call's status.
@@ -139,7 +143,7 @@ class CallGroupPaginated
     for (final g in newGroups) {
       final prev = map[g.key];
       if (prev != null) {
-        final merged = dedupeById([...prev.calls, ...g.calls], (c) => c.id)
+        final merged = dedupeById([...g.calls, ...prev.calls], (c) => c.id)
           ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
         map[g.key] = CallGroup(
           key: g.key,
@@ -152,6 +156,44 @@ class CallGroupPaginated
     }
     final result = map.values.toList()
       ..sort((a, b) => b.lastCall.timestamp.compareTo(a.lastCall.timestamp));
+    return result;
+  }
+
+  @override
+  List<CallGroup> replaceRecentGroups(
+    List<CallGroup> existing,
+    List<CallGroup> fresh,
+  ) {
+    final cutoff = yesterdayStart();
+    final freshByKey = {for (final group in fresh) group.key: group};
+    final result = <CallGroup>[];
+    for (final group in existing) {
+      final recent = freshByKey.remove(group.key);
+      final older = group.calls.where(
+        (call) => call.timestamp.isBefore(cutoff),
+      );
+      if (recent != null) {
+        final calls = [...recent.calls, ...older]
+          ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+        result.add(
+          CallGroup(
+            key: recent.key,
+            displayName: recent.displayName,
+            calls: calls,
+          ),
+        );
+      } else if (older.isNotEmpty) {
+        result.add(
+          CallGroup(
+            key: group.key,
+            displayName: group.displayName,
+            calls: older.toList(),
+          ),
+        );
+      }
+    }
+    result.addAll(freshByKey.values);
+    result.sort((a, b) => b.lastCall.timestamp.compareTo(a.lastCall.timestamp));
     return result;
   }
 }

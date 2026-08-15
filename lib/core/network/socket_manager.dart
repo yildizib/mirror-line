@@ -8,16 +8,29 @@ import 'package:mirrorline/core/network/message_protocol.dart';
 import 'package:mirrorline/core/security/crypto_manager.dart';
 import 'package:uuid/uuid.dart';
 
+class _SocketSession {
+  _SocketSession({required this.socket, required this.generation});
+
+  final Socket socket;
+  final int generation;
+  final List<int> buffer = [];
+  StreamSubscription<List<int>>? subscription;
+  Completer<void>? authCompleter;
+  Timer? authTimer;
+  Future<void> messagePipeline = Future<void>.value();
+}
+
 class SocketManager {
   static const Duration _heartbeatInterval = Duration(seconds: 30);
   static const Duration _heartbeatIntervalBackground = Duration(seconds: 60);
   static const Duration _receiveTimeout = Duration(seconds: 90);
-  static const Duration _authTimeout = Duration(seconds: 10);
+  static const Duration _defaultAuthTimeout = Duration(seconds: 10);
 
   final Logger _logger = Logger();
-  final void Function(MirrorMessage) onMessage;
+  final FutureOr<void> Function(MirrorMessage) onMessage;
   final void Function()? onConnected;
   final void Function()? onDisconnected;
+  final Duration authTimeout;
 
   /// When this device is the *server*, this callback is invoked with the
   /// incoming socket's remote address so the caller can decide whether to
@@ -36,20 +49,12 @@ class SocketManager {
   /// (initiates connection).
   bool _isServer = false;
 
-  /// Completer for the client-side auth challenge.
-  Completer<void>? _authCompleter;
-
-  /// Server-side watchdog: closes the connection if the client never
-  /// completes authentication (e.g. it connected but went silent).
-  Timer? _serverAuthTimer;
-
   ServerSocket? _server;
-  Socket? _client;
+  _SocketSession? _session;
   SecretKey? _key;
   bool _isConnected = false;
   bool _authed = false;
   bool _disposed = false;
-  final List<int> _buffer = [];
   Timer? _heartbeatTimer;
   DateTime _lastDataAt = DateTime.now();
   // Bumped on every connect()/disconnect()/disconnectClient() call so a
@@ -63,10 +68,19 @@ class SocketManager {
     this.onConnected,
     this.onDisconnected,
     this.onAcceptConnection,
+    this.authTimeout = _defaultAuthTimeout,
   });
 
   bool get isConnected => _isConnected;
   bool get isAuthed => _authed;
+  int? get sessionGeneration => _session?.generation;
+
+  bool isSessionCurrent(int generation) {
+    final session = _session;
+    return session != null &&
+        session.generation == generation &&
+        _isCurrent(session);
+  }
 
   /// Extends the heartbeat cadence when the app goes to the background
   /// (screen off) and restores it on resume. A slower ping while the
@@ -76,7 +90,8 @@ class SocketManager {
   /// to tolerate the longer gap.
   void setBackgroundMode(bool background) {
     _backgroundMode = background;
-    if (_authed) _startHeartbeat();
+    final session = _session;
+    if (_authed && session != null) _startHeartbeat(session);
   }
 
   bool _backgroundMode = false;
@@ -84,7 +99,7 @@ class SocketManager {
   /// The connected peer's real IP address (from the live TCP socket),
   /// or null if no client is connected. More trustworthy than anything the
   /// peer claims about itself in application-level messages.
-  String? get remoteAddress => _client?.remoteAddress.address;
+  String? get remoteAddress => _session?.socket.remoteAddress.address;
 
   /// Configure the authentication identity for this socket.
   /// [peerPublicKeyBase64] is the other device's public key (for verifying
@@ -102,13 +117,16 @@ class SocketManager {
   Future<void> startServer(int port, SecretKey key) async {
     _key = key;
     _isServer = true;
+    _disposed = false;
     if (_server != null) return;
     try {
       _server = await ServerSocket.bind(InternetAddress.anyIPv4, port);
       _logger.i('Socket server listening on port $port');
 
       _server!.listen((socket) {
-        if (_client != null) {
+        final generation = ++_connectGeneration;
+        final previous = _session;
+        if (previous != null) {
           // A previous connection is still registered. It may be a genuine
           // second peer, but in this app's 1:1 pairing model it is far more
           // likely a stale/zombie socket (e.g. the other side's process died
@@ -118,9 +136,9 @@ class SocketManager {
           _logger.w(
             'Replacing previous connection with new incoming connection.',
           );
-          _handleClosed();
+          _closeSession(previous);
         }
-        _accept(socket);
+        _accept(socket, generation);
       });
     } catch (e) {
       _logger.e('Failed to start server on port $port: $e');
@@ -152,6 +170,7 @@ class SocketManager {
     }
     _key = key;
     _isServer = false;
+    _disposed = false;
     final generation = ++_connectGeneration;
     try {
       final socket = await Socket.connect(
@@ -167,16 +186,22 @@ class SocketManager {
         socket.destroy();
         return false;
       }
-      _accept(socket);
+      _accept(socket, generation);
+      final session = _session;
+      if (session == null || session.generation != generation) {
+        socket.destroy();
+        return false;
+      }
       _logger.i('Connected to peer $ip:$port, awaiting auth...');
 
       // Wait for auth to complete (or fail/timeout).
       try {
-        await _authCompleter?.future.timeout(_authTimeout);
-        return true;
+        final authCompleter = session.authCompleter;
+        if (authCompleter != null) await authCompleter.future;
+        return _isCurrent(session) && _authed;
       } catch (e) {
         _logger.w('Auth failed during connect: $e');
-        _handleClosed();
+        _closeSession(session);
         return false;
       }
     } catch (e) {
@@ -185,82 +210,96 @@ class SocketManager {
     }
   }
 
-  void _accept(Socket socket) {
-    _client = socket;
+  void _accept(Socket socket, int generation) {
+    final session = _SocketSession(socket: socket, generation: generation);
+    _session = session;
     _isConnected = true;
     _authed = false;
     _disposed = false;
-    _buffer.clear();
     _lastDataAt = DateTime.now();
     socket.setOption(SocketOption.tcpNoDelay, true);
-    _listen(socket);
+    _listen(session);
 
     // Start challenge-response authentication before announcing connection.
     // Skip auth if no peer public key is configured (pairing mode).
     if (_isServer) {
       if (_peerPublicKeyBase64 != null && _peerPublicKeyBase64!.isNotEmpty) {
-        _startServerAuth(socket);
+        _startServerAuth(session);
       } else {
         _logger.i(
           'Server: no peer public key set — pairing mode, skipping auth.',
         );
-        _onAuthSuccess();
+        _onAuthSuccess(session);
       }
     } else {
       if (_localKeyPair != null) {
-        _startClientAuth();
+        _startClientAuth(session);
       } else {
         _logger.i(
           'Client: no local key pair set — pairing mode, skipping auth.',
         );
-        _onAuthSuccess();
+        _onAuthSuccess(session);
       }
     }
   }
 
-  void _listen(Socket socket) {
-    socket.listen(
+  void _listen(_SocketSession session) {
+    session.subscription = session.socket.listen(
       (data) {
+        if (!_isCurrent(session)) return;
         _lastDataAt = DateTime.now();
-        _buffer.addAll(data);
-        _processBuffer();
+        session.buffer.addAll(data);
+        _processBuffer(session);
       },
       onDone: () {
         _logger.i('Socket connection closed by peer.');
-        _handleClosed();
+        _closeSession(session);
       },
       onError: (error) {
         _logger.e('Socket error: $error');
-        _handleClosed();
+        _closeSession(session);
       },
       cancelOnError: true,
     );
   }
 
-  void _handleClosed() {
-    if (!_isConnected && _client == null) return;
+  bool _isCurrent(_SocketSession session) =>
+      identical(_session, session) && session.generation == _connectGeneration;
+
+  void _closeSession(_SocketSession session, {bool notify = true}) {
+    session.authTimer?.cancel();
+    session.authTimer = null;
+    unawaited(session.subscription?.cancel());
+    session.subscription = null;
+    session.buffer.clear();
+    try {
+      session.socket.destroy();
+    } catch (_) {}
+
+    if (!identical(_session, session)) return;
+    _session = null;
     _isConnected = false;
     _authed = false;
     _stopHeartbeat();
-    _stopServerAuthTimer();
-    _client?.destroy();
-    _client = null;
-    _buffer.clear();
-    if (!_disposed) onDisconnected?.call();
+    final authCompleter = session.authCompleter;
+    if (authCompleter != null && !authCompleter.isCompleted) {
+      authCompleter.completeError('connection closed');
+    }
+    if (notify && !_disposed) onDisconnected?.call();
   }
 
-  void _startHeartbeat() {
+  void _startHeartbeat(_SocketSession session) {
     _stopHeartbeat();
     final interval = _backgroundMode
         ? _heartbeatIntervalBackground
         : _heartbeatInterval;
     _heartbeatTimer = Timer.periodic(interval, (_) async {
-      if (!_isConnected) return;
+      if (!_isCurrent(session) || !_isConnected) return;
       if (DateTime.now().difference(_lastDataAt) > _receiveTimeout) {
         _logger.w(
           'Peer unresponsive (no data for ${_receiveTimeout.inSeconds}s). Closing.',
         );
-        _handleClosed();
+        _closeSession(session);
         return;
       }
       await sendMessage(MessageTypes.ping, {});
@@ -272,13 +311,13 @@ class SocketManager {
     _heartbeatTimer = null;
   }
 
-  void _processBuffer() {
-    while (_buffer.isNotEmpty) {
-      final newlineIndex = _buffer.indexOf(10); // \n
+  void _processBuffer(_SocketSession session) {
+    while (_isCurrent(session) && session.buffer.isNotEmpty) {
+      final newlineIndex = session.buffer.indexOf(10); // \n
       if (newlineIndex == -1) break;
 
-      final rawMessage = _buffer.sublist(0, newlineIndex);
-      _buffer.removeRange(0, newlineIndex + 1);
+      final rawMessage = session.buffer.sublist(0, newlineIndex);
+      session.buffer.removeRange(0, newlineIndex + 1);
       if (rawMessage.isEmpty) continue;
 
       try {
@@ -295,23 +334,23 @@ class SocketManager {
         }
 
         if (message.type == MessageTypes.authChallenge) {
-          _handleAuthChallenge(message);
+          _handleAuthChallenge(session, message);
           continue;
         }
         if (message.type == MessageTypes.authResponse) {
-          _handleAuthResponse(message);
+          _handleAuthResponse(session, message);
           continue;
         }
         if (message.type == MessageTypes.authOk) {
-          _onClientAuthOk();
+          _onClientAuthOk(session);
           continue;
         }
         if (message.type == MessageTypes.authAck) {
-          _onAuthSuccess();
+          _onAuthSuccess(session);
           continue;
         }
         if (message.type == MessageTypes.authFail) {
-          _onAuthFail();
+          _onAuthFail(session);
           continue;
         }
 
@@ -324,31 +363,47 @@ class SocketManager {
         }
 
         _logger.i('Received: ${message.type}');
-        onMessage(message);
+        _enqueueMessage(session, message);
       } catch (e) {
         _logger.e('Invalid message received: $e');
       }
     }
   }
 
+  void _enqueueMessage(_SocketSession session, MirrorMessage message) {
+    session.messagePipeline = session.messagePipeline.then((_) async {
+      if (!_isCurrent(session)) return;
+      try {
+        await onMessage(message);
+      } catch (e, stackTrace) {
+        _logger.e(
+          'Message handler failed for ${message.type}: $e',
+          stackTrace: stackTrace,
+        );
+      }
+    });
+  }
+
   /// Encrypts and sends a message. Returns true if the message was written.
   Future<bool> sendMessage(String type, Map<String, dynamic> payload) async {
-    final client = _client;
+    final session = _session;
     final key = _key;
-    if (client == null || key == null || !_isConnected) {
+    if (session == null || key == null || !_isConnected) {
       return false;
     }
 
     try {
       final encrypted = await CryptoManager.encrypt(key, jsonEncode(payload));
+      if (!_isCurrent(session)) return false;
       final message = MirrorMessage(
         type: type,
         id: const Uuid().v4(),
         timestamp: DateTime.now().millisecondsSinceEpoch,
         payload: encrypted,
       );
-      client.write('${message.encode()}\n');
-      await client.flush();
+      session.socket.write('${message.encode()}\n');
+      await session.socket.flush();
+      if (!_isCurrent(session)) return false;
       if (type != MessageTypes.ping && type != MessageTypes.pong) {
         _logger.i('Sent: $type');
       }
@@ -361,7 +416,7 @@ class SocketManager {
       // connection) was logged and ignored, leaving `state` stuck at
       // "connected" and reconnection never triggered until the app was
       // killed and restarted.
-      _handleClosed();
+      _closeSession(session);
       return false;
     }
   }
@@ -371,68 +426,77 @@ class SocketManager {
   // --------------------------------------------------------------------
 
   /// Server side: send a random nonce to the client.
-  void _startServerAuth(Socket socket) {
+  void _startServerAuth(_SocketSession session) {
     final nonce = CryptoManager.generateNonce();
     _logger.i('Server sending auth challenge.');
     sendMessage(MessageTypes.authChallenge, {'nonce': nonce});
 
     // If the client never responds (e.g. it silently died), don't hold this
     // connection slot forever — close it so a real reconnect can get through.
-    _stopServerAuthTimer();
-    _serverAuthTimer = Timer(_authTimeout, () {
-      if (!_authed) {
+    _stopAuthTimer(session);
+    session.authTimer = Timer(authTimeout, () {
+      if (_isCurrent(session) && !_authed) {
         _logger.w(
           'Server auth timeout: client never completed authentication.',
         );
-        _handleClosed();
+        _closeSession(session);
       }
     });
   }
 
-  void _stopServerAuthTimer() {
-    _serverAuthTimer?.cancel();
-    _serverAuthTimer = null;
+  void _stopAuthTimer(_SocketSession session) {
+    session.authTimer?.cancel();
+    session.authTimer = null;
   }
 
   /// Client side: wait for the server's challenge, sign it, and respond.
-  void _startClientAuth() {
-    _authCompleter = Completer<void>();
+  void _startClientAuth(_SocketSession session) {
+    session.authCompleter = Completer<void>();
     // Start heartbeat only after auth completes (in _onAuthSuccess).
     // Timeout: if server never challenges us, drop the connection.
-    Future.delayed(_authTimeout, () {
-      if (_authCompleter != null && !_authCompleter!.isCompleted) {
+    _stopAuthTimer(session);
+    session.authTimer = Timer(authTimeout, () {
+      final authCompleter = session.authCompleter;
+      if (_isCurrent(session) &&
+          authCompleter != null &&
+          !authCompleter.isCompleted) {
         _logger.w('Auth timeout (no challenge from server).');
-        _authCompleter!.completeError('timeout');
-        _handleClosed();
+        authCompleter.completeError('timeout');
+        _closeSession(session);
       }
     });
   }
 
   /// Client side: received a challenge from the server, sign it.
-  void _handleAuthChallenge(MirrorMessage message) async {
+  void _handleAuthChallenge(
+    _SocketSession session,
+    MirrorMessage message,
+  ) async {
     final key = _key;
     final localKeyPair = _localKeyPair;
     if (key == null || localKeyPair == null) {
       _logger.e('Auth challenge received but no local key pair set.');
-      _handleClosed();
+      _closeSession(session);
       return;
     }
 
     final decrypted = await CryptoManager.decrypt(key, message.payload);
+    if (!_isCurrent(session)) return;
     if (decrypted == null) {
       _logger.e('Could not decrypt auth challenge.');
-      _handleClosed();
+      _closeSession(session);
       return;
     }
     final payload = jsonDecode(decrypted) as Map<String, dynamic>;
     final nonce = payload['nonce'] as String? ?? '';
     if (nonce.isEmpty) {
       _logger.e('Empty nonce in auth challenge.');
-      _handleClosed();
+      _closeSession(session);
       return;
     }
 
     final signature = await CryptoManager.sign(localKeyPair, nonce);
+    if (!_isCurrent(session)) return;
     _logger.i('Client sending auth response (signed nonce).');
     await sendMessage(MessageTypes.authResponse, {
       'nonce': nonce,
@@ -441,19 +505,23 @@ class SocketManager {
   }
 
   /// Server side: received the client's signed nonce, verify it.
-  void _handleAuthResponse(MirrorMessage message) async {
+  void _handleAuthResponse(
+    _SocketSession session,
+    MirrorMessage message,
+  ) async {
     final key = _key;
     final peerPubKey = _peerPublicKeyBase64;
     if (key == null || peerPubKey == null) {
       _logger.e('Auth response received but no peer public key set.');
-      _onAuthFail();
+      _onAuthFail(session);
       return;
     }
 
     final decrypted = await CryptoManager.decrypt(key, message.payload);
+    if (!_isCurrent(session)) return;
     if (decrypted == null) {
       _logger.e('Could not decrypt auth response.');
-      _onAuthFail();
+      _onAuthFail(session);
       return;
     }
     final payload = jsonDecode(decrypted) as Map<String, dynamic>;
@@ -466,70 +534,74 @@ class SocketManager {
       message: nonce,
       publicKeyBase64: peerPubKey,
     );
+    if (!_isCurrent(session)) return;
 
     if (ok) {
       _logger.i(
         'Client authenticated successfully. Sent authOk, awaiting ack.',
       );
       await sendMessage(MessageTypes.authOk, {});
+      if (!_isCurrent(session)) return;
       // Don't call _onAuthSuccess() yet: if this authOk never reaches the
       // client (dropped packet, client already gave up), we'd otherwise
       // believe the connection is live -- start heartbeating, report
       // "connected" -- while the client has already closed its side. Only
       // commit to "connected" once the client acks (see authAck above).
-      // _serverAuthTimer (already running) closes the connection if no ack
+      // The session auth timer closes the connection if no ack
       // arrives in time.
     } else {
       _logger.w('Client authentication failed (invalid signature).');
       await sendMessage(MessageTypes.authFail, {});
-      _onAuthFail();
+      if (!_isCurrent(session)) return;
+      _onAuthFail(session);
     }
   }
 
   /// Client side: server accepted our signed challenge. Ack it so the
   /// server knows we actually received this before either side considers
   /// the connection established (see _handleAuthResponse above).
-  void _onClientAuthOk() async {
+  void _onClientAuthOk(_SocketSession session) async {
     await sendMessage(MessageTypes.authAck, {});
-    _onAuthSuccess();
+    if (!_isCurrent(session)) return;
+    _onAuthSuccess(session);
   }
 
-  void _onAuthSuccess() {
-    if (_authed) return;
+  void _onAuthSuccess(_SocketSession session) {
+    if (!_isCurrent(session) || _authed) return;
     _authed = true;
-    _stopServerAuthTimer();
+    _stopAuthTimer(session);
     _logger.i('Auth complete. Connection fully established.');
-    if (_authCompleter != null && !_authCompleter!.isCompleted) {
-      _authCompleter!.complete();
+    final authCompleter = session.authCompleter;
+    if (authCompleter != null && !authCompleter.isCompleted) {
+      authCompleter.complete();
     }
     onConnected?.call();
-    _startHeartbeat();
+    _startHeartbeat(session);
   }
 
-  void _onAuthFail() {
+  void _onAuthFail(_SocketSession session) {
+    if (!_isCurrent(session)) return;
     _logger.w('Authentication failed. Closing connection.');
-    if (_authCompleter != null && !_authCompleter!.isCompleted) {
-      _authCompleter!.completeError('auth failed');
+    final authCompleter = session.authCompleter;
+    if (authCompleter != null && !authCompleter.isCompleted) {
+      authCompleter.completeError('auth failed');
     }
-    _handleClosed();
+    _closeSession(session);
   }
 
   Future<void> disconnect() async {
     _connectGeneration++;
     _disposed = true;
+    final session = _session;
+    if (session != null) _closeSession(session);
     _authed = false;
     _stopHeartbeat();
-    _stopServerAuthTimer();
-    try {
-      _client?.destroy();
-    } catch (_) {}
     try {
       await _server?.close();
     } catch (_) {}
-    _client = null;
     _server = null;
+    _session = null;
     _isConnected = false;
-    _buffer.clear();
   }
 
   /// Closes only the listening server socket; leaves an active client
@@ -545,15 +617,12 @@ class SocketManager {
 
   /// Closes only the active client connection; keeps the server listening.
   Future<void> disconnectClient() async {
+    final session = _session;
+    if (session != null) _closeSession(session, notify: false);
     _connectGeneration++;
     _authed = false;
     _stopHeartbeat();
-    _stopServerAuthTimer();
-    try {
-      _client?.destroy();
-    } catch (_) {}
-    _client = null;
+    _session = null;
     _isConnected = false;
-    _buffer.clear();
   }
 }

@@ -70,9 +70,8 @@ final homeFeedProvider = Provider<List<HomeFeedItem>>((ref) {
   return items;
 });
 
-/// Paginated home feed: fetches 25 from each source in parallel,
-/// merges by timestamp DESC, truncates to 25. loadMore advances
-/// all 3 offsets and re-merges.
+/// Paginated home feed. Source pages are retained until displayed so offsets
+/// never skip records that were fetched in a larger cross-source batch.
 final homeFeedPaginatedProvider =
     StateNotifierProvider<HomeFeedPaginated, PaginatedListState<HomeFeedItem>>((
       ref,
@@ -96,6 +95,10 @@ class HomeFeedPaginated
   HomeFeedPaginated(this.ref) : super(PaginatedListState<HomeFeedItem>());
 
   final Ref ref;
+  final List<HomeFeedItem> _remaining = [];
+  bool _callsExhausted = false;
+  bool _smsExhausted = false;
+  bool _notificationsExhausted = false;
 
   Future<void> loadInitial() async {
     if (state.isLoading) return;
@@ -117,17 +120,21 @@ class HomeFeedPaginated
       final notifications = await notifFuture;
 
       final merged = _mergeAndSort(calls, sms, notifications);
-      final visible = merged.length > kDefaultPageSize
-          ? kDefaultPageSize
-          : merged.length;
-      final hasMore =
-          calls.length >= kDefaultPageSize ||
-          sms.length >= kDefaultPageSize ||
-          notifications.length >= kDefaultPageSize;
+      final visible = merged.length.clamp(0, kDefaultPageSize);
+      _remaining
+        ..clear()
+        ..addAll(merged.skip(visible));
+      _callsExhausted = calls.length < kDefaultPageSize;
+      _smsExhausted = sms.length < kDefaultPageSize;
+      _notificationsExhausted = notifications.length < kDefaultPageSize;
       state = PaginatedListState<HomeFeedItem>(
         items: merged.sublist(0, visible),
         isLoading: false,
-        hasReachedEnd: !hasMore && visible == merged.length,
+        hasReachedEnd:
+            _remaining.isEmpty &&
+            _callsExhausted &&
+            _smsExhausted &&
+            _notificationsExhausted,
         pageOffset: 0,
       );
       _callOffset = calls.length;
@@ -143,6 +150,21 @@ class HomeFeedPaginated
     if (state.isLoading || state.hasReachedEnd) return;
     state = state.copyWith(isLoading: true);
     try {
+      if (_remaining.isNotEmpty) {
+        final take = _remaining.length.clamp(0, kDefaultPageSize);
+        final next = _remaining.sublist(0, take);
+        _remaining.removeRange(0, take);
+        state = PaginatedListState<HomeFeedItem>(
+          items: [...state.items, ...next],
+          isLoading: false,
+          hasReachedEnd:
+              _remaining.isEmpty &&
+              _callsExhausted &&
+              _smsExhausted &&
+              _notificationsExhausted,
+        );
+        return;
+      }
       final callFuture = ref
           .read(callFacadeProvider.notifier)
           .loadOlder(limit: kDefaultPageSize, offset: _callOffset);
@@ -158,20 +180,19 @@ class HomeFeedPaginated
       final notifications = await notifFuture;
 
       final merged = _mergeAndSort(calls, sms, notifications);
-      final combined = [...state.items, ...merged]
-        ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
-      final visible = combined.length > kDefaultPageSize * 2
-          ? kDefaultPageSize * 2
-          : combined.length;
-      final hasReachedEnd =
-          calls.length < kDefaultPageSize &&
-          sms.length < kDefaultPageSize &&
-          notifications.length < kDefaultPageSize;
+      _callsExhausted = calls.length < kDefaultPageSize;
+      _smsExhausted = sms.length < kDefaultPageSize;
+      _notificationsExhausted = notifications.length < kDefaultPageSize;
+      final visible = merged.length.clamp(0, kDefaultPageSize);
+      _remaining.addAll(merged.skip(visible));
       state = PaginatedListState<HomeFeedItem>(
-        items: combined.sublist(0, visible),
+        items: [...state.items, ...merged.take(visible)],
         isLoading: false,
-        hasReachedEnd: hasReachedEnd,
-        pageOffset: 0,
+        hasReachedEnd:
+            _remaining.isEmpty &&
+            _callsExhausted &&
+            _smsExhausted &&
+            _notificationsExhausted,
       );
       _callOffset += calls.length;
       _smsOffset += sms.length;

@@ -26,12 +26,14 @@ final smsFacadeProvider = StateNotifierProvider<SmsFacade, List<SmsMessage>>((
 /// (native/peer message handling) into one Facade, per issue #39's F1 --
 /// same reasoning as CallFacade. Pure delegation, no behavior change.
 class SmsFacade extends StateNotifier<List<SmsMessage>> {
-  final SmsMessageDao _dao = SmsMessageDao();
+  final SmsMessageDao _dao;
   final Ref _ref;
   final Logger _logger;
   final bool Function() _isSource;
   final SendOrQueue _sendOrQueue;
   final ShowNotification _notify;
+  final Map<String, String> _pendingStatuses = {};
+  late final Future<void> _initialized;
 
   SmsFacade({
     required this._ref,
@@ -39,9 +41,13 @@ class SmsFacade extends StateNotifier<List<SmsMessage>> {
     required this._isSource,
     required this._sendOrQueue,
     required this._notify,
-  }) : super([]) {
-    load();
+    SmsMessageDao? dao,
+  }) : _dao = dao ?? SmsMessageDao(),
+       super([]) {
+    _initialized = load();
   }
+
+  Future<void> get initialized => _initialized;
 
   // -----------------------------------------------------------------------
   // State (formerly SmsListNotifier)
@@ -109,17 +115,36 @@ class SmsFacade extends StateNotifier<List<SmsMessage>> {
   /// this matters -- native events can repeat for what is logically the
   /// same message).
   Future<void> add(SmsMessage message) async {
-    await _dao.insert(message);
+    await initialized;
+    final pendingStatus = _pendingStatuses.remove(message.id);
+    final effectiveMessage = pendingStatus == null
+        ? message
+        : message.copyWith(status: pendingStatus);
+    await _dao.insert(effectiveMessage);
     final exists = state.any((m) => m.id == message.id);
     state = exists
-        ? state.map((m) => m.id == message.id ? message : m).toList()
-        : [message, ...state];
+        ? state.map((m) => m.id == message.id ? effectiveMessage : m).toList()
+        : [effectiveMessage, ...state];
   }
 
   Future<void> updateStatus(String id, String status) async {
+    await initialized;
+    if (!state.any((message) => message.id == id)) {
+      _pendingStatuses[id] = status;
+      return;
+    }
     await _dao.updateStatus(id, status);
     state = state
         .map((m) => m.id == id ? m.copyWith(status: status) : m)
+        .toList();
+  }
+
+  Future<void> updateDeliveryStatus(String id, String status) async {
+    await initialized;
+    if (!state.any((message) => message.id == id)) return;
+    await _dao.updateDeliveryStatus(id, status);
+    state = state
+        .map((m) => m.id == id ? m.copyWith(deliveryStatus: status) : m)
         .toList();
   }
 
@@ -130,6 +155,7 @@ class SmsFacade extends StateNotifier<List<SmsMessage>> {
   /// advances when the connection actually comes back up: without this,
   /// a message could otherwise show "Gönderiliyor" forever.
   Future<void> failStalePending(Duration threshold) async {
+    await initialized;
     final cutoff = DateTime.now().subtract(threshold);
     final stale = state.where(
       (m) =>
@@ -143,13 +169,17 @@ class SmsFacade extends StateNotifier<List<SmsMessage>> {
   }
 
   Future<void> remove(String id) async {
+    await initialized;
+    _pendingStatuses.remove(id);
     await _dao.delete(id);
     state = state.where((m) => m.id != id).toList();
   }
 
   /// Permanently deletes every message in [ids] (used by multi-select clear).
   Future<void> removeMany(Iterable<String> ids) async {
+    await initialized;
     final idSet = ids.toSet();
+    _pendingStatuses.removeWhere((id, _) => idSet.contains(id));
     for (final id in idSet) {
       await _dao.delete(id);
     }
@@ -159,6 +189,7 @@ class SmsFacade extends StateNotifier<List<SmsMessage>> {
   /// Deletes every message exchanged with [address] -- i.e. an entire
   /// thread, used from the SMS list's per-thread swipe-to-delete.
   Future<void> removeThread(String address) async {
+    await initialized;
     final toRemove = state
         .where((m) => m.address == address)
         .map((m) => m.id)
@@ -172,6 +203,8 @@ class SmsFacade extends StateNotifier<List<SmsMessage>> {
 
   /// Permanently deletes all messages (used by "clear all" / device reset).
   Future<void> removeAll() async {
+    await initialized;
+    _pendingStatuses.clear();
     await _dao.deleteAll();
     state = [];
   }
@@ -185,6 +218,7 @@ class SmsFacade extends StateNotifier<List<SmsMessage>> {
     required String id,
     required DateTime now,
   }) async {
+    await initialized;
     final address = (data['address'] as String?) ?? '';
     final contactName = (data['contactName'] as String?) ?? '';
     final body = (data['body'] as String?) ?? '';
@@ -222,6 +256,7 @@ class SmsFacade extends StateNotifier<List<SmsMessage>> {
     MirrorMessage message,
     DateTime now,
   ) async {
+    await initialized;
     switch (type) {
       case MessageTypes.smsIncoming:
         final address = payload['address'] as String? ?? '';
@@ -329,8 +364,25 @@ class SmsFacade extends StateNotifier<List<SmsMessage>> {
     String? id,
     String? contactName,
     String? threadId,
-  }) {
+    DateTime? timestamp,
+  }) async {
+    await initialized;
     final smsId = id ?? const Uuid().v4();
+    final sentAt = timestamp ?? DateTime.now();
+    await add(
+      SmsMessage(
+        id: smsId,
+        threadId: threadId ?? '',
+        address: address,
+        contactName: contactName ?? '',
+        body: body,
+        encrypted: '',
+        direction: 'outgoing',
+        status: 'pending',
+        timestamp: sentAt,
+        createdAt: sentAt,
+      ),
+    );
     return _sendOrQueue(MessageTypes.smsOutgoing, {
       'id': smsId,
       'address': address,
@@ -338,7 +390,7 @@ class SmsFacade extends StateNotifier<List<SmsMessage>> {
       if (contactName != null && contactName.isNotEmpty)
         'contact_name': contactName,
       if (threadId != null && threadId.isNotEmpty) 'thread_id': threadId,
-      'timestamp': DateTime.now().millisecondsSinceEpoch,
+      'timestamp': sentAt.millisecondsSinceEpoch,
     });
   }
 }

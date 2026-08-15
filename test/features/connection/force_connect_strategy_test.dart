@@ -1,4 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mirrorline/features/connection/connection_status_provider.dart';
+import 'package:mirrorline/features/connection/force_connect_strategy.dart';
 
 void main() {
   group('ForceConnectStrategy', () {
@@ -113,6 +115,59 @@ void main() {
 
       expect(allFailed, true);
       expect(connectionAttempt, candidates.length);
+    });
+
+    test('runs discovery paths when stored IP is absent', () async {
+      final connectedIps = <String>[];
+      final strategy = ForceConnectStrategy(
+        storedIp: null,
+        beaconIps: const [],
+        allLocalIps: const [],
+        localIp: null,
+        peerId: 'peer-id',
+        peerPort: 45678,
+        connectWithProgress:
+            (ip, port, notifier, {required label, connectTimeout}) async {
+              connectedIps.add(ip);
+              return true;
+            },
+        lookupKnownNetworkIp: (notifier, peerId) async => ['192.168.1.20'],
+        scanSubnetsWithProgress: (ips, port, notifier) async => null,
+        recordDiscoveredAddress: (ip, port) {},
+      );
+
+      final connected = await strategy.execute(
+        ConnectionStatusNotifier(),
+        () => false,
+        () => false,
+      );
+
+      expect(connected, true);
+      expect(connectedIps, ['192.168.1.20']);
+    });
+
+    test('finishes when a discovery future fails', () async {
+      final strategy = ForceConnectStrategy(
+        storedIp: null,
+        beaconIps: const [],
+        allLocalIps: const [],
+        localIp: null,
+        peerId: 'peer-id',
+        peerPort: 45678,
+        connectWithProgress:
+            (ip, port, notifier, {required label, connectTimeout}) async =>
+                false,
+        lookupKnownNetworkIp: (notifier, peerId) async =>
+            throw StateError('lookup failed'),
+        scanSubnetsWithProgress: (ips, port, notifier) async => null,
+        recordDiscoveredAddress: (ip, port) {},
+      );
+
+      final connected = await strategy
+          .execute(ConnectionStatusNotifier(), () => false, () => false)
+          .timeout(const Duration(seconds: 1));
+
+      expect(connected, false);
     });
   });
 }

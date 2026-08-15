@@ -70,6 +70,7 @@ void main() {
         scheduler.forceReconnect();
         expect(scheduler.generation, greaterThan(0));
         expect(facadeGeneration, 1); // unaffected
+        scheduler.dispose();
       },
     );
   });

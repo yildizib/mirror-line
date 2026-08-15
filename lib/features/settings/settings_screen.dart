@@ -117,7 +117,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   ) async {
     // Kick off the force reconnect (fire-and-forget -- the dialog tracks
     // progress via the status provider, not via the returned Future).
-    ref.read(connectionFacadeProvider.notifier).forceReconnect();
+    ref.read(settingsControllerProvider).forceReconnect();
 
     if (!context.mounted) return;
     await showDialog<void>(

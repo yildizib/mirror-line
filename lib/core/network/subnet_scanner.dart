@@ -39,6 +39,7 @@ class SubnetScanner {
     Duration perHostTimeout = const Duration(milliseconds: 400),
     int concurrency = 24,
     void Function(int batch, int totalBatches, String subnet)? onProgress,
+    ScanCancellationToken? cancellationToken,
   }) async {
     final base = subnetPrefixOf(localIp);
     if (base == null) return null;
@@ -50,6 +51,7 @@ class SubnetScanner {
 
     var batchIndex = 0;
     for (var start = 0; start < candidates.length; start += concurrency) {
+      if (cancellationToken?.isCancelled ?? false) return null;
       batchIndex++;
       onProgress?.call(batchIndex, totalBatches, base);
       final batch = candidates
@@ -59,6 +61,7 @@ class SubnetScanner {
       final results = await Future.wait(
         batch.map((n) => _probe('$base.$n', port, perHostTimeout)),
       );
+      if (cancellationToken?.isCancelled ?? false) return null;
       for (final hit in results) {
         if (hit != null) {
           _logger.i('Fallback scan found a responsive host: $hit:$port');
@@ -89,6 +92,7 @@ class SubnetScanner {
     Duration perHostTimeout = const Duration(milliseconds: 400),
     int concurrency = 24,
     void Function(int batch, int totalBatches, String subnet)? onProgress,
+    ScanCancellationToken? cancellationToken,
   }) async {
     if (localIps.isEmpty) return null;
     if (localIps.length == 1) {
@@ -98,6 +102,7 @@ class SubnetScanner {
         perHostTimeout: perHostTimeout,
         concurrency: concurrency,
         onProgress: onProgress,
+        cancellationToken: cancellationToken,
       );
     }
 
@@ -105,25 +110,40 @@ class SubnetScanner {
       'Scanning ${localIps.length} subnets in parallel for port $port...',
     );
 
-    // Race all subnet scans in parallel. First hit wins.
+    // Race all subnet scans in parallel. First hit cancels future batches
+    // and suppresses stale progress from the losing scans.
     final completer = Completer<String?>();
+    final raceToken = ScanCancellationToken(parent: cancellationToken);
     var pending = localIps.length;
 
     for (final ip in localIps) {
       findHostWithOpenPort(
-        localIp: ip,
-        port: port,
-        perHostTimeout: perHostTimeout,
-        concurrency: concurrency,
-        onProgress: onProgress,
-      ).then((found) {
-        pending--;
-        if (found != null && !completer.isCompleted) {
-          completer.complete(found);
-        } else if (pending == 0 && !completer.isCompleted) {
-          completer.complete(null);
-        }
-      });
+            localIp: ip,
+            port: port,
+            perHostTimeout: perHostTimeout,
+            concurrency: concurrency,
+            onProgress: (batch, total, subnet) {
+              if (!raceToken.isCancelled) {
+                onProgress?.call(batch, total, subnet);
+              }
+            },
+            cancellationToken: raceToken,
+          )
+          .then((found) {
+            pending--;
+            if (found != null && !completer.isCompleted) {
+              raceToken.cancel();
+              completer.complete(found);
+            } else if (pending == 0 && !completer.isCompleted) {
+              completer.complete(null);
+            }
+          })
+          .catchError((Object error, StackTrace stackTrace) {
+            pending--;
+            if (pending == 0 && !completer.isCompleted) {
+              completer.completeError(error, stackTrace);
+            }
+          });
     }
 
     return completer.future;
@@ -140,4 +160,15 @@ class SubnetScanner {
       socket?.destroy();
     }
   }
+}
+
+class ScanCancellationToken {
+  ScanCancellationToken({this.parent});
+
+  final ScanCancellationToken? parent;
+  bool _isCancelled = false;
+
+  bool get isCancelled => _isCancelled || (parent?.isCancelled ?? false);
+
+  void cancel() => _isCancelled = true;
 }

@@ -73,6 +73,7 @@ void main() {
     required DateTime timestamp,
     String number = '+15555550100',
     String contactName = 'Alice',
+    String status = 'missed',
   }) {
     return CallEvent(
       id: id,
@@ -81,10 +82,29 @@ void main() {
       contactName: contactName,
       timestamp: timestamp,
       encrypted: '',
-      status: 'missed',
+      status: status,
       createdAt: timestamp,
     );
   }
+
+  test('group exposes the ringing call instead of the latest call', () {
+    final now = DateTime.now();
+    final ringing = makeEvent(
+      id: 'ringing',
+      timestamp: now.subtract(const Duration(minutes: 1)),
+      status: 'ringing',
+    );
+    final latest = makeEvent(id: 'latest', timestamp: now);
+    final group = CallGroup(
+      key: 'Alice',
+      displayName: 'Alice',
+      calls: [latest, ringing],
+    );
+
+    expect(group.lastCall.id, 'latest');
+    expect(group.ringingCall?.id, 'ringing');
+    expect(group.hasActive, isTrue);
+  });
 
   test('loadInitial loads today+yesterday groups', () async {
     final container = buildContainer();
@@ -123,7 +143,12 @@ void main() {
       state.items.map((g) => g.key).toList(),
       containsAll(['Alice', 'Bob']),
     );
-    expect(state.hasReachedEnd, isTrue);
+    expect(state.hasReachedEnd, isFalse);
+
+    await notifier.loadMore();
+    final withHistory = container.read(callGroupsPaginatedProvider);
+    expect(withHistory.items.map((group) => group.key), contains('Carol'));
+    expect(withHistory.hasReachedEnd, isTrue);
   });
 
   test('loadMore appends older groups', () async {
@@ -252,5 +277,33 @@ void main() {
     expect(alice.calls.map((c) => c.id).toList(), ['call2', 'call1']);
     expect(bob.calls.map((c) => c.id).toList(), ['call3']);
     expect(state.items.first.key, 'Bob');
+  });
+
+  test('refresh removes deleted recent records and empty groups', () async {
+    final container = buildContainer();
+    final facade = container.read(callFacadeProvider.notifier);
+    await facade.load();
+    await facade.add(
+      makeEvent(
+        id: 'alice',
+        timestamp: DateTime.now().subtract(const Duration(hours: 1)),
+        contactName: 'Alice',
+      ),
+    );
+    await facade.add(
+      makeEvent(
+        id: 'bob',
+        timestamp: DateTime.now().subtract(const Duration(hours: 2)),
+        contactName: 'Bob',
+      ),
+    );
+
+    final notifier = container.read(callGroupsPaginatedProvider.notifier);
+    await notifier.loadInitial();
+    await facade.remove('alice');
+    await notifier.refresh();
+
+    final state = container.read(callGroupsPaginatedProvider);
+    expect(state.items.map((group) => group.key), ['Bob']);
   });
 }

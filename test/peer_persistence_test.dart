@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mirrorline/core/data/database.dart';
 import 'package:mirrorline/core/data/daos/peer_dao.dart';
 import 'package:mirrorline/core/data/models/peer.dart';
+import 'package:mirrorline/features/pairing/peer_facade.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 void main() {
@@ -178,6 +179,99 @@ void main() {
           'IP after the peer roams',
     );
 
+    await db.close();
+  });
+
+  test('full reset deletes every peer row', () async {
+    final db = await databaseFactory.openDatabase(
+      inMemoryDatabasePath,
+      options: OpenDatabaseOptions(
+        version: AppDatabase.schemaVersion,
+        onCreate: AppDatabase.instance.createTables,
+      ),
+    );
+    final dao = PeerDao.forDatabase(db);
+    final now = DateTime.now();
+    await dao.insert(
+      Peer(
+        id: 'active',
+        deviceName: 'Active',
+        role: 'main',
+        ip: '192.168.1.2',
+        port: 45678,
+        key: 'key',
+        publicKey: 'public-key',
+        createdAt: now,
+      ),
+    );
+    await dao.insert(
+      Peer(
+        id: 'stale',
+        deviceName: 'Stale',
+        role: 'main',
+        ip: '192.168.1.3',
+        port: 45678,
+        key: 'key',
+        publicKey: 'public-key',
+        createdAt: now.subtract(const Duration(minutes: 1)),
+      ),
+    );
+    var credentialsCleared = false;
+    final facade = PeerFacade(
+      dao: dao,
+      clearPeerCredentials: () async => credentialsCleared = true,
+    );
+    await facade.initialized;
+
+    await facade.reset();
+
+    expect(await dao.getAllPeers(), isEmpty);
+    expect(facade.state, isNull);
+    expect(credentialsCleared, isTrue);
+    facade.dispose();
+    await db.close();
+  });
+
+  test('deleting active peer unpairs instead of promoting stale row', () async {
+    final db = await databaseFactory.openDatabase(
+      inMemoryDatabasePath,
+      options: OpenDatabaseOptions(
+        version: AppDatabase.schemaVersion,
+        onCreate: AppDatabase.instance.createTables,
+      ),
+    );
+    final dao = PeerDao.forDatabase(db);
+    final active = Peer(
+      id: 'active',
+      deviceName: 'Active',
+      role: 'source',
+      ip: '192.168.1.2',
+      port: 45678,
+      key: 'key',
+      publicKey: 'public-key',
+      createdAt: DateTime.now(),
+    );
+    await dao.insert(active);
+    await dao.insert(
+      active.copyWith(
+        id: 'stale',
+        deviceName: 'Stale',
+        createdAt: active.createdAt.subtract(const Duration(minutes: 1)),
+      ),
+    );
+    var credentialsCleared = false;
+    final facade = PeerFacade(
+      dao: dao,
+      clearPeerCredentials: () async => credentialsCleared = true,
+    );
+    await facade.initialized;
+
+    await facade.deletePeer(active);
+
+    expect(await dao.getAllPeers(), isEmpty);
+    expect(facade.state, isNull);
+    expect(credentialsCleared, isTrue);
+    facade.dispose();
     await db.close();
   });
 }
