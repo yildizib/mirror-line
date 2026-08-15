@@ -13,17 +13,21 @@ import 'package:mirrorline/shared/widgets/selectable_list_scaffold.dart';
 class CallsScreen extends ConsumerWidget {
   const CallsScreen({super.key});
 
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final groups = ref.watch(callGroupsProvider);
-    final l = AppLocalizations.of(context);
+ @override
+ Widget build(BuildContext context, WidgetRef ref) {
+ final groupsState = ref.watch(callGroupsPaginatedProvider);
+ final groups = groupsState.items;
+ final l = AppLocalizations.of(context);
 
-    return SelectableListScaffold(
-      items: groups,
-      itemKey: (group) => group.key,
-      dateHeaderOf: (group) => group.lastCall.timestamp,
-      itemBuilder: (context, group, isSelecting, isSelected, onTapSelect) =>
-          _GroupedCallCard(
+ return SelectableListScaffold(
+ items: groups,
+ itemKey: (group) => group.key,
+ dateHeaderOf: (group) => group.lastCall.timestamp,
+ onLoadMore: ref.read(callGroupsPaginatedProvider.notifier).loadMore,
+ isLoadingMore: groupsState.isLoading,
+ hasReachedEnd: groupsState.hasReachedEnd,
+ itemBuilder: (context, group, isSelecting, isSelected, onTapSelect) =>
+ _GroupedCallCard(
             group: group,
             isSelecting: isSelecting,
             isSelected: isSelected,
