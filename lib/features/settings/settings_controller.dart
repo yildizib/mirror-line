@@ -20,10 +20,18 @@ class SettingsController {
 
   SettingsController(this._ref);
 
+  Future<void> forceReconnect() =>
+      _ref.read(connectionFacadeProvider.notifier).forceReconnect();
+
   Future<void> deletePeer(Peer peer) async {
-    await _ref.read(peerFacadeProvider.notifier).deletePeer(peer);
-    _ref.invalidate(pairedPeersProvider);
-    await _ref.read(connectionFacadeProvider.notifier).refresh();
+    final connection = _ref.read(connectionFacadeProvider.notifier);
+    await connection.stopAll();
+    try {
+      await _ref.read(peerFacadeProvider.notifier).deletePeer(peer);
+      _ref.invalidate(pairedPeersProvider);
+    } finally {
+      await connection.refresh();
+    }
   }
 
   /// Full device reset: a real fresh start, not just unpair. Stops

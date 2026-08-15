@@ -33,6 +33,8 @@ class PeerDiscoveryCoordinator {
   DateTime? _disconnectedSince;
   DateTime? _lastScanAt;
   bool _scanning = false;
+  bool _disposed = false;
+  ScanCancellationToken? _scanCancellation;
   final List<String> _beaconIps = [];
 
   PeerDiscoveryCoordinator({
@@ -50,12 +52,13 @@ class PeerDiscoveryCoordinator {
   bool get isDisconnected => _disconnectedSince != null;
 
   Future<void> startListening() async {
+    if (_disposed) return;
     if (!_listener.isListening) {
       final selfId = _getPeerId();
       final selfName = _getDeviceName();
       final allIps = _getAllLocalIps().isNotEmpty ? _getAllLocalIps() : null;
       await _listener.start(
-        onBeacon: _onBeacon,
+        onBeacon: handleBeacon,
         peerId: selfId,
         tcpPort: _getPeerPort(),
         deviceName: selfName,
@@ -102,7 +105,7 @@ class PeerDiscoveryCoordinator {
     bool immediate = false,
     bool force = false,
   }) async {
-    if (_scanning) return;
+    if (_disposed || _scanning) return;
 
     if (!immediate) {
       final disconnectedSince = _disconnectedSince;
@@ -122,6 +125,8 @@ class PeerDiscoveryCoordinator {
 
     _scanning = true;
     _lastScanAt = DateTime.now();
+    final cancellation = ScanCancellationToken();
+    _scanCancellation = cancellation;
 
     try {
       final scanIps = _getAllLocalIps().isNotEmpty
@@ -136,18 +141,22 @@ class PeerDiscoveryCoordinator {
       final found = await _scanner.findHostWithOpenPortMulti(
         localIps: scanIps,
         port: _getPeerPort(),
+        cancellationToken: cancellation,
       );
-      if (found != null) {
+      if (found != null && !cancellation.isCancelled && !_disposed) {
         await _onDiscovered(found, _getPeerPort(), fromScan: true);
       }
     } catch (e) {
       _logger.e('Subnet scan failed: $e');
     } finally {
-      _scanning = false;
+      if (identical(_scanCancellation, cancellation)) {
+        _scanCancellation = null;
+        _scanning = false;
+      }
     }
   }
 
-  Future<void> _onBeacon(BeaconInfo info) async {
+  Future<void> handleBeacon(BeaconInfo info) async {
     final expectedPeerId = _getExpectedPeerId();
     if (expectedPeerId != null && info.peerId != expectedPeerId) {
       _logger.w('Ignoring beacon from unknown peer: ${info.peerId}');
@@ -165,11 +174,9 @@ class PeerDiscoveryCoordinator {
 
     // Replace wholesale (not accumulate/dedupe): stale IPs from an earlier
     // beacon shouldn't linger once a newer beacon reports a different set.
-    if (info.ips.isNotEmpty) {
-      _beaconIps
-        ..clear()
-        ..addAll(info.ips);
-    }
+    _beaconIps
+      ..clear()
+      ..addAll(info.ips);
 
     await _onDiscovered(bestIp, info.tcpPort, fromScan: false);
   }
@@ -201,11 +208,20 @@ class PeerDiscoveryCoordinator {
   }
 
   Future<void> stopListening() async {
+    cancelActiveScan();
     await _listener.stop();
     _beaconIps.clear();
   }
 
+  void cancelActiveScan() {
+    _scanCancellation?.cancel();
+    _scanCancellation = null;
+    _scanning = false;
+  }
+
   void dispose() {
-    stopListening();
+    _disposed = true;
+    cancelActiveScan();
+    unawaited(stopListening());
   }
 }

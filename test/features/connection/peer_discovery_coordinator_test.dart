@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logger/logger.dart';
+import 'package:mirrorline/core/network/lan_beacon.dart';
 import 'package:mirrorline/features/connection/peer_discovery_coordinator.dart';
 
 void main() {
@@ -39,6 +40,39 @@ void main() {
 
       coordinator.markConnected();
       expect(coordinator.beaconIps.isEmpty, true);
+    });
+
+    test('new beacon with no addresses clears stale candidates', () async {
+      final coordinator = PeerDiscoveryCoordinator(
+        logger: Logger(),
+        onDiscovered: (ip, port, {required fromScan}) async {},
+        getPeerId: () => 'self-id',
+        getPeerPort: () => 45678,
+        getDeviceName: () => 'Test Device',
+        getAllLocalIps: () => ['192.168.1.10'],
+        getExpectedPeerId: () => 'peer-id',
+      );
+
+      await coordinator.handleBeacon(
+        const BeaconInfo(
+          peerId: 'peer-id',
+          tcpPort: 45678,
+          deviceName: 'Peer',
+          ip: '192.168.1.20',
+          ips: ['10.0.0.20'],
+        ),
+      );
+      expect(coordinator.beaconIps, ['10.0.0.20']);
+
+      await coordinator.handleBeacon(
+        const BeaconInfo(
+          peerId: 'peer-id',
+          tcpPort: 45678,
+          deviceName: 'Peer',
+          ip: '192.168.1.20',
+        ),
+      );
+      expect(coordinator.beaconIps, isEmpty);
     });
 
     test('Beacon info update', () {
