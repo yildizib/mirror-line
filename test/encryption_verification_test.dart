@@ -95,15 +95,21 @@ void main() {
     await rawServer.close();
   });
 
-  test('a different key cannot decrypt the payload (no shared-secret bypass)', () async {
-    final key = CryptoManager.generateKey();
-    final wrongKey = CryptoManager.generateKey();
+  test(
+    'a different key cannot decrypt the payload (no shared-secret bypass)',
+    () async {
+      final key = CryptoManager.generateKey();
+      final wrongKey = CryptoManager.generateKey();
 
-    final encrypted = await CryptoManager.encrypt(key, 'hassas telefon numarası: 5551234567');
-    final result = await CryptoManager.decrypt(wrongKey, encrypted);
+      final encrypted = await CryptoManager.encrypt(
+        key,
+        'hassas telefon numarası: 5551234567',
+      );
+      final result = await CryptoManager.decrypt(wrongKey, encrypted);
 
-    expect(result, isNull);
-  });
+      expect(result, isNull);
+    },
+  );
 
   test('each encrypted message uses a fresh nonce (no nonce reuse)', () async {
     final key = CryptoManager.generateKey();
@@ -121,22 +127,25 @@ void main() {
     expect(firstNonce, isNot(equals(secondNonce)));
   });
 
-  test('pairing handshake auth messages carry no raw key/signature material', () async {
-    // Generates a bunch of random nonces and confirms they look like real
-    // random bytes (not e.g. all-zero or sequential), since a weak nonce
-    // generator would undermine the challenge-response handshake's
-    // security guarantees just as much as a network-level leak would.
-    final nonces = List.generate(20, (_) => CryptoManager.generateNonce());
-    expect(nonces.toSet().length, 20, reason: 'nonces must not repeat');
+  test(
+    'pairing handshake auth messages carry no raw key/signature material',
+    () async {
+      // Generates a bunch of random nonces and confirms they look like real
+      // random bytes (not e.g. all-zero or sequential), since a weak nonce
+      // generator would undermine the challenge-response handshake's
+      // security guarantees just as much as a network-level leak would.
+      final nonces = List.generate(20, (_) => CryptoManager.generateNonce());
+      expect(nonces.toSet().length, 20, reason: 'nonces must not repeat');
 
-    final decodedLengths = nonces.map((n) => base64Decode(n).length).toSet();
-    expect(decodedLengths, equals({32}), reason: 'expected 32-byte nonces');
-    // Not a rigorous randomness test, just a smoke check that nonces
-    // aren't trivially predictable (e.g. all the same byte repeated).
-    for (final n in nonces) {
-      final bytes = base64Decode(n);
-      final distinctByteValues = bytes.toSet().length;
-      expect(distinctByteValues, greaterThan(1));
-    }
-  });
+      final decodedLengths = nonces.map((n) => base64Decode(n).length).toSet();
+      expect(decodedLengths, equals({32}), reason: 'expected 32-byte nonces');
+      // Not a rigorous randomness test, just a smoke check that nonces
+      // aren't trivially predictable (e.g. all the same byte repeated).
+      for (final n in nonces) {
+        final bytes = base64Decode(n);
+        final distinctByteValues = bytes.toSet().length;
+        expect(distinctByteValues, greaterThan(1));
+      }
+    },
+  );
 }

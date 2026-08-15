@@ -58,8 +58,7 @@ final connectionConnectingProvider = Provider<bool>((ref) {
   return ref.watch(connectionFacadeProvider.notifier).isConnecting;
 });
 
-class ConnectionFacade extends StateNotifier<bool>
-    with WidgetsBindingObserver {
+class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
   static const Duration _retryInterval = Duration(seconds: 30);
   // How long an outgoing SMS may sit on 'pending' before it's given up on
   // and shown as 'failed'. The queue's own 5-attempt retry only advances
@@ -221,7 +220,9 @@ class ConnectionFacade extends StateNotifier<bool>
     // so devices recover on their own instead of requiring the app to be
     // killed and reopened.
     _healthTimer ??= Timer.periodic(_retryInterval, (_) {
-      _ref.read(smsFacadeProvider.notifier).failStalePending(_pendingSmsTimeout);
+      _ref
+          .read(smsFacadeProvider.notifier)
+          .failStalePending(_pendingSmsTimeout);
       if (_connecting || state) return;
       refresh();
       _maybeRunFallbackScan();
@@ -393,7 +394,8 @@ class ConnectionFacade extends StateNotifier<bool>
     // relied on _listener.isListening as an implicit guard.
     if (_selfDiscoveryId == null || _selfDiscoveryName == null) {
       _selfDiscoveryId = await KeyStore.getSelfId() ?? peer.id;
-      _selfDiscoveryName = await KeyStore.getSelfDeviceName() ?? peer.deviceName;
+      _selfDiscoveryName =
+          await KeyStore.getSelfDeviceName() ?? peer.deviceName;
     }
     await _peerDiscoveryCoordinator.startListening();
 
@@ -1041,10 +1043,14 @@ class ConnectionFacade extends StateNotifier<bool>
         break;
 
       case MessageTypes.pairingRequest:
-        _ref.read(pairingFacadeProvider.notifier).handleIncomingRequest(payload);
+        _logger.i('pairingRequest received from scanner.');
+        _ref
+            .read(pairingFacadeProvider.notifier)
+            .handleIncomingRequest(payload);
         break;
 
       case MessageTypes.pairingAck:
+        _logger.i('pairingAck received — scanner persisted its end.');
         // Scanned side: the scanner confirmed it persisted its own end --
         // arrives on this device's regular socket (unlike pairingAccept/
         // pairingReject below, which the *scanner* receives on its own

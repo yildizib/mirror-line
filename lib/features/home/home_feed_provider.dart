@@ -46,28 +46,30 @@ class NotificationFeedItem extends HomeFeedItem {
 /// HomeFeedScreen) -- this is a flat view for browsing, not a place to
 /// mutate any of the three underlying lists.
 final homeFeedProvider = Provider<List<HomeFeedItem>>((ref) {
- final calls = ref.watch(callFacadeProvider);
- final sms = ref.watch(smsFacadeProvider);
- final notifications = ref.watch(notificationFacadeProvider);
+  final calls = ref.watch(callFacadeProvider);
+  final sms = ref.watch(smsFacadeProvider);
+  final notifications = ref.watch(notificationFacadeProvider);
 
- final items = <HomeFeedItem>[
- ...calls.map(CallFeedItem.new),
- ...sms.map(SmsFeedItem.new),
- ...notifications.map(NotificationFeedItem.new)];
- items.sort((a, b) => b.timestamp.compareTo(a.timestamp));
- return items;
+  final items = <HomeFeedItem>[
+    ...calls.map(CallFeedItem.new),
+    ...sms.map(SmsFeedItem.new),
+    ...notifications.map(NotificationFeedItem.new),
+  ];
+  items.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+  return items;
 });
 
 /// Paginated home feed: fetches 25 from each source in parallel,
 /// merges by timestamp DESC, truncates to 25. loadMore advances
 /// all 3 offsets and re-merges.
 final homeFeedPaginatedProvider =
-    StateNotifierProvider<HomeFeedPaginated, PaginatedListState<HomeFeedItem>>(
-        (ref) {
-  final notifier = HomeFeedPaginated(ref);
-  Future.microtask(() => notifier.loadInitial());
-  return notifier;
-});
+    StateNotifierProvider<HomeFeedPaginated, PaginatedListState<HomeFeedItem>>((
+      ref,
+    ) {
+      final notifier = HomeFeedPaginated(ref);
+      Future.microtask(() => notifier.loadInitial());
+      return notifier;
+    });
 
 class HomeFeedPaginated
     extends StateNotifier<PaginatedListState<HomeFeedItem>> {
@@ -98,7 +100,8 @@ class HomeFeedPaginated
       final visible = merged.length > kDefaultPageSize
           ? kDefaultPageSize
           : merged.length;
-      final hasMore = calls.length >= kDefaultPageSize ||
+      final hasMore =
+          calls.length >= kDefaultPageSize ||
           sms.length >= kDefaultPageSize ||
           notifications.length >= kDefaultPageSize;
       state = PaginatedListState<HomeFeedItem>(
@@ -140,7 +143,8 @@ class HomeFeedPaginated
       final visible = combined.length > kDefaultPageSize * 2
           ? kDefaultPageSize * 2
           : combined.length;
-      final hasReachedEnd = calls.length < kDefaultPageSize &&
+      final hasReachedEnd =
+          calls.length < kDefaultPageSize &&
           sms.length < kDefaultPageSize &&
           notifications.length < kDefaultPageSize;
       state = PaginatedListState<HomeFeedItem>(

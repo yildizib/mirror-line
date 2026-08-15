@@ -28,8 +28,7 @@ class CallEventDao {
   }) async {
     final db = await _database;
     final where = since != null ? 'timestamp >= ?' : null;
-    final whereArgs =
-        since != null ? [since.millisecondsSinceEpoch] : null;
+    final whereArgs = since != null ? [since.millisecondsSinceEpoch] : null;
     final maps = await db.query(
       'call_event',
       where: where,

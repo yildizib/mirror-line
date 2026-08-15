@@ -118,56 +118,77 @@ void main() {
     );
     await server.startServer(45904, key);
 
-    final c1 = SocketManager(onMessage: (_) {}, onConnected: () {}, onDisconnected: () {});
+    final c1 = SocketManager(
+      onMessage: (_) {},
+      onConnected: () {},
+      onDisconnected: () {},
+    );
     expect(await c1.connect('127.0.0.1', 45904, key), isTrue);
     await c1.disconnect();
     await Future<void>.delayed(const Duration(milliseconds: 200));
 
-    final c2 = SocketManager(onMessage: (_) {}, onConnected: () {}, onDisconnected: () {});
+    final c2 = SocketManager(
+      onMessage: (_) {},
+      onConnected: () {},
+      onDisconnected: () {},
+    );
     expect(await c2.connect('127.0.0.1', 45904, key), isTrue);
 
     await c2.disconnect();
     await server.disconnect();
   });
 
-  test('authenticated handshake: both sides only report connected after mutual ack', () async {
-    final key = CryptoManager.generateKey();
-    final ed25519 = Ed25519();
-    final serverKeyPair = await ed25519.newKeyPair();
-    final clientKeyPair = await ed25519.newKeyPair();
-    final serverPub = base64Encode((await serverKeyPair.extractPublicKey()).bytes);
-    final clientPub = base64Encode((await clientKeyPair.extractPublicKey()).bytes);
+  test(
+    'authenticated handshake: both sides only report connected after mutual ack',
+    () async {
+      final key = CryptoManager.generateKey();
+      final ed25519 = Ed25519();
+      final serverKeyPair = await ed25519.newKeyPair();
+      final clientKeyPair = await ed25519.newKeyPair();
+      final serverPub = base64Encode(
+        (await serverKeyPair.extractPublicKey()).bytes,
+      );
+      final clientPub = base64Encode(
+        (await clientKeyPair.extractPublicKey()).bytes,
+      );
 
-    final serverConnected = Completer<void>();
-    final server = SocketManager(
-      onMessage: (_) {},
-      onConnected: () => serverConnected.complete(),
-      onDisconnected: () {},
-    );
-    server.setAuthIdentity(peerPublicKeyBase64: clientPub, localKeyPair: serverKeyPair);
-    await server.startServer(45905, key);
+      final serverConnected = Completer<void>();
+      final server = SocketManager(
+        onMessage: (_) {},
+        onConnected: () => serverConnected.complete(),
+        onDisconnected: () {},
+      );
+      server.setAuthIdentity(
+        peerPublicKeyBase64: clientPub,
+        localKeyPair: serverKeyPair,
+      );
+      await server.startServer(45905, key);
 
-    final clientConnected = Completer<void>();
-    final client = SocketManager(
-      onMessage: (_) {},
-      onConnected: () => clientConnected.complete(),
-      onDisconnected: () {},
-    );
-    client.setAuthIdentity(peerPublicKeyBase64: serverPub, localKeyPair: clientKeyPair);
+      final clientConnected = Completer<void>();
+      final client = SocketManager(
+        onMessage: (_) {},
+        onConnected: () => clientConnected.complete(),
+        onDisconnected: () {},
+      );
+      client.setAuthIdentity(
+        peerPublicKeyBase64: serverPub,
+        localKeyPair: clientKeyPair,
+      );
 
-    final ok = await client.connect('127.0.0.1', 45905, key);
-    expect(ok, isTrue);
+      final ok = await client.connect('127.0.0.1', 45905, key);
+      expect(ok, isTrue);
 
-    // Both sides must independently confirm the connection -- the server
-    // only after receiving the client's ack of authOk, not merely after
-    // sending it (regression test for the "server believes connected but
-    // client already gave up" asymmetry).
-    await clientConnected.future.timeout(const Duration(seconds: 5));
-    await serverConnected.future.timeout(const Duration(seconds: 5));
-    expect(client.isAuthed, isTrue);
-    expect(server.isAuthed, isTrue);
+      // Both sides must independently confirm the connection -- the server
+      // only after receiving the client's ack of authOk, not merely after
+      // sending it (regression test for the "server believes connected but
+      // client already gave up" asymmetry).
+      await clientConnected.future.timeout(const Duration(seconds: 5));
+      await serverConnected.future.timeout(const Duration(seconds: 5));
+      expect(client.isAuthed, isTrue);
+      expect(server.isAuthed, isTrue);
 
-    await client.disconnect();
-    await server.disconnect();
-  });
+      await client.disconnect();
+      await server.disconnect();
+    },
+  );
 }

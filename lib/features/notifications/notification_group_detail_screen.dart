@@ -13,10 +13,7 @@ import 'package:mirrorline/shared/widgets/selectable_list_scaffold.dart';
 class NotificationGroupDetailScreen extends ConsumerWidget {
   final String packageName;
 
-  const NotificationGroupDetailScreen({
-    required this.packageName,
-    super.key,
-  });
+  const NotificationGroupDetailScreen({required this.packageName, super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {

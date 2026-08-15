@@ -68,19 +68,20 @@ final callGroupsProvider = Provider<List<CallGroup>>((ref) {
   }).toList();
 
   groups.sort((a, b) => b.lastCall.timestamp.compareTo(a.lastCall.timestamp));
- return groups;
+  return groups;
 });
 
 /// Paginated version of [callGroupsProvider].
 /// Loads today+yesterday first (capped at 25 groups), then older
 /// groups on [CallGroupPaginated.loadMore].
 final callGroupsPaginatedProvider =
-    StateNotifierProvider<CallGroupPaginated, PaginatedListState<CallGroup>>(
-        (ref) {
-  final notifier = CallGroupPaginated(ref);
-  Future.microtask(() => notifier.loadInitial());
-  return notifier;
-});
+    StateNotifierProvider<CallGroupPaginated, PaginatedListState<CallGroup>>((
+      ref,
+    ) {
+      final notifier = CallGroupPaginated(ref);
+      Future.microtask(() => notifier.loadInitial());
+      return notifier;
+    });
 
 class CallGroupPaginated
     extends GroupedPaginatedNotifier<CallEvent, CallGroup> {
@@ -93,7 +94,10 @@ class CallGroupPaginated
   }
 
   @override
-  Future<List<CallEvent>> fetchOlder({required int limit, required int offset}) {
+  Future<List<CallEvent>> fetchOlder({
+    required int limit,
+    required int offset,
+  }) {
     final facade = ref.read(callFacadeProvider.notifier);
     return facade.loadOlder(
       limit: limit,
@@ -121,7 +125,10 @@ class CallGroupPaginated
   DateTime groupTimestamp(CallGroup group) => group.lastCall.timestamp;
 
   @override
-  List<CallGroup> mergeGroups(List<CallGroup> existing, List<CallGroup> newGroups) {
+  List<CallGroup> mergeGroups(
+    List<CallGroup> existing,
+    List<CallGroup> newGroups,
+  ) {
     final map = <String, CallGroup>{};
     for (final g in existing) {
       map[g.key] = g;

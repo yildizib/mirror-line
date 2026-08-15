@@ -33,8 +33,9 @@ void main() {
 
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
-    tempDir =
-        await Directory.systemTemp.createTemp('mirrorline_sms_thread_test');
+    tempDir = await Directory.systemTemp.createTemp(
+      'mirrorline_sms_thread_test',
+    );
     PathProviderPlatform.instance = _FakePathProviderPlatform(tempDir.path);
   });
 
@@ -52,12 +53,13 @@ void main() {
             logger: Logger(),
             isSource: () => false,
             sendOrQueue: (type, payload) async => true,
-            notify: ({
-              required int id,
-              required String title,
-              required String body,
-              NotificationPayload? payload,
-            }) async {},
+            notify:
+                ({
+                  required int id,
+                  required String title,
+                  required String body,
+                  NotificationPayload? payload,
+                }) async {},
           );
         }),
       ],
@@ -93,32 +95,40 @@ void main() {
     await facade.load();
 
     final now = DateTime.now();
-    await facade.add(makeMessage(
-      id: 'today1',
-      timestamp: now.subtract(const Duration(hours: 1)),
-      address: '+111',
-      contactName: 'Alice',
-    ));
-    await facade.add(makeMessage(
-      id: 'today2',
-      timestamp: now.subtract(const Duration(hours: 2)),
-      address: '+222',
-      contactName: 'Bob',
-    ));
-    await facade.add(makeMessage(
-      id: 'old',
-      timestamp: now.subtract(const Duration(days: 10)),
-      address: '+333',
-      contactName: 'Carol',
-    ));
+    await facade.add(
+      makeMessage(
+        id: 'today1',
+        timestamp: now.subtract(const Duration(hours: 1)),
+        address: '+111',
+        contactName: 'Alice',
+      ),
+    );
+    await facade.add(
+      makeMessage(
+        id: 'today2',
+        timestamp: now.subtract(const Duration(hours: 2)),
+        address: '+222',
+        contactName: 'Bob',
+      ),
+    );
+    await facade.add(
+      makeMessage(
+        id: 'old',
+        timestamp: now.subtract(const Duration(days: 10)),
+        address: '+333',
+        contactName: 'Carol',
+      ),
+    );
 
     final notifier = container.read(smsThreadsPaginatedProvider.notifier);
     await notifier.loadInitial();
     final state = container.read(smsThreadsPaginatedProvider);
 
     expect(state.items.length, 2);
-    expect(state.items.map((t) => t.address).toList(),
-        containsAll(['+111', '+222']));
+    expect(
+      state.items.map((t) => t.address).toList(),
+      containsAll(['+111', '+222']),
+    );
   });
 
   test('thread detail preserves ASC order', () async {
@@ -128,20 +138,24 @@ void main() {
 
     final base = DateTime(2025, 1, 1, 12);
     for (var i = 0; i < 10; i++) {
-      await facade.add(makeMessage(
-        id: 'm$i',
-        timestamp: base.add(Duration(minutes: i)),
-        threadId: 'thread_alice',
-        address: '+111',
-        contactName: 'Alice',
-      ));
+      await facade.add(
+        makeMessage(
+          id: 'm$i',
+          timestamp: base.add(Duration(minutes: i)),
+          threadId: 'thread_alice',
+          address: '+111',
+          contactName: 'Alice',
+        ),
+      );
     }
 
-    final notifier = container
-        .read(smsThreadDetailPaginatedProvider('thread_alice').notifier);
+    final notifier = container.read(
+      smsThreadDetailPaginatedProvider('thread_alice').notifier,
+    );
     await notifier.loadInitial();
-    final state =
-        container.read(smsThreadDetailPaginatedProvider('thread_alice'));
+    final state = container.read(
+      smsThreadDetailPaginatedProvider('thread_alice'),
+    );
 
     expect(state.items.length, 10);
     expect(state.items.first.id, 'm0');
@@ -155,20 +169,24 @@ void main() {
 
     final base = DateTime(2025, 1, 1, 12);
     for (var i = 0; i < 30; i++) {
-      await facade.add(makeMessage(
-        id: 'm$i',
-        timestamp: base.add(Duration(minutes: i)),
-        threadId: 'thread_alice',
-        address: '+111',
-        contactName: 'Alice',
-      ));
+      await facade.add(
+        makeMessage(
+          id: 'm$i',
+          timestamp: base.add(Duration(minutes: i)),
+          threadId: 'thread_alice',
+          address: '+111',
+          contactName: 'Alice',
+        ),
+      );
     }
 
-    final notifier = container
-        .read(smsThreadDetailPaginatedProvider('thread_alice').notifier);
+    final notifier = container.read(
+      smsThreadDetailPaginatedProvider('thread_alice').notifier,
+    );
     await notifier.loadInitial();
-    var state =
-        container.read(smsThreadDetailPaginatedProvider('thread_alice'));
+    var state = container.read(
+      smsThreadDetailPaginatedProvider('thread_alice'),
+    );
     expect(state.items.length, 25);
     expect(state.items.first.id, 'm5');
     expect(state.items.last.id, 'm29');

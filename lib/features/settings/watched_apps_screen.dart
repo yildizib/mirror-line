@@ -41,9 +41,8 @@ class _WatchedAppsScreenState extends ConsumerState<WatchedAppsScreen> {
         ? _apps
         : _apps
               .where(
-                (app) => app.appName.toLowerCase().contains(
-                  _query.toLowerCase(),
-                ),
+                (app) =>
+                    app.appName.toLowerCase().contains(_query.toLowerCase()),
               )
               .toList();
 

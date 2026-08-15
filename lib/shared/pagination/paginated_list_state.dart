@@ -30,6 +30,9 @@ const int kDefaultPageSize = 25;
 
 DateTime yesterdayStart() {
   final now = DateTime.now();
-  return DateTime(now.year, now.month, now.day)
-      .subtract(const Duration(days: 1));
+  return DateTime(
+    now.year,
+    now.month,
+    now.day,
+  ).subtract(const Duration(days: 1));
 }

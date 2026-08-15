@@ -64,12 +64,13 @@ final smsThreadsProvider = Provider<List<SmsThread>>((ref) {
 
 /// Paginated SMS thread list (today+yesterday default, 25 threads per page).
 final smsThreadsPaginatedProvider =
-    StateNotifierProvider<SmsThreadPaginated, PaginatedListState<SmsThread>>(
-        (ref) {
-  final notifier = SmsThreadPaginated(ref);
-  Future.microtask(() => notifier.loadInitial());
-  return notifier;
-});
+    StateNotifierProvider<SmsThreadPaginated, PaginatedListState<SmsThread>>((
+      ref,
+    ) {
+      final notifier = SmsThreadPaginated(ref);
+      Future.microtask(() => notifier.loadInitial());
+      return notifier;
+    });
 
 class SmsThreadPaginated
     extends GroupedPaginatedNotifier<SmsMessage, SmsThread> {
@@ -143,8 +144,9 @@ class SmsThreadPaginated
       }
     }
     final result = map.values.toList()
-      ..sort((a, b) =>
-          b.lastMessage.timestamp.compareTo(a.lastMessage.timestamp));
+      ..sort(
+        (a, b) => b.lastMessage.timestamp.compareTo(a.lastMessage.timestamp),
+      );
     return result;
   }
 }
@@ -152,19 +154,21 @@ class SmsThreadPaginated
 /// Paginated SMS thread detail (single conversation).
 /// Loads newest 25 messages first (sorted ASC), then older messages
 /// on [SmsThreadDetailPaginated.loadOlder] via upward scroll.
-final smsThreadDetailPaginatedProvider = StateNotifierProvider.family<
-    SmsThreadDetailPaginated,
-    PaginatedListState<SmsMessage>,
-    String>((ref, address) {
-  final notifier = SmsThreadDetailPaginated(ref, address);
-  Future.microtask(() => notifier.loadInitial());
-  return notifier;
-});
+final smsThreadDetailPaginatedProvider =
+    StateNotifierProvider.family<
+      SmsThreadDetailPaginated,
+      PaginatedListState<SmsMessage>,
+      String
+    >((ref, address) {
+      final notifier = SmsThreadDetailPaginated(ref, address);
+      Future.microtask(() => notifier.loadInitial());
+      return notifier;
+    });
 
 class SmsThreadDetailPaginated
     extends StateNotifier<PaginatedListState<SmsMessage>> {
   SmsThreadDetailPaginated(this.ref, this.address)
-      : super(PaginatedListState<SmsMessage>());
+    : super(PaginatedListState<SmsMessage>());
 
   final Ref ref;
   final String address;

@@ -11,21 +11,23 @@ import 'package:mirrorline/shared/widgets/selectable_list_scaffold.dart';
 class NotificationsScreen extends ConsumerWidget {
   const NotificationsScreen({super.key});
 
- @override
- Widget build(BuildContext context, WidgetRef ref) {
- final groupsState = ref.watch(notificationGroupsPaginatedProvider);
- final groups = groupsState.items;
- final l = AppLocalizations.of(context);
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final groupsState = ref.watch(notificationGroupsPaginatedProvider);
+    final groups = groupsState.items;
+    final l = AppLocalizations.of(context);
 
- return SelectableListScaffold(
- items: groups,
- itemKey: (group) => group.key,
- dateHeaderOf: (group) => group.lastEvent.timestamp,
- onLoadMore: ref.read(notificationGroupsPaginatedProvider.notifier).loadMore,
- isLoadingMore: groupsState.isLoading,
- hasReachedEnd: groupsState.hasReachedEnd,
- itemBuilder: (context, group, isSelecting, isSelected, onTapSelect) =>
- _GroupedNotificationCard(
+    return SelectableListScaffold(
+      items: groups,
+      itemKey: (group) => group.key,
+      dateHeaderOf: (group) => group.lastEvent.timestamp,
+      onLoadMore: ref
+          .read(notificationGroupsPaginatedProvider.notifier)
+          .loadMore,
+      isLoadingMore: groupsState.isLoading,
+      hasReachedEnd: groupsState.hasReachedEnd,
+      itemBuilder: (context, group, isSelecting, isSelected, onTapSelect) =>
+          _GroupedNotificationCard(
             group: group,
             isSelecting: isSelecting,
             isSelected: isSelected,

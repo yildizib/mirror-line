@@ -9,17 +9,18 @@ import 'package:mirrorline/core/telephony/telephony_channel.dart';
 import 'package:mirrorline/features/connection/connection_facade.dart';
 import 'package:uuid/uuid.dart';
 
-final smsFacadeProvider =
-    StateNotifierProvider<SmsFacade, List<SmsMessage>>((ref) {
-      final connectionFacade = ref.read(connectionFacadeProvider.notifier);
-      return SmsFacade(
-        ref: ref,
-        logger: Logger(),
-        isSource: () => connectionFacade.isSource,
-        sendOrQueue: connectionFacade.sendOrQueue,
-        notify: connectionFacade.notify,
-      );
-    });
+final smsFacadeProvider = StateNotifierProvider<SmsFacade, List<SmsMessage>>((
+  ref,
+) {
+  final connectionFacade = ref.read(connectionFacadeProvider.notifier);
+  return SmsFacade(
+    ref: ref,
+    logger: Logger(),
+    isSource: () => connectionFacade.isSource,
+    sendOrQueue: connectionFacade.sendOrQueue,
+    notify: connectionFacade.notify,
+  );
+});
 
 /// Merges the old SmsListNotifier (state + DAO ops) and SmsEventHandler
 /// (native/peer message handling) into one Facade, per issue #39's F1 --

@@ -125,10 +125,8 @@ abstract class GroupedPaginatedNotifier<E, G>
       final key = groupKeyOf(e);
       map.putIfAbsent(key, () => []).add(e);
     }
-    final groups =
-        map.entries.map((e) => buildGroup(e.key, e.value)).toList();
-    groups.sort(
-        (a, b) => groupTimestamp(b).compareTo(groupTimestamp(a)));
+    final groups = map.entries.map((e) => buildGroup(e.key, e.value)).toList();
+    groups.sort((a, b) => groupTimestamp(b).compareTo(groupTimestamp(a)));
     return groups;
   }
 }

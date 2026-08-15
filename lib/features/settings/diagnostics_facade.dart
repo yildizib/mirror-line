@@ -68,7 +68,11 @@ class DiagnosticsFacade extends StateNotifier<List<TestRunRecord>> {
 
   void _record(TestEventType type, bool delivered) {
     state = [
-      TestRunRecord(type: type, timestamp: DateTime.now(), delivered: delivered),
+      TestRunRecord(
+        type: type,
+        timestamp: DateTime.now(),
+        delivered: delivered,
+      ),
       ...state,
     ];
   }

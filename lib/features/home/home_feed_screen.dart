@@ -23,7 +23,10 @@ class HomeFeedScreen extends ConsumerWidget {
     final l = AppLocalizations.of(context);
 
     if (items.isEmpty && !feedState.isLoading) {
-      return EmptyState(icon: Icons.dashboard_outlined, message: l.homeFeedEmpty);
+      return EmptyState(
+        icon: Icons.dashboard_outlined,
+        message: l.homeFeedEmpty,
+      );
     }
 
     // items are already sorted newest first by homeFeedProvider. Walk the
@@ -35,42 +38,46 @@ class HomeFeedScreen extends ConsumerWidget {
       final ts = item.timestamp;
       final day = DateTime(ts.year, ts.month, ts.day);
       if (previousDay == null || day != previousDay) {
-        if (children.isNotEmpty) children.add(const SizedBox(height: AppSpacing.sm));
+        if (children.isNotEmpty) {
+          children.add(const SizedBox(height: AppSpacing.sm));
+        }
         children.add(DateHeader(date: day));
         previousDay = day;
       }
- children.add(const SizedBox(height: AppSpacing.sm));
- children.add(_FeedTile(item: item));
- }
- if (feedState.isLoading) {
- children.add(const SizedBox(height: AppSpacing.md));
- children.add(const Center(
- child: SizedBox(
- width: 24,
- height: 24,
- child: CircularProgressIndicator(strokeWidth: 2),
- ),
- ));
- }
+      children.add(const SizedBox(height: AppSpacing.sm));
+      children.add(_FeedTile(item: item));
+    }
+    if (feedState.isLoading) {
+      children.add(const SizedBox(height: AppSpacing.md));
+      children.add(
+        const Center(
+          child: SizedBox(
+            width: 24,
+            height: 24,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+        ),
+      );
+    }
 
- return NotificationListener<ScrollNotification>(
- onNotification: (notification) {
- if (notification is ScrollEndNotification &&
- !feedState.isLoading &&
- !feedState.hasReachedEnd) {
- final metrics = notification.metrics;
- if (metrics.pixels >= metrics.maxScrollExtent - 500) {
- ref.read(homeFeedPaginatedProvider.notifier).loadMore();
- }
- }
- return false;
- },
- child: ListView(
- padding: const EdgeInsets.all(AppSpacing.md),
- children: children,
- ),
- );
- }
+    return NotificationListener<ScrollNotification>(
+      onNotification: (notification) {
+        if (notification is ScrollEndNotification &&
+            !feedState.isLoading &&
+            !feedState.hasReachedEnd) {
+          final metrics = notification.metrics;
+          if (metrics.pixels >= metrics.maxScrollExtent - 500) {
+            ref.read(homeFeedPaginatedProvider.notifier).loadMore();
+          }
+        }
+        return false;
+      },
+      child: ListView(
+        padding: const EdgeInsets.all(AppSpacing.md),
+        children: children,
+      ),
+    );
+  }
 }
 
 class _FeedTile extends StatelessWidget {

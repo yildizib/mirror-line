@@ -33,8 +33,9 @@ void main() {
 
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
-    tempDir =
-        await Directory.systemTemp.createTemp('mirrorline_call_group_test');
+    tempDir = await Directory.systemTemp.createTemp(
+      'mirrorline_call_group_test',
+    );
     PathProviderPlatform.instance = _FakePathProviderPlatform(tempDir.path);
   });
 
@@ -52,12 +53,13 @@ void main() {
             logger: Logger(),
             isSource: () => false,
             sendOrQueue: (type, payload) async => true,
-            notify: ({
-              required int id,
-              required String title,
-              required String body,
-              NotificationPayload? payload,
-            }) async {},
+            notify:
+                ({
+                  required int id,
+                  required String title,
+                  required String body,
+                  NotificationPayload? payload,
+                }) async {},
           );
         }),
       ],
@@ -90,28 +92,37 @@ void main() {
     await facade.load();
 
     final now = DateTime.now();
-    await facade.add(makeEvent(
-      id: 'today1',
-      timestamp: now.subtract(const Duration(hours: 1)),
-      contactName: 'Alice',
-    ));
-    await facade.add(makeEvent(
-      id: 'today2',
-      timestamp: now.subtract(const Duration(hours: 2)),
-      contactName: 'Bob',
-    ));
-    await facade.add(makeEvent(
-      id: 'old',
-      timestamp: now.subtract(const Duration(days: 10)),
-      contactName: 'Carol',
-    ));
+    await facade.add(
+      makeEvent(
+        id: 'today1',
+        timestamp: now.subtract(const Duration(hours: 1)),
+        contactName: 'Alice',
+      ),
+    );
+    await facade.add(
+      makeEvent(
+        id: 'today2',
+        timestamp: now.subtract(const Duration(hours: 2)),
+        contactName: 'Bob',
+      ),
+    );
+    await facade.add(
+      makeEvent(
+        id: 'old',
+        timestamp: now.subtract(const Duration(days: 10)),
+        contactName: 'Carol',
+      ),
+    );
 
     final notifier = container.read(callGroupsPaginatedProvider.notifier);
     await notifier.loadInitial();
     final state = container.read(callGroupsPaginatedProvider);
 
     expect(state.items.length, 2);
-    expect(state.items.map((g) => g.key).toList(), containsAll(['Alice', 'Bob']));
+    expect(
+      state.items.map((g) => g.key).toList(),
+      containsAll(['Alice', 'Bob']),
+    );
     expect(state.hasReachedEnd, isTrue);
   });
 
@@ -125,18 +136,22 @@ void main() {
     final yesterdayStart = todayStart.subtract(const Duration(days: 1));
 
     for (var i = 0; i < 60; i++) {
-      await facade.add(makeEvent(
-        id: 'recent_$i',
-        timestamp: yesterdayStart.add(Duration(minutes: i * 20)),
-        contactName: 'Recent$i',
-      ));
+      await facade.add(
+        makeEvent(
+          id: 'recent_$i',
+          timestamp: yesterdayStart.add(Duration(minutes: i * 20)),
+          contactName: 'Recent$i',
+        ),
+      );
     }
     for (var i = 0; i < 100; i++) {
-      await facade.add(makeEvent(
-        id: 'old_$i',
-        timestamp: yesterdayStart.subtract(Duration(hours: i + 1)),
-        contactName: 'OldContact$i',
-      ));
+      await facade.add(
+        makeEvent(
+          id: 'old_$i',
+          timestamp: yesterdayStart.subtract(Duration(hours: i + 1)),
+          contactName: 'OldContact$i',
+        ),
+      );
     }
 
     final notifier = container.read(callGroupsPaginatedProvider.notifier);
@@ -159,23 +174,29 @@ void main() {
     final todayStart = DateTime(now.year, now.month, now.day);
     final yesterdayStart = todayStart.subtract(const Duration(days: 1));
 
-    await facade.add(makeEvent(
-      id: 'recent_alice',
-      timestamp: now.subtract(const Duration(hours: 1)),
-      contactName: 'Alice',
-    ));
+    await facade.add(
+      makeEvent(
+        id: 'recent_alice',
+        timestamp: now.subtract(const Duration(hours: 1)),
+        contactName: 'Alice',
+      ),
+    );
     for (var i = 0; i < 30; i++) {
-      await facade.add(makeEvent(
-        id: 'filler_$i',
-        timestamp: yesterdayStart.add(Duration(minutes: i * 30)),
-        contactName: 'Filler$i',
-      ));
+      await facade.add(
+        makeEvent(
+          id: 'filler_$i',
+          timestamp: yesterdayStart.add(Duration(minutes: i * 30)),
+          contactName: 'Filler$i',
+        ),
+      );
     }
-    await facade.add(makeEvent(
-      id: 'old_alice',
-      timestamp: yesterdayStart.subtract(const Duration(days: 10)),
-      contactName: 'Alice',
-    ));
+    await facade.add(
+      makeEvent(
+        id: 'old_alice',
+        timestamp: yesterdayStart.subtract(const Duration(days: 10)),
+        contactName: 'Alice',
+      ),
+    );
 
     final notifier = container.read(callGroupsPaginatedProvider.notifier);
     await notifier.loadInitial();
