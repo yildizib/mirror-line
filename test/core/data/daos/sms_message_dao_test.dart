@@ -123,7 +123,7 @@ void main() {
     expect(recent.last.id, 'm29');
   });
 
-  test('getOlderByThread returns oldest 25 sorted ASC', () async {
+  test('getOlderByThread returns next 25 older messages sorted ASC', () async {
     final base = DateTime(2025, 1, 1, 12);
     for (var i = 0; i < 30; i++) {
       await dao.insert(makeMessage(
@@ -133,10 +133,11 @@ void main() {
       ));
     }
 
-    final older = await dao.getOlderByThread(threadId: 't1', limit: 25, offset: 0);
-    expect(older.length, 25);
+    final older =
+        await dao.getOlderByThread(threadId: 't1', limit: 25, offset: 25);
+    expect(older.length, 5);
     expect(older.first.id, 'm0');
-    expect(older.last.id, 'm24');
+    expect(older.last.id, 'm4');
   });
 
   test('getByThread returns all messages ASC (back-compat)', () async {

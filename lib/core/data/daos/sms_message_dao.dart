@@ -101,11 +101,13 @@ class SmsMessageDao {
       'sms_message',
       where: 'thread_id = ?',
       whereArgs: [threadId],
-      orderBy: 'timestamp ASC',
+      orderBy: 'timestamp DESC',
       limit: limit,
       offset: offset,
     );
-    return maps.map(SmsMessage.fromJson).toList();
+    final result = maps.map(SmsMessage.fromJson).toList();
+    result.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+    return result;
   }
 
   Future<void> updateStatus(String id, String status) async {

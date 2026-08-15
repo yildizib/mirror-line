@@ -5,11 +5,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:logger/logger.dart';
 import 'package:mirrorline/core/data/database.dart';
 import 'package:mirrorline/core/data/models/sms_message.dart';
-import 'package:mirrorline/features/connection/connection_facade.dart';
 import 'package:mirrorline/core/services/notification_service.dart';
+import 'package:mirrorline/features/connection/connection_facade.dart';
 import 'package:mirrorline/features/sms/sms_facade.dart';
+import 'package:mirrorline/features/sms/sms_thread_provider.dart';
+import 'package:mirrorline/shared/pagination/paginated_list_state.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 class _FakePathProviderPlatform extends PathProviderPlatform
@@ -31,8 +34,9 @@ void main() {
   });
 
   setUp(() async {
+    SharedPreferences.setMockInitialValues({});
     tempDir =
-        await Directory.systemTemp.createTemp('mirrorline_sms_facade_test');
+        await Directory.systemTemp.createTemp('mirrorline_sms_thread_test');
     PathProviderPlatform.instance = _FakePathProviderPlatform(tempDir.path);
   });
 
@@ -68,12 +72,14 @@ void main() {
     required String id,
     required DateTime timestamp,
     String threadId = 't1',
+    String address = '+15555550100',
+    String contactName = 'Alice',
   }) {
     return SmsMessage(
       id: id,
       threadId: threadId,
-      address: '+15555550100',
-      contactName: 'Test',
+      address: address,
+      contactName: contactName,
       body: 'hello',
       encrypted: '',
       direction: 'incoming',
@@ -83,96 +89,96 @@ void main() {
     );
   }
 
-  test('loadRecent returns newest-first with limit', () async {
+  test('loadInitial loads today+yesterday threads', () async {
     final container = buildContainer();
     final facade = container.read(smsFacadeProvider.notifier);
+    await facade.load();
+
+    final now = DateTime.now();
+    await facade.add(makeMessage(
+      id: 'today1',
+      timestamp: now.subtract(const Duration(hours: 1)),
+      address: '+111',
+      contactName: 'Alice',
+    ));
+    await facade.add(makeMessage(
+      id: 'today2',
+      timestamp: now.subtract(const Duration(hours: 2)),
+      address: '+222',
+      contactName: 'Bob',
+    ));
+    await facade.add(makeMessage(
+      id: 'old',
+      timestamp: now.subtract(const Duration(days: 10)),
+      address: '+333',
+      contactName: 'Carol',
+    ));
+
+    final notifier = container.read(smsThreadsPaginatedProvider.notifier);
+    await notifier.loadInitial();
+    final state = container.read(smsThreadsPaginatedProvider);
+
+    expect(state.items.length, 2);
+    expect(state.items.map((t) => t.address).toList(),
+        containsAll(['+111', '+222']));
+  });
+
+  test('thread detail preserves ASC order', () async {
+    final container = buildContainer();
+    final facade = container.read(smsFacadeProvider.notifier);
+    await facade.load();
+
+    final base = DateTime(2025, 1, 1, 12);
+    for (var i = 0; i < 10; i++) {
+      await facade.add(makeMessage(
+        id: 'm$i',
+        timestamp: base.add(Duration(minutes: i)),
+        threadId: 'thread_alice',
+        address: '+111',
+        contactName: 'Alice',
+      ));
+    }
+
+    final notifier = container
+        .read(smsThreadDetailPaginatedProvider('thread_alice').notifier);
+    await notifier.loadInitial();
+    final state =
+        container.read(smsThreadDetailPaginatedProvider('thread_alice'));
+
+    expect(state.items.length, 10);
+    expect(state.items.first.id, 'm0');
+    expect(state.items.last.id, 'm9');
+  });
+
+  test('thread detail loadOlder prepends older messages', () async {
+    final container = buildContainer();
+    final facade = container.read(smsFacadeProvider.notifier);
+    await facade.load();
 
     final base = DateTime(2025, 1, 1, 12);
     for (var i = 0; i < 30; i++) {
       await facade.add(makeMessage(
         id: 'm$i',
         timestamp: base.add(Duration(minutes: i)),
+        threadId: 'thread_alice',
+        address: '+111',
+        contactName: 'Alice',
       ));
     }
 
-    final recent = await facade.loadRecent(limit: 10);
-    expect(recent.length, 10);
-    expect(recent.first.id, 'm29');
-  });
+    final notifier = container
+        .read(smsThreadDetailPaginatedProvider('thread_alice').notifier);
+    await notifier.loadInitial();
+    var state =
+        container.read(smsThreadDetailPaginatedProvider('thread_alice'));
+    expect(state.items.length, 25);
+    expect(state.items.first.id, 'm5');
+    expect(state.items.last.id, 'm29');
 
-  test('loadRecent filters by since', () async {
-    final container = buildContainer();
-    final facade = container.read(smsFacadeProvider.notifier);
-
-    await facade.add(makeMessage(id: 'old', timestamp: DateTime(2025, 6, 1)));
-    await facade.add(
-        makeMessage(id: 'yesterday', timestamp: DateTime(2025, 6, 14, 9)));
-    await facade.add(
-        makeMessage(id: 'today', timestamp: DateTime(2025, 6, 15, 8)));
-
-    final since = DateTime(2025, 6, 14);
-    final recent = await facade.loadRecent(limit: 100, since: since);
-    expect(recent.length, 2);
-    expect(recent.map((e) => e.id).toList(), ['today', 'yesterday']);
-  });
-
-  test('loadOlder paginates with offset', () async {
-    final container = buildContainer();
-    final facade = container.read(smsFacadeProvider.notifier);
-
-    final base = DateTime(2025, 1, 1, 12);
-    for (var i = 0; i < 50; i++) {
-      await facade.add(makeMessage(
-        id: 'm$i',
-        timestamp: base.add(Duration(minutes: i)),
-      ));
-    }
-
-    final page1 = await facade.loadOlder(limit: 10, offset: 0);
-    expect(page1.length, 10);
-    expect(page1.first.id, 'm49');
-
-    final page2 = await facade.loadOlder(limit: 10, offset: 10);
-    expect(page2.length, 10);
-    expect(page2.first.id, 'm39');
-  });
-
-  test('loadRecentByThread returns newest 25 sorted ASC', () async {
-    final container = buildContainer();
-    final facade = container.read(smsFacadeProvider.notifier);
-
-    final base = DateTime(2025, 1, 1, 12);
-    for (var i = 0; i < 30; i++) {
-      await facade.add(makeMessage(
-        id: 'm$i',
-        timestamp: base.add(Duration(minutes: i)),
-        threadId: 't1',
-      ));
-    }
-
-    final recent = await facade.loadRecentByThread(threadId: 't1', limit: 25);
-    expect(recent.length, 25);
-    expect(recent.first.id, 'm5');
-    expect(recent.last.id, 'm29');
-  });
-
-  test('loadOlderByThread returns next 25 older messages sorted ASC', () async {
-    final container = buildContainer();
-    final facade = container.read(smsFacadeProvider.notifier);
-
-    final base = DateTime(2025, 1, 1, 12);
-    for (var i = 0; i < 30; i++) {
-      await facade.add(makeMessage(
-        id: 'm$i',
-        timestamp: base.add(Duration(minutes: i)),
-        threadId: 't1',
-      ));
-    }
-
-    final older =
-        await facade.loadOlderByThread(threadId: 't1', limit: 25, offset: 25);
-    expect(older.length, 5);
-    expect(older.first.id, 'm0');
-    expect(older.last.id, 'm4');
+    await notifier.loadOlder();
+    state = container.read(smsThreadDetailPaginatedProvider('thread_alice'));
+    expect(state.items.length, 30);
+    expect(state.items.first.id, 'm0');
+    expect(state.items.last.id, 'm29');
   });
 }
