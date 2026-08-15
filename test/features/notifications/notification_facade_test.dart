@@ -61,12 +61,13 @@ void main() {
               sent.add(MapEntry(type, payload));
               return true;
             },
-            notify: ({
-              required id,
-              required title,
-              required body,
-              payload,
-            }) async {},
+            notify:
+                ({
+                  required id,
+                  required title,
+                  required body,
+                  payload,
+                }) async {},
           ),
         ),
       ],
@@ -75,40 +76,37 @@ void main() {
     return container;
   }
 
-  test(
-    'handleNativeEvent is a no-op when the package is unwatched',
-    () async {
-      final sent = <MapEntry<String, Map<String, dynamic>>>[];
-      final container = buildContainer(sent);
-      final facade = container.read(notificationFacadeProvider.notifier);
-      final watchedApps = container.read(watchedAppsProvider.notifier);
+  test('handleNativeEvent is a no-op when the package is unwatched', () async {
+    final sent = <MapEntry<String, Map<String, dynamic>>>[];
+    final container = buildContainer(sent);
+    final facade = container.read(notificationFacadeProvider.notifier);
+    final watchedApps = container.read(watchedAppsProvider.notifier);
 
-      // Both classes' constructors kick off a fire-and-forget initial
-      // load; awaiting the same (idempotent) method explicitly here makes
-      // the test deterministic instead of racing the container's disposal
-      // in tearDown against whichever finishes last. In tests the
-      // watched-apps migration seeds nothing (native getInstalledApps()
-      // throws MissingPluginException, caught, returns []) -- every
-      // package starts unwatched by default.
-      await facade.load();
-      await watchedApps.load();
+    // Both classes' constructors kick off a fire-and-forget initial
+    // load; awaiting the same (idempotent) method explicitly here makes
+    // the test deterministic instead of racing the container's disposal
+    // in tearDown against whichever finishes last. In tests the
+    // watched-apps migration seeds nothing (native getInstalledApps()
+    // throws MissingPluginException, caught, returns []) -- every
+    // package starts unwatched by default.
+    await facade.load();
+    await watchedApps.load();
 
-      await facade.handleNativeEvent(
-        {
-          'packageName': 'com.example.unwatched',
-          'appName': 'Unwatched App',
-          'title': 'Hi',
-          'text': 'there',
-          'id': 'native-1',
-        },
-        id: 'evt-1',
-        now: DateTime.now(),
-      );
+    await facade.handleNativeEvent(
+      {
+        'packageName': 'com.example.unwatched',
+        'appName': 'Unwatched App',
+        'title': 'Hi',
+        'text': 'there',
+        'id': 'native-1',
+      },
+      id: 'evt-1',
+      now: DateTime.now(),
+    );
 
-      expect(facade.state, isEmpty);
-      expect(sent, isEmpty);
-    },
-  );
+    expect(facade.state, isEmpty);
+    expect(sent, isEmpty);
+  });
 
   test(
     'a native dismissal is ignored -- the stored event is kept (issue #59)',
@@ -178,9 +176,7 @@ void main() {
         isEmpty,
         reason: 'sender does not get a local copy of its own test event',
       );
-      final message = sent.singleWhere(
-        (e) => e.key == 'notification_mirrored',
-      );
+      final message = sent.singleWhere((e) => e.key == 'notification_mirrored');
       expect(message.value['packageName'], 'mirrorline.diagnostics.test');
       expect(message.value['appName'], 'Test App');
       expect(message.value['title'], 'Test Title');

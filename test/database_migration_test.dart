@@ -26,19 +26,42 @@ void main() {
     final peerColumns = await _columnNames(db, 'peer');
     expect(
       peerColumns,
-      containsAll(['id', 'device_name', 'role', 'ip', 'port', 'key', 'public_key', 'created_at']),
+      containsAll([
+        'id',
+        'device_name',
+        'role',
+        'ip',
+        'port',
+        'key',
+        'public_key',
+        'created_at',
+      ]),
     );
 
     final callColumns = await _columnNames(db, 'call_event');
     expect(
       callColumns,
-      containsAll(['id', 'direction', 'number', 'contact_name', 'status', 'timestamp']),
+      containsAll([
+        'id',
+        'direction',
+        'number',
+        'contact_name',
+        'status',
+        'timestamp',
+      ]),
     );
 
     final smsColumns = await _columnNames(db, 'sms_message');
     expect(
       smsColumns,
-      containsAll(['id', 'thread_id', 'address', 'contact_name', 'body', 'status']),
+      containsAll([
+        'id',
+        'thread_id',
+        'address',
+        'contact_name',
+        'body',
+        'status',
+      ]),
     );
 
     final knownNetworkColumns = await _columnNames(db, 'known_network');
@@ -50,19 +73,32 @@ void main() {
     final notificationColumns = await _columnNames(db, 'notification_event');
     expect(
       notificationColumns,
-      containsAll(['id', 'native_id', 'package_name', 'app_name', 'title', 'text', 'timestamp']),
+      containsAll([
+        'id',
+        'native_id',
+        'package_name',
+        'app_name',
+        'title',
+        'text',
+        'timestamp',
+      ]),
     );
 
     await db.close();
   });
 
-  test('upgrading from v1 preserves existing rows and adds new columns', () async {
-    final db = await databaseFactory.openDatabase(inMemoryDatabasePath, options: OpenDatabaseOptions(version: 1));
+  test(
+    'upgrading from v1 preserves existing rows and adds new columns',
+    () async {
+      final db = await databaseFactory.openDatabase(
+        inMemoryDatabasePath,
+        options: OpenDatabaseOptions(version: 1),
+      );
 
-    // Recreates exactly what v1 shipped with -- deliberately hand-written
-    // (not derived from the current createTables) since that's the whole
-    // point: proving the *real* upgrade path handles the *actual* old shape.
-    await db.execute('''
+      // Recreates exactly what v1 shipped with -- deliberately hand-written
+      // (not derived from the current createTables) since that's the whole
+      // point: proving the *real* upgrade path handles the *actual* old shape.
+      await db.execute('''
       CREATE TABLE peer (
         id TEXT PRIMARY KEY,
         role TEXT NOT NULL,
@@ -72,7 +108,7 @@ void main() {
         created_at INTEGER NOT NULL
       )
     ''');
-    await db.execute('''
+      await db.execute('''
       CREATE TABLE call_event (
         id TEXT PRIMARY KEY,
         direction TEXT NOT NULL,
@@ -83,7 +119,7 @@ void main() {
         created_at INTEGER NOT NULL
       )
     ''');
-    await db.execute('''
+      await db.execute('''
       CREATE TABLE sms_message (
         id TEXT PRIMARY KEY,
         thread_id TEXT NOT NULL,
@@ -97,54 +133,73 @@ void main() {
       )
     ''');
 
-    await db.insert('peer', {
-      'id': 'peer-1',
-      'role': 'main',
-      'ip': '192.168.1.10',
-      'port': 45678,
-      'key': 'fake-key-base64',
-      'created_at': 1700000000000,
-    });
-    await db.insert('call_event', {
-      'id': 'call-1',
-      'direction': 'incoming',
-      'number': '+905551112233',
-      'timestamp': 1700000000000,
-      'encrypted': '',
-      'status': 'ringing',
-      'created_at': 1700000000000,
-    });
+      await db.insert('peer', {
+        'id': 'peer-1',
+        'role': 'main',
+        'ip': '192.168.1.10',
+        'port': 45678,
+        'key': 'fake-key-base64',
+        'created_at': 1700000000000,
+      });
+      await db.insert('call_event', {
+        'id': 'call-1',
+        'direction': 'incoming',
+        'number': '+905551112233',
+        'timestamp': 1700000000000,
+        'encrypted': '',
+        'status': 'ringing',
+        'created_at': 1700000000000,
+      });
 
-    // Now run the app's real upgrade path, v1 -> current.
-    await AppDatabase.instance.upgradeTables(db, 1, AppDatabase.schemaVersion);
+      // Now run the app's real upgrade path, v1 -> current.
+      await AppDatabase.instance.upgradeTables(
+        db,
+        1,
+        AppDatabase.schemaVersion,
+      );
 
-    final peers = await db.query('peer');
-    expect(peers, hasLength(1));
-    expect(peers.first['id'], 'peer-1');
-    expect(peers.first['ip'], '192.168.1.10', reason: 'pre-existing data must survive the upgrade');
-    expect(peers.first['device_name'], '', reason: 'new column gets its declared default');
-    expect(peers.first['public_key'], '');
+      final peers = await db.query('peer');
+      expect(peers, hasLength(1));
+      expect(peers.first['id'], 'peer-1');
+      expect(
+        peers.first['ip'],
+        '192.168.1.10',
+        reason: 'pre-existing data must survive the upgrade',
+      );
+      expect(
+        peers.first['device_name'],
+        '',
+        reason: 'new column gets its declared default',
+      );
+      expect(peers.first['public_key'], '');
 
-    final calls = await db.query('call_event');
-    expect(calls, hasLength(1));
-    expect(calls.first['number'], '+905551112233');
-    expect(calls.first['contact_name'], '');
+      final calls = await db.query('call_event');
+      expect(calls, hasLength(1));
+      expect(calls.first['number'], '+905551112233');
+      expect(calls.first['contact_name'], '');
 
-    final peerColumns = await _columnNames(db, 'peer');
-    expect(peerColumns, containsAll(['device_name', 'public_key']));
-    final callColumns = await _columnNames(db, 'call_event');
-    expect(callColumns, contains('contact_name'));
-    final smsColumns = await _columnNames(db, 'sms_message');
-    expect(smsColumns, contains('contact_name'));
+      final peerColumns = await _columnNames(db, 'peer');
+      expect(peerColumns, containsAll(['device_name', 'public_key']));
+      final callColumns = await _columnNames(db, 'call_event');
+      expect(callColumns, contains('contact_name'));
+      final smsColumns = await _columnNames(db, 'sms_message');
+      expect(smsColumns, contains('contact_name'));
 
-    final knownNetworkColumns = await _columnNames(db, 'known_network');
-    expect(knownNetworkColumns, containsAll(['peer_id', 'subnet_prefix', 'ip', 'port', 'last_seen_at']));
+      final knownNetworkColumns = await _columnNames(db, 'known_network');
+      expect(
+        knownNetworkColumns,
+        containsAll(['peer_id', 'subnet_prefix', 'ip', 'port', 'last_seen_at']),
+      );
 
-    await db.close();
-  });
+      await db.close();
+    },
+  );
 
   test('upgrading from v2 only adds the columns introduced after it', () async {
-    final db = await databaseFactory.openDatabase(inMemoryDatabasePath, options: OpenDatabaseOptions(version: 2));
+    final db = await databaseFactory.openDatabase(
+      inMemoryDatabasePath,
+      options: OpenDatabaseOptions(version: 2),
+    );
 
     await db.execute('''
       CREATE TABLE peer (
@@ -181,7 +236,10 @@ void main() {
   });
 
   test('upgrading from v4 adds the known_network table', () async {
-    final db = await databaseFactory.openDatabase(inMemoryDatabasePath, options: OpenDatabaseOptions(version: 4));
+    final db = await databaseFactory.openDatabase(
+      inMemoryDatabasePath,
+      options: OpenDatabaseOptions(version: 4),
+    );
 
     await db.execute('''
       CREATE TABLE peer (
@@ -213,7 +271,10 @@ void main() {
     await AppDatabase.instance.upgradeTables(db, 4, AppDatabase.schemaVersion);
 
     final knownNetworkColumns = await _columnNames(db, 'known_network');
-    expect(knownNetworkColumns, containsAll(['peer_id', 'subnet_prefix', 'ip', 'port', 'last_seen_at']));
+    expect(
+      knownNetworkColumns,
+      containsAll(['peer_id', 'subnet_prefix', 'ip', 'port', 'last_seen_at']),
+    );
 
     await db.insert('known_network', {
       'peer_id': 'peer-1',
@@ -230,7 +291,10 @@ void main() {
   });
 
   test('upgrading from v5 adds the notification_event table', () async {
-    final db = await databaseFactory.openDatabase(inMemoryDatabasePath, options: OpenDatabaseOptions(version: 5));
+    final db = await databaseFactory.openDatabase(
+      inMemoryDatabasePath,
+      options: OpenDatabaseOptions(version: 5),
+    );
 
     await db.execute('''
       CREATE TABLE peer (
@@ -271,7 +335,17 @@ void main() {
     final notificationColumns = await _columnNames(db, 'notification_event');
     expect(
       notificationColumns,
-      containsAll(['id', 'native_id', 'package_name', 'app_name', 'title', 'text', 'encrypted', 'timestamp', 'created_at']),
+      containsAll([
+        'id',
+        'native_id',
+        'package_name',
+        'app_name',
+        'title',
+        'text',
+        'encrypted',
+        'timestamp',
+        'created_at',
+      ]),
     );
 
     await db.insert('notification_event', {

@@ -15,13 +15,17 @@ class CallsScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final groups = ref.watch(callGroupsProvider);
+    final groupsState = ref.watch(callGroupsPaginatedProvider);
+    final groups = groupsState.items;
     final l = AppLocalizations.of(context);
 
     return SelectableListScaffold(
       items: groups,
       itemKey: (group) => group.key,
       dateHeaderOf: (group) => group.lastCall.timestamp,
+      onLoadMore: ref.read(callGroupsPaginatedProvider.notifier).loadMore,
+      isLoadingMore: groupsState.isLoading,
+      hasReachedEnd: groupsState.hasReachedEnd,
       itemBuilder: (context, group, isSelecting, isSelected, onTapSelect) =>
           _GroupedCallCard(
             group: group,

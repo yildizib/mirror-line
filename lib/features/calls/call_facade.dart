@@ -11,17 +11,18 @@ import 'package:mirrorline/core/telephony/telephony_channel.dart';
 import 'package:mirrorline/features/connection/connection_facade.dart';
 import 'package:uuid/uuid.dart';
 
-final callFacadeProvider =
-    StateNotifierProvider<CallFacade, List<CallEvent>>((ref) {
-      final connectionFacade = ref.read(connectionFacadeProvider.notifier);
-      return CallFacade(
-        ref: ref,
-        logger: Logger(),
-        isSource: () => connectionFacade.isSource,
-        sendOrQueue: connectionFacade.sendOrQueue,
-        notify: connectionFacade.notify,
-      );
-    });
+final callFacadeProvider = StateNotifierProvider<CallFacade, List<CallEvent>>((
+  ref,
+) {
+  final connectionFacade = ref.read(connectionFacadeProvider.notifier);
+  return CallFacade(
+    ref: ref,
+    logger: Logger(),
+    isSource: () => connectionFacade.isSource,
+    sendOrQueue: connectionFacade.sendOrQueue,
+    notify: connectionFacade.notify,
+  );
+});
 
 /// Derived provider: O(1) lookup by call ID instead of linear search.
 final callEventMapProvider = Provider<Map<String, CallEvent>>((ref) {
@@ -93,6 +94,21 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
 
   Future<void> load() async {
     state = await _dao.getAll();
+  }
+
+  Future<List<CallEvent>> loadRecent({
+    required int limit,
+    DateTime? since,
+  }) async {
+    return _dao.getRecent(limit: limit, since: since);
+  }
+
+  Future<List<CallEvent>> loadOlder({
+    required int limit,
+    required int offset,
+    DateTime? before,
+  }) async {
+    return _dao.getOlder(limit: limit, offset: offset, before: before);
   }
 
   /// Upsert: replaces the existing entry if [event.id] is already present
@@ -182,12 +198,14 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
       await _handleNativeEventImpl(data, id: id, now: now);
     }
 
-    return run().then((_) {
-      completer.complete();
-    }).catchError((Object e, StackTrace st) {
-      _logger.e('Native call event error: $e', stackTrace: st);
-      completer.complete();
-    });
+    return run()
+        .then((_) {
+          completer.complete();
+        })
+        .catchError((Object e, StackTrace st) {
+          _logger.e('Native call event error: $e', stackTrace: st);
+          completer.complete();
+        });
   }
 
   Future<void> _handleNativeEventImpl(
@@ -387,8 +405,7 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
     }
   }
 
-  CallEvent? _findCall(String id) =>
-      state.where((e) => e.id == id).firstOrNull;
+  CallEvent? _findCall(String id) => state.where((e) => e.id == id).firstOrNull;
 
   /// Renders (or replaces, by id) the call notification from [event]'s
   /// current state. Single source of truth for notification rendering --

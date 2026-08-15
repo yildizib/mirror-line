@@ -89,11 +89,10 @@ class PairingState {
   }
 }
 
-final pairingFacadeProvider = StateNotifierProvider<PairingFacade, PairingState>((
-  ref,
-) {
-  return PairingFacade(ref);
-});
+final pairingFacadeProvider =
+    StateNotifierProvider<PairingFacade, PairingState>((ref) {
+      return PairingFacade(ref);
+    });
 
 /// Coordinates the two-way QR pairing handshake.
 ///
@@ -252,6 +251,7 @@ class PairingFacade extends StateNotifier<PairingState> {
         // Tell the scanned side we actually persisted our end -- see
         // pairingAck's doc comment in message_protocol.dart. Sent on the
         // same handshake socket before it's torn down below.
+        _logger.i('Sending pairingAck on handshake socket...');
         await _handshakeSocket?.sendMessage(MessageTypes.pairingAck, {});
       } else {
         state = state.copyWith(
@@ -371,6 +371,7 @@ class PairingFacade extends StateNotifier<PairingState> {
     final myPeer = _ref.read(peerFacadeProvider);
     final myPublicKey = await KeyStore.ensureDeviceKeyPair();
 
+    _logger.i('Sending pairingAccept to scanner...');
     await socketManager.sendMessage(MessageTypes.pairingAccept, {
       // Sent to the other device as identity data -- locale-neutral
       // fallback, same reasoning as peer_facade.dart's _getDeviceName().
@@ -427,6 +428,7 @@ class PairingFacade extends StateNotifier<PairingState> {
   /// Scanned side: the scanner confirmed it persisted its own end. Safe to
   /// commit our side now (see acceptRequest).
   void handlePairingAck() {
+    _logger.i('handlePairingAck called — completing _pairAckCompleter.');
     if (_pairAckCompleter != null && !_pairAckCompleter!.isCompleted) {
       _pairAckCompleter!.complete(true);
     }

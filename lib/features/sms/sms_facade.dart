@@ -9,17 +9,18 @@ import 'package:mirrorline/core/telephony/telephony_channel.dart';
 import 'package:mirrorline/features/connection/connection_facade.dart';
 import 'package:uuid/uuid.dart';
 
-final smsFacadeProvider =
-    StateNotifierProvider<SmsFacade, List<SmsMessage>>((ref) {
-      final connectionFacade = ref.read(connectionFacadeProvider.notifier);
-      return SmsFacade(
-        ref: ref,
-        logger: Logger(),
-        isSource: () => connectionFacade.isSource,
-        sendOrQueue: connectionFacade.sendOrQueue,
-        notify: connectionFacade.notify,
-      );
-    });
+final smsFacadeProvider = StateNotifierProvider<SmsFacade, List<SmsMessage>>((
+  ref,
+) {
+  final connectionFacade = ref.read(connectionFacadeProvider.notifier);
+  return SmsFacade(
+    ref: ref,
+    logger: Logger(),
+    isSource: () => connectionFacade.isSource,
+    sendOrQueue: connectionFacade.sendOrQueue,
+    notify: connectionFacade.notify,
+  );
+});
 
 /// Merges the old SmsListNotifier (state + DAO ops) and SmsEventHandler
 /// (native/peer message handling) into one Facade, per issue #39's F1 --
@@ -48,6 +49,59 @@ class SmsFacade extends StateNotifier<List<SmsMessage>> {
 
   Future<void> load() async {
     state = await _dao.getAll();
+  }
+
+  Future<List<SmsMessage>> loadRecent({
+    required int limit,
+    DateTime? since,
+  }) async {
+    return _dao.getRecent(limit: limit, since: since);
+  }
+
+  Future<List<SmsMessage>> loadOlder({
+    required int limit,
+    required int offset,
+    DateTime? before,
+  }) async {
+    return _dao.getOlder(limit: limit, offset: offset, before: before);
+  }
+
+  Future<List<SmsMessage>> loadRecentByThread({
+    required String threadId,
+    required int limit,
+  }) async {
+    return _dao.getRecentByThread(threadId: threadId, limit: limit);
+  }
+
+  Future<List<SmsMessage>> loadOlderByThread({
+    required String threadId,
+    required int limit,
+    required int offset,
+  }) async {
+    return _dao.getOlderByThread(
+      threadId: threadId,
+      limit: limit,
+      offset: offset,
+    );
+  }
+
+  Future<List<SmsMessage>> loadRecentByAddress({
+    required String address,
+    required int limit,
+  }) async {
+    return _dao.getRecentByAddress(address: address, limit: limit);
+  }
+
+  Future<List<SmsMessage>> loadOlderByAddress({
+    required String address,
+    required int limit,
+    required int offset,
+  }) async {
+    return _dao.getOlderByAddress(
+      address: address,
+      limit: limit,
+      offset: offset,
+    );
   }
 
   /// Upsert: replaces the existing entry if [message.id] is already

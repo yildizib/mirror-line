@@ -111,45 +111,54 @@ void main() {
     await container.read(notificationFacadeProvider.notifier).load();
   }
 
-  test('runTests sends one call, one SMS and one notification, in order', () async {
-    final sent = <MapEntry<String, Map<String, dynamic>>>[];
-    final container = buildContainer(sent);
-    await settleFacades(container);
+  test(
+    'runTests sends one call, one SMS and one notification, in order',
+    () async {
+      final sent = <MapEntry<String, Map<String, dynamic>>>[];
+      final container = buildContainer(sent);
+      await settleFacades(container);
 
-    await container.read(diagnosticsFacadeProvider.notifier).runTests();
+      await container.read(diagnosticsFacadeProvider.notifier).runTests();
 
-    expect(sent.map((e) => e.key).toList(), [
-      'call_incoming',
-      'sms_incoming',
-      'notification_mirrored',
-    ]);
-  });
+      expect(sent.map((e) => e.key).toList(), [
+        'call_incoming',
+        'sms_incoming',
+        'notification_mirrored',
+      ]);
+    },
+  );
 
-  test('runTests records one entry per type, newest first, marked delivered', () async {
-    final sent = <MapEntry<String, Map<String, dynamic>>>[];
-    final container = buildContainer(sent, deliver: true);
-    await settleFacades(container);
+  test(
+    'runTests records one entry per type, newest first, marked delivered',
+    () async {
+      final sent = <MapEntry<String, Map<String, dynamic>>>[];
+      final container = buildContainer(sent, deliver: true);
+      await settleFacades(container);
 
-    await container.read(diagnosticsFacadeProvider.notifier).runTests();
+      await container.read(diagnosticsFacadeProvider.notifier).runTests();
 
-    final records = container.read(diagnosticsFacadeProvider);
-    expect(records, hasLength(3));
-    expect(records.every((r) => r.delivered), isTrue);
-    // Newest first: the last-sent type (notification) is at index 0.
-    expect(records[0].type, TestEventType.notification);
-    expect(records[1].type, TestEventType.sms);
-    expect(records[2].type, TestEventType.call);
-  });
+      final records = container.read(diagnosticsFacadeProvider);
+      expect(records, hasLength(3));
+      expect(records.every((r) => r.delivered), isTrue);
+      // Newest first: the last-sent type (notification) is at index 0.
+      expect(records[0].type, TestEventType.notification);
+      expect(records[1].type, TestEventType.sms);
+      expect(records[2].type, TestEventType.call);
+    },
+  );
 
-  test('runTests marks records as queued (not delivered) when disconnected', () async {
-    final sent = <MapEntry<String, Map<String, dynamic>>>[];
-    final container = buildContainer(sent, deliver: false);
-    await settleFacades(container);
+  test(
+    'runTests marks records as queued (not delivered) when disconnected',
+    () async {
+      final sent = <MapEntry<String, Map<String, dynamic>>>[];
+      final container = buildContainer(sent, deliver: false);
+      await settleFacades(container);
 
-    await container.read(diagnosticsFacadeProvider.notifier).runTests();
+      await container.read(diagnosticsFacadeProvider.notifier).runTests();
 
-    final records = container.read(diagnosticsFacadeProvider);
-    expect(records, hasLength(3));
-    expect(records.every((r) => !r.delivered), isTrue);
-  });
+      final records = container.read(diagnosticsFacadeProvider);
+      expect(records, hasLength(3));
+      expect(records.every((r) => !r.delivered), isTrue);
+    },
+  );
 }

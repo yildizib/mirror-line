@@ -49,6 +49,21 @@ class NotificationFacade extends StateNotifier<List<NotificationEvent>> {
     state = await _dao.getAll();
   }
 
+  Future<List<NotificationEvent>> loadRecent({
+    required int limit,
+    DateTime? since,
+  }) async {
+    return _dao.getRecent(limit: limit, since: since);
+  }
+
+  Future<List<NotificationEvent>> loadOlder({
+    required int limit,
+    required int offset,
+    DateTime? before,
+  }) async {
+    return _dao.getOlder(limit: limit, offset: offset, before: before);
+  }
+
   Future<void> add(NotificationEvent event) async {
     await _dao.insert(event);
     final exists = state.any((e) => e.id == event.id);
@@ -74,9 +89,7 @@ class NotificationFacade extends StateNotifier<List<NotificationEvent>> {
         // Must match the id _notify() used when showing it (nativeId's
         // hash, not the local event id) or the wrong OS notification --
         // or none -- gets cancelled.
-        await NotificationService.cancel(
-          target.nativeId.hashCode & 0x7fffffff,
-        );
+        await NotificationService.cancel(target.nativeId.hashCode & 0x7fffffff);
       } catch (e) {
         _logger.e('Failed to cancel mirrored notification: $e');
       }
@@ -135,7 +148,7 @@ class NotificationFacade extends StateNotifier<List<NotificationEvent>> {
     required DateTime now,
   }) async {
     final packageName = (data['packageName'] as String?) ?? 'unknown';
-    if (packageName == 'com.thinksolve.mirrorline') return;
+    if (packageName == 'io.github.yildizib.mirrorline') return;
     // Read live, not captured at construction -- the watched set can
     // change any time via the Watched Apps screen.
     if (!_ref.read(watchedAppsProvider.notifier).isWatched(packageName)) {
@@ -218,7 +231,10 @@ class NotificationFacade extends StateNotifier<List<NotificationEvent>> {
           id: nativeId.hashCode & 0x7fffffff,
           title: appName,
           body: (title.isNotEmpty && title != appName) ? '$title: $text' : text,
-          payload: NotificationPayload(type: 'mirrored_notification', id: event.id),
+          payload: NotificationPayload(
+            type: 'mirrored_notification',
+            id: event.id,
+          ),
         );
         break;
 

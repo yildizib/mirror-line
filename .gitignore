@@ -49,4 +49,7 @@ app.*.map.json
 .rtk/
 .claude/
 .remember/
-
+.opencode/
+.mlinemap/
+.raw*/
+.tmp_dumps/

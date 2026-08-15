@@ -1,144 +1,3 @@
-<!-- rtk-instructions v2 -->
-# RTK (Rust Token Killer) - Token-Optimized Commands
-
-## Golden Rule
-
-**Always prefix commands with `rtk`**. If RTK has a dedicated filter, it uses it. If not, it passes through unchanged. This means RTK is always safe to use.
-
-**Important**: Even in command chains with `&&`, use `rtk`:
-```bash
-# ❌ Wrong
-git add . && git commit -m "msg" && git push
-
-# ✅ Correct
-rtk git add . && rtk git commit -m "msg" && rtk git push
-```
-
-## RTK Commands by Workflow
-
-### Build & Compile (80-90% savings)
-```bash
-rtk cargo build         # Cargo build output
-rtk cargo check         # Cargo check output
-rtk cargo clippy        # Clippy warnings grouped by file (80%)
-rtk tsc                 # TypeScript errors grouped by file/code (83%)
-rtk lint                # ESLint/Biome violations grouped (84%)
-rtk prettier --check    # Files needing format only (70%)
-rtk next build          # Next.js build with route metrics (87%)
-```
-
-### Test (60-99% savings)
-```bash
-rtk cargo test          # Cargo test failures only (90%)
-rtk go test             # Go test failures only (90%)
-rtk jest                # Jest failures only (99.5%)
-rtk vitest              # Vitest failures only (99.5%)
-rtk playwright test     # Playwright failures only (94%)
-rtk pytest              # Python test failures only (90%)
-rtk rake test           # Ruby test failures only (90%)
-rtk rspec               # RSpec test failures only (60%)
-rtk test <cmd>          # Generic test wrapper - failures only
-```
-
-### Git (59-80% savings)
-```bash
-rtk git status          # Compact status
-rtk git log             # Compact log (works with all git flags)
-rtk git diff            # Compact diff (80%)
-rtk git show            # Compact show (80%)
-rtk git add             # Ultra-compact confirmations (59%)
-rtk git commit          # Ultra-compact confirmations (59%)
-rtk git push            # Ultra-compact confirmations
-rtk git pull            # Ultra-compact confirmations
-rtk git branch          # Compact branch list
-rtk git fetch           # Compact fetch
-rtk git stash           # Compact stash
-rtk git worktree        # Compact worktree
-```
-
-Note: Git passthrough works for ALL subcommands, even those not explicitly listed.
-
-### GitHub (26-87% savings)
-```bash
-rtk gh pr view <num>    # Compact PR view (87%)
-rtk gh pr checks        # Compact PR checks (79%)
-rtk gh run list         # Compact workflow runs (82%)
-rtk gh issue list       # Compact issue list (80%)
-rtk gh api              # Compact API responses (26%)
-```
-
-### JavaScript/TypeScript Tooling (70-90% savings)
-```bash
-rtk pnpm list           # Compact dependency tree (70%)
-rtk pnpm outdated       # Compact outdated packages (80%)
-rtk pnpm install        # Compact install output (90%)
-rtk npm run <script>    # Compact npm script output
-rtk npx <cmd>           # Compact npx command output
-rtk prisma              # Prisma without ASCII art (88%)
-```
-
-### Files & Search (60-75% savings)
-```bash
-rtk ls <path>           # Tree format, compact (65%)
-rtk read <file>         # Code reading with filtering (60%)
-rtk grep <pattern>      # Search grouped by file (75%). Format flags (-c, -l, -L, -o, -Z) run raw.
-rtk find <pattern>      # Find grouped by directory (70%)
-```
-
-### Analysis & Debug (70-90% savings)
-```bash
-rtk err <cmd>           # Filter errors only from any command
-rtk log <file>          # Deduplicated logs with counts
-rtk json <file>         # JSON structure without values
-rtk deps                # Dependency overview
-rtk env                 # Environment variables compact
-rtk summary <cmd>       # Smart summary of command output
-rtk diff                # Ultra-compact diffs
-```
-
-### Infrastructure (85% savings)
-```bash
-rtk docker ps           # Compact container list
-rtk docker images       # Compact image list
-rtk docker logs <c>     # Deduplicated logs
-rtk kubectl get         # Compact resource list
-rtk kubectl logs        # Deduplicated pod logs
-```
-
-### Network (65-70% savings)
-```bash
-rtk curl <url>          # Compact HTTP responses (70%)
-rtk wget <url>          # Compact download output (65%)
-```
-
-### Meta Commands
-```bash
-rtk gain                # View token savings statistics
-rtk gain --history      # View command history with savings
-rtk discover            # Analyze Claude Code sessions for missed RTK usage
-rtk proxy <cmd>         # Run command without filtering (for debugging)
-rtk init                # Add RTK instructions to CLAUDE.md
-rtk init --global       # Add RTK to ~/.claude/CLAUDE.md
-```
-
-## Token Savings Overview
-
-| Category | Commands | Typical Savings |
-|----------|----------|-----------------|
-| Tests | vitest, playwright, cargo test | 90-99% |
-| Build | next, tsc, lint, prettier | 70-87% |
-| Git | status, log, diff, add, commit | 59-80% |
-| GitHub | gh pr, gh run, gh issue | 26-87% |
-| Package Managers | pnpm, npm, npx | 70-90% |
-| Files | ls, read, grep, find | 60-75% |
-| Infrastructure | docker, kubectl | 85% |
-| Network | curl, wget | 65-70% |
-
-Overall average: **60-90% token reduction** on common development operations.
-<!-- /rtk-instructions -->
-
----
-
 # Git Workflow for Issue-Based Development
 
 This project uses GitHub Issues to track work and implements a systematic branching strategy based on Gitflow, customized for this team's workflow. Release automation is handled by GitHub Actions workflows that trigger on version tags.
@@ -235,7 +94,7 @@ gh pr create --title "Fix: Brief description" \
 
 ### 5. Testing & Merge
 - **Developer:** Create PR, request testing
-- **User (Ibrahim):** Test on device
+- **Developer:** Test on device
 - **After verification:** Close issue, merge PR
 ```bash
 gh issue close #ID
@@ -382,4 +241,211 @@ PR review → approve → merge to develop
 
 This keeps the mainline (`develop`/`main`) clean and ensures all changes are reviewed before landing. No direct commits to `develop`/`main` at any time.
 
+---
+
+# Release Workflow (Simple Explanation)
+
+## Flow Summary
+
+```
+develop ──●──●──●──●──●──●──●──●── merge main (back-sync)
+              \               /
+               release/v0.3.0
+                  │
+                squash merge
+                  ↓
+main ──────────────S ← tag v0.3.0 → Actions → APK
+```
+
+In 3 sentences:
+1. **Open a release branch from develop, bump the version, squash merge it into main**
+2. **Tag main → GitHub Actions automatically builds the APK**
+3. **Back-merge main into develop so develop stays up to date**
+
+## Step by Step
+
+### Starting state
+
+```
+develop:  A──B──C──D──E    (50 commits accumulated)
+main:     A                  (old release)
+```
+
+Develop is ahead, main is behind. We need to release.
+
+### Step 1 — Create release branch (from develop)
+
+```
+git checkout develop && git pull origin develop
+git checkout -b release/v0.3.0-59
+```
+
+```
+develop:  A──B──C──D──E
+                 \
+                  R      ← release/v0.3.0-59
+```
+
+### Step 2 — Version bump
+
+```
+# pubspec.yaml: 0.2.1+2 → 0.3.0+3
+git add pubspec.yaml
+git commit -m "chore(release): Bump version to v0.3.0"
+```
+
+Only `pubspec.yaml` changes. No other code changes.
+
+### Step 3 — Create PR (target: main!)
+
+```
+git push -u origin release/v0.3.0-59
+gh pr create --title "Release: v0.3.0" --base main --body "..."
+```
+
+**Important:** The PR target is **main** (not develop).
+
+### Step 4 — Squash merge (into main)
+
+```
+gh pr merge <PR#> --squash --admin
+```
+
+```
+develop:  A──B──C──D──E
+main:     A──────────────S    ← S = squash (50 commits into one)
+```
+
+**Squash =** compresses 50 commits into a single commit, keeping main clean.
+
+### Step 5 — Tag (on main)
+
+```
+git checkout main && git pull origin main
+git tag -a v0.3.0 -m "Release v0.3.0"
+git push origin v0.3.0
+```
+
+Pushing the tag triggers **GitHub Actions** (`android-release.yml`) automatically:
+- Builds the APK
+- Creates a GitHub Release
+- Attaches the APK to the Release
+
+### Step 6 — Back-merge (main → develop)
+
+```
+git checkout develop
+git merge main --no-edit
+git push origin develop
+```
+
+```
+develop:  A──B──C──D──E──M    ← M = merge main
+main:     A──────────────S
+```
+
+**Why?** Develop must always contain main. Otherwise the next release will have conflicts.
+
+### Step 7 — Cleanup
+
+```
+git branch -d release/v0.3.0-59
+git push origin --delete release/v0.3.0-59
+```
+
+## Version Number (Semantic Versioning)
+
+```
+v0.3.0+3
+  ^  ^  ^
+  │  │  └── patch: bug fix (0.3.1)
+  │  └───── minor: new feature (0.3.0 → 0.4.0)
+  └──────── major: breaking change (0.x → 1.0.0)
+```
+
+- Bug fix → patch bump (`0.3.0` → `0.3.1`)
+- New feature → minor bump (`0.3.0` → `0.4.0`)
+- Breaking change → major bump (`0.x` → `1.0.0`)
+
+`pubspec.yaml` format: `version: MAJOR.MINOR.PATCH+BUILD_NUMBER`
+
+## Key Points
+
+- PR base = **main** (releases merge into main, not develop)
+- Tag is placed **on main** (CI builds the release commit on main)
+- Squash merge: main stays clean (50 commits → 1 commit)
+- Develop back-merges main afterwards (Gitflow rule: develop ≥ main)
+- Don't wait for builds — use `--admin --squash` to force merge
+- `pubspec.lock` is never included in commits
+- Release branch is deleted after the release is done (not permanent)
+
+## Architecture style 
+- Base services -> Facade -> UI service -> UI 
+- UIs cannot reach base services directly.
+- UI services cannot reach base services directly such as listeners, sockets, etc
+- Facades can reach base services and serve endpoints to UI services.
+- This rules cannot breakable.
+
+## QA 
+- Always test it what you write.
+- Use flutter analyze, dart analyse , compile and build app for errors.
+- run al tests.
+- If you add a new feature you should add that ones tests.
+- Tests should always updated and cover changes that you change, fix or add a new feature.
+- DO NOT reach, change any folders or files that they are located outside the project folder.
+
+---
+
+## Branch / PR Strategy for Multi-Task Features
+
+When a single feature spans multiple tasks (e.g. T1–T7), use the **single issue + single branch + multi-commit + single PR** flow:
+
+```
+1 issue → #ID
+1 branch  → feature/short-slug-#ID (from develop)
+N commits → one per task, format: `#ID: imperative subject`
+1 PR      → --base develop
+Device test by developer → gh issue close #ID && gh pr merge #PR --squash --delete-branch
+```
+
+**Rules:**
+- All task commits live on the same feature branch (no sub-branches per task)
+- Commit subject starts with `#ID:` and uses imperative mood
+- The branch is deleted automatically by `--delete-branch` on merge
+- Do NOT open multiple PRs for one feature; keep it as one reviewable PR
+- If tasks are independent enough to parallelize, commit them separately but still on the same branch and in the same PR
+
+## QA Rules
+
+### Code Formatting
+- Run `dart format lib/ test/` before every commit
+- Line length: 80 (Dart default)
+- CI gate: `dart format --set-exit-if-changed lib/ test/` — fails PR if unformatted
+
+### Static Analysis
+- Run `dart analyze --fatal-infos` before every commit — treats warnings as errors
+- Run `flutter analyze` before every commit — catches Flutter-specific issues
+- Fix ALL warnings: unused imports, unused fields, missing const, etc.
+- Never commit with analyzer warnings or info-level issues
+
+### Pre-Commit Checklist
+Run these in order before every commit. All must pass:
+```bash
+dart format lib/ test/
+dart analyze --fatal-infos
+flutter analyze
+flutter test
+Build Verification
+- Run flutter build apk --debug before pushing feature branches
+- Verify no compile errors in release mode before release PRs
+Test Coverage
+- New feature → add its tests
+- Bug fix → add/update test covering the fix
+- Tests must cover all changes (DAOs, facades, providers, UI)
+- All existing tests must still pass
+CI Expectations
+- dart analyze --fatal-infos exits 0 (no warnings)
+- dart format --set-exit-if-changed exits 0 (formatted)
+- flutter test all pass
+- If any of these fail, fix before requesting review
 ---

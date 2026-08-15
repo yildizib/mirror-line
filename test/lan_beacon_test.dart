@@ -32,7 +32,10 @@ void main() {
         isNull,
       );
       expect(
-        BeaconCodec.decode('{"app":"mirrorline","id":"x","port":"abc"}', '10.0.0.5'),
+        BeaconCodec.decode(
+          '{"app":"mirrorline","id":"x","port":"abc"}',
+          '10.0.0.5',
+        ),
         isNull,
       );
     });

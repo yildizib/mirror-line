@@ -55,6 +55,10 @@ class SelectableListScaffold<T> extends StatefulWidget {
   /// or descending; this only inserts headers, it never re-sorts.
   final DateTime Function(T item)? dateHeaderOf;
 
+  final Future<void> Function()? onLoadMore;
+  final bool isLoadingMore;
+  final bool hasReachedEnd;
+
   const SelectableListScaffold({
     required this.items,
     required this.itemKey,
@@ -71,6 +75,9 @@ class SelectableListScaffold<T> extends StatefulWidget {
     this.useAppBarEntryPoint = false,
     this.nonSelectingTitle,
     this.dateHeaderOf,
+    this.onLoadMore,
+    this.isLoadingMore = false,
+    this.hasReachedEnd = false,
     super.key,
   }) : assert(
          !useAppBarEntryPoint || nonSelectingTitle != null,
@@ -85,6 +92,32 @@ class SelectableListScaffold<T> extends StatefulWidget {
 class _SelectableListScaffoldState<T> extends State<SelectableListScaffold<T>> {
   bool _selecting = false;
   final Set<String> _selected = {};
+  final ScrollController _scrollController = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController.addListener(_onScroll);
+  }
+
+  @override
+  void dispose() {
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (widget.onLoadMore == null ||
+        widget.isLoadingMore ||
+        widget.hasReachedEnd) {
+      return;
+    }
+    final pos = _scrollController.position;
+    if (pos.pixels >= pos.maxScrollExtent - 500) {
+      widget.onLoadMore!();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -111,17 +144,15 @@ class _SelectableListScaffoldState<T> extends State<SelectableListScaffold<T>> {
     final dateHeaderOf = widget.dateHeaderOf;
     if (dateHeaderOf == null) {
       return ListView.separated(
+        controller: _scrollController,
         padding: const EdgeInsets.all(16),
         itemCount: widget.items.length,
         separatorBuilder: (_, _) => const SizedBox(height: 8),
-        itemBuilder: (context, index) => _buildItem(context, widget.items[index]),
+        itemBuilder: (context, index) =>
+            _buildItem(context, widget.items[index]),
       );
     }
 
-    // Grouped path: flatten into a header/item widget list up front, since
-    // headers aren't part of widget.items and don't participate in
-    // selection -- ListView.separated's fixed one-widget-per-index
-    // mapping can't express that, so this switches to a plain ListView.
     final children = <Widget>[];
     DateTime? previousDay;
     for (final item in widget.items) {
@@ -135,7 +166,15 @@ class _SelectableListScaffoldState<T> extends State<SelectableListScaffold<T>> {
       children.add(const SizedBox(height: 8));
       children.add(_buildItem(context, item));
     }
-    return ListView(padding: const EdgeInsets.all(16), children: children);
+    if (widget.isLoadingMore) {
+      children.add(const SizedBox(height: 16));
+      children.add(const _LoadingFooter());
+    }
+    return ListView(
+      controller: _scrollController,
+      padding: const EdgeInsets.all(16),
+      children: children,
+    );
   }
 
   Widget _buildItem(BuildContext context, T item) {
@@ -253,6 +292,24 @@ class _SelectableListScaffoldState<T> extends State<SelectableListScaffold<T>> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _LoadingFooter extends StatelessWidget {
+  const _LoadingFooter();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Center(
+      child: Padding(
+        padding: EdgeInsets.symmetric(vertical: 16),
+        child: SizedBox(
+          width: 24,
+          height: 24,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
       ),
     );
   }

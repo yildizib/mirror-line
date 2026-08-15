@@ -10,7 +10,10 @@ void main() {
 
       // Strategy should prioritize stored IP first
       if (storedIp.isNotEmpty && storedIp != 'unknown') {
-        candidates.addAll([storedIp, ...beaconIps.where((ip) => ip != storedIp)]);
+        candidates.addAll([
+          storedIp,
+          ...beaconIps.where((ip) => ip != storedIp),
+        ]);
       }
 
       expect(candidates.first, storedIp);

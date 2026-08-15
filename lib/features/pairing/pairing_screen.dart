@@ -177,6 +177,32 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
                 ),
               ),
             ],
+            if (pairingState.isFinalizing) ...[
+              const SizedBox(height: AppSpacing.md),
+              Card(
+                color: theme.colorScheme.surfaceContainerHighest,
+                child: Padding(
+                  padding: const EdgeInsets.all(AppSpacing.md),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      const SizedBox(width: AppSpacing.sm),
+                      Text(
+                        l.pairingConfirm,
+                        style: TextStyle(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
           ],
         ),
       ),
@@ -394,95 +420,63 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
       context: context,
       barrierDismissible: false,
       builder: (ctx) {
-        final dl = AppLocalizations.of(ctx);
-        return AlertDialog(
-          title: Text(l.pairingRequestTitle),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                dl.pairingRequestFrom(
-                  pairingState.remoteDeviceName ?? dl.pairingUnknownDevice,
+        return _IncomingRequestDialog(
+          pairingState: pairingState,
+          onReject: () async {
+            final socketManager = ref
+                .read(connectionFacadeProvider.notifier)
+                .socketManager;
+            if (socketManager != null) {
+              final notifier = ref.read(pairingFacadeProvider.notifier);
+              await notifier.rejectRequest(socketManager: socketManager);
+            }
+            if (mounted) {
+              setState(() => _isProcessing = false);
+            }
+            if (ctx.mounted) {
+              Navigator.of(ctx).pop();
+            }
+          },
+          onAccept: () async {
+            final hadSocket = await ref
+                .read(pairingControllerProvider)
+                .acceptPairingRequest();
+            final latest = ref.read(pairingFacadeProvider);
+            final errorCode = latest.errorCode;
+            final succeeded = hadSocket && errorCode == null;
+            if (mounted) {
+              setState(() => _isProcessing = false);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    succeeded
+                        ? l.pairingPairedWith(
+                            pairingState.remoteDeviceName ??
+                                l.pairingUnknownDevice,
+                          )
+                        : (errorCode == null
+                              ? l.pairingInvalidQr
+                              : pairingErrorText(
+                                  l,
+                                  errorCode,
+                                  latest.errorDetail,
+                                )),
+                  ),
+                  backgroundColor: succeeded
+                      ? Theme.of(context).status.success
+                      : Theme.of(context).colorScheme.error,
                 ),
-              ),
-              const SizedBox(height: AppSpacing.md),
-              _verificationCodeBadge(ctx, pairingState.verificationCode ?? ''),
-              const SizedBox(height: AppSpacing.sm),
-              Text(
-                dl.pairingCodeMatch,
-                style: TextStyle(
-                  color: Theme.of(ctx).colorScheme.onSurfaceVariant,
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () async {
-                final socketManager = ref
-                    .read(connectionFacadeProvider.notifier)
-                    .socketManager;
-                if (socketManager != null) {
-                  final notifier = ref.read(pairingFacadeProvider.notifier);
-                  await notifier.rejectRequest(socketManager: socketManager);
-                }
-                if (mounted) {
-                  setState(() => _isProcessing = false);
-                }
-                if (ctx.mounted) {
-                  Navigator.of(ctx).pop();
-                }
-              },
-              child: Text(l.pairingReject),
-            ),
-            FilledButton(
-              onPressed: () async {
-                final hadSocket = await ref
-                    .read(pairingControllerProvider)
-                    .acceptPairingRequest();
-                // acceptRequest now waits for the scanner's ack before
-                // committing (see pairing_facade.dart) -- it can come back
-                // with an errorCode if that ack never arrived, so this can
-                // no longer unconditionally claim success.
-                final latest = ref.read(pairingFacadeProvider);
-                final errorCode = latest.errorCode;
-                final succeeded = hadSocket && errorCode == null;
-                if (mounted) {
-                  setState(() => _isProcessing = false);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(
-                        succeeded
-                            ? l.pairingPairedWith(
-                                pairingState.remoteDeviceName ??
-                                    l.pairingUnknownDevice,
-                              )
-                            : (errorCode == null
-                                  ? l.pairingInvalidQr
-                                  : pairingErrorText(
-                                      l,
-                                      errorCode,
-                                      latest.errorDetail,
-                                    )),
-                      ),
-                      backgroundColor: succeeded
-                          ? Theme.of(context).status.success
-                          : Theme.of(context).colorScheme.error,
-                    ),
-                  );
-                }
-                if (ctx.mounted) {
-                  Navigator.of(ctx).pop();
-                }
-                if (succeeded) {
-                  Future.delayed(const Duration(milliseconds: 500), () {
-                    if (mounted) Navigator.of(context).pop();
-                  });
-                }
-              },
-              child: Text(l.pairingConfirm),
-            ),
-          ],
+              );
+            }
+            if (ctx.mounted) {
+              Navigator.of(ctx).pop();
+            }
+            if (succeeded) {
+              Future.delayed(const Duration(milliseconds: 500), () {
+                if (mounted) Navigator.of(context).pop();
+              });
+            }
+          },
         );
       },
     );
@@ -636,5 +630,147 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
         _isProcessing = false;
       });
     }
+  }
+}
+
+/// Stateful wrapper for the incoming pairing-request dialog so the
+/// confirm button can show a loading spinner while the 15s ack wait is
+/// in flight, instead of appearing stuck.
+class _IncomingRequestDialog extends StatefulWidget {
+  final PairingState pairingState;
+  final Future<void> Function() onReject;
+  final Future<void> Function() onAccept;
+
+  const _IncomingRequestDialog({
+    required this.pairingState,
+    required this.onReject,
+    required this.onAccept,
+  });
+
+  @override
+  State<_IncomingRequestDialog> createState() => _IncomingRequestDialogState();
+}
+
+class _IncomingRequestDialogState extends State<_IncomingRequestDialog> {
+  bool _busy = false;
+
+  Future<void> _handleAccept() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      await widget.onAccept();
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _handleReject() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      await widget.onReject();
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
+    return AlertDialog(
+      title: Text(l.pairingRequestTitle),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            l.pairingRequestFrom(
+              widget.pairingState.remoteDeviceName ?? l.pairingUnknownDevice,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          _VerificationCodeBadge(
+            code: widget.pairingState.verificationCode ?? '',
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            l.pairingCodeMatch,
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+          if (_busy) ...[
+            const SizedBox(height: AppSpacing.md),
+            const SizedBox(
+              width: 24,
+              height: 24,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+          ],
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: _busy ? null : _handleReject,
+          child: Text(l.pairingReject),
+        ),
+        FilledButton(
+          onPressed: _busy ? null : _handleAccept,
+          child: _busy
+              ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                )
+              : Text(l.pairingConfirm),
+        ),
+      ],
+    );
+  }
+}
+
+/// Extracted verification-code badge so [_IncomingRequestDialog] can use it
+/// without needing the parent widget's private method.
+class _VerificationCodeBadge extends StatelessWidget {
+  final String code;
+
+  const _VerificationCodeBadge({required this.code});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final l = AppLocalizations.of(context);
+    return Column(
+      children: [
+        Text(
+          l.verificationCodeLabel,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.6,
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.primaryContainer,
+            borderRadius: BorderRadius.circular(AppRadius.pill),
+          ),
+          child: Text(
+            code,
+            style: TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 4,
+              color: theme.colorScheme.onPrimaryContainer,
+            ),
+          ),
+        ),
+      ],
+    );
   }
 }

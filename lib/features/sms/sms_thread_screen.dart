@@ -5,6 +5,7 @@ import 'package:mirrorline/core/data/models/sms_message.dart';
 import 'package:mirrorline/core/theme/theme.dart';
 import 'package:mirrorline/features/connection/connection_facade.dart';
 import 'package:mirrorline/features/sms/sms_facade.dart';
+import 'package:mirrorline/features/sms/sms_thread_provider.dart';
 import 'package:mirrorline/features/sms/widgets/sms_bubble.dart';
 import 'package:mirrorline/shared/widgets/date_grouped_list.dart';
 
@@ -89,16 +90,12 @@ class _SmsThreadScreenState extends ConsumerState<SmsThreadScreen> {
   @override
   Widget build(BuildContext context) {
     final connected = ref.watch(connectionFacadeProvider);
-    final messages =
-        ref
-            .watch(smsFacadeProvider)
-            .where((m) => m.address == widget.address)
-            .toList()
-          ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+    final threadState = ref.watch(
+      smsThreadDetailPaginatedProvider(widget.address),
+    );
+    final messages = threadState.items;
 
-    if (messages.isEmpty) {
-      // Every message in this thread got removed elsewhere; nothing left
-      // to show, so back out instead of rendering an empty conversation.
+    if (messages.isEmpty && !threadState.isLoading) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) Navigator.pop(context);
       });
@@ -114,15 +111,47 @@ class _SmsThreadScreenState extends ConsumerState<SmsThreadScreen> {
       body: Column(
         children: [
           Expanded(
-            child: ListView(
-              controller: _scrollController,
-              padding: const EdgeInsets.all(AppSpacing.md),
-              children: buildDateGroupedItems(
-                context: context,
-                items: messages,
-                timestampOf: (message) => message.timestamp,
-                itemBuilder: (context, message) =>
-                    SmsBubble(message: message),
+            child: NotificationListener<ScrollNotification>(
+              onNotification: (notification) {
+                if (notification is ScrollEndNotification &&
+                    !threadState.isLoading &&
+                    !threadState.hasReachedEnd) {
+                  final metrics = notification.metrics;
+                  if (metrics.pixels <= metrics.minScrollExtent + 500) {
+                    ref
+                        .read(
+                          smsThreadDetailPaginatedProvider(
+                            widget.address,
+                          ).notifier,
+                        )
+                        .loadOlder();
+                  }
+                }
+                return false;
+              },
+              child: ListView(
+                controller: _scrollController,
+                padding: const EdgeInsets.all(AppSpacing.md),
+                children: [
+                  if (threadState.isLoading)
+                    const Center(
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(vertical: 16),
+                        child: SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      ),
+                    ),
+                  ...buildDateGroupedItems(
+                    context: context,
+                    items: messages,
+                    timestampOf: (message) => message.timestamp,
+                    itemBuilder: (context, message) =>
+                        SmsBubble(message: message),
+                  ),
+                ],
               ),
             ),
           ),

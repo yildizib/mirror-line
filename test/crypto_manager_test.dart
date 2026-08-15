@@ -29,11 +29,14 @@ void main() {
       expect(await CryptoManager.decrypt(key, ''), isNull);
     });
 
-    test('same plaintext produces different ciphertexts (random nonce)', () async {
-      final key = CryptoManager.generateKey();
-      final a = await CryptoManager.encrypt(key, 'same');
-      final b = await CryptoManager.encrypt(key, 'same');
-      expect(a, isNot(b));
-    });
+    test(
+      'same plaintext produces different ciphertexts (random nonce)',
+      () async {
+        final key = CryptoManager.generateKey();
+        final a = await CryptoManager.encrypt(key, 'same');
+        final b = await CryptoManager.encrypt(key, 'same');
+        expect(a, isNot(b));
+      },
+    );
   });
 }

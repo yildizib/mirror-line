@@ -3,6 +3,8 @@ import 'package:mirrorline/core/data/models/call_event.dart';
 import 'package:mirrorline/core/services/locale_service.dart';
 import 'package:mirrorline/features/calls/call_facade.dart';
 import 'package:mirrorline/l10n/app_localizations.dart';
+import 'package:mirrorline/shared/pagination/grouped_paginated_notifier.dart';
+import 'package:mirrorline/shared/pagination/paginated_list_state.dart';
 
 /// All calls from the same number (or the same unknown-number placeholder
 /// when no number was resolved), grouped so the calls list can show one
@@ -68,3 +70,88 @@ final callGroupsProvider = Provider<List<CallGroup>>((ref) {
   groups.sort((a, b) => b.lastCall.timestamp.compareTo(a.lastCall.timestamp));
   return groups;
 });
+
+/// Paginated version of [callGroupsProvider].
+/// Loads today+yesterday first (capped at 25 groups), then older
+/// groups on [CallGroupPaginated.loadMore].
+final callGroupsPaginatedProvider =
+    StateNotifierProvider<CallGroupPaginated, PaginatedListState<CallGroup>>((
+      ref,
+    ) {
+      final notifier = CallGroupPaginated(ref);
+      Future.microtask(() => notifier.loadInitial());
+      ref.listen(callFacadeProvider, (_, _) {
+        Future.microtask(() => notifier.refresh());
+      });
+      return notifier;
+    });
+
+class CallGroupPaginated
+    extends GroupedPaginatedNotifier<CallEvent, CallGroup> {
+  CallGroupPaginated(super.ref);
+
+  @override
+  Future<List<CallEvent>> fetchRecent({required int limit}) {
+    final facade = ref.read(callFacadeProvider.notifier);
+    return facade.loadRecent(limit: limit, since: yesterdayStart());
+  }
+
+  @override
+  Future<List<CallEvent>> fetchOlder({
+    required int limit,
+    required int offset,
+  }) {
+    final facade = ref.read(callFacadeProvider.notifier);
+    return facade.loadOlder(
+      limit: limit,
+      offset: offset,
+      before: yesterdayStart(),
+    );
+  }
+
+  @override
+  String groupKeyOf(CallEvent event) => event.groupKey;
+
+  @override
+  CallGroup buildGroup(String key, List<CallEvent> events) {
+    final l = appL10n(ref);
+    final sorted = events.toList()
+      ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    return CallGroup(
+      key: key,
+      displayName: sorted.first.displayName(l),
+      calls: sorted,
+    );
+  }
+
+  @override
+  DateTime groupTimestamp(CallGroup group) => group.lastCall.timestamp;
+
+  @override
+  List<CallGroup> mergeGroups(
+    List<CallGroup> existing,
+    List<CallGroup> newGroups,
+  ) {
+    final map = <String, CallGroup>{};
+    for (final g in existing) {
+      map[g.key] = g;
+    }
+    for (final g in newGroups) {
+      final prev = map[g.key];
+      if (prev != null) {
+        final merged = dedupeById([...prev.calls, ...g.calls], (c) => c.id)
+          ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+        map[g.key] = CallGroup(
+          key: g.key,
+          displayName: g.displayName,
+          calls: merged,
+        );
+      } else {
+        map[g.key] = g;
+      }
+    }
+    final result = map.values.toList()
+      ..sort((a, b) => b.lastCall.timestamp.compareTo(a.lastCall.timestamp));
+    return result;
+  }
+}

@@ -22,6 +22,46 @@ class CallEventDao {
     return maps.map(CallEvent.fromJson).toList();
   }
 
+  Future<List<CallEvent>> getRecent({
+    required int limit,
+    DateTime? since,
+  }) async {
+    final db = await _database;
+    final where = since != null ? 'timestamp >= ?' : null;
+    final whereArgs = since != null ? [since.millisecondsSinceEpoch] : null;
+    final maps = await db.query(
+      'call_event',
+      where: where,
+      whereArgs: whereArgs,
+      orderBy: 'timestamp DESC',
+      limit: limit,
+    );
+    return maps.map(CallEvent.fromJson).toList();
+  }
+
+  Future<List<CallEvent>> getOlder({
+    required int limit,
+    required int offset,
+    DateTime? before,
+  }) async {
+    final db = await _database;
+    String? where;
+    List<Object>? whereArgs;
+    if (before != null) {
+      where = 'timestamp < ?';
+      whereArgs = [before.millisecondsSinceEpoch];
+    }
+    final maps = await db.query(
+      'call_event',
+      where: where,
+      whereArgs: whereArgs,
+      orderBy: 'timestamp DESC',
+      limit: limit,
+      offset: offset,
+    );
+    return maps.map(CallEvent.fromJson).toList();
+  }
+
   Future<void> updateStatus(String id, String status) async {
     final db = await _database;
     await db.update(
