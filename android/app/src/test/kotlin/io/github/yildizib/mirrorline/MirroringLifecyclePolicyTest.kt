@@ -24,6 +24,14 @@ class MirroringLifecyclePolicyTest {
     }
 
     @Test
+    fun `boot and watchdog recovery remain ineligible after stop`() {
+        val stopped = eligible.copy(enabled = false)
+
+        assertFalse(MirroringLifecyclePolicy.isEligible(stopped, true))
+        assertFalse(WatchdogPolicy.shouldArm(stopped, true))
+    }
+
+    @Test
     fun `network monitoring allows paired main without telephony permissions`() {
         assertTrue(
             MirroringLifecyclePolicy.shouldMonitorNetwork(eligible.copy(role = "main")),
