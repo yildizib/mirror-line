@@ -1,6 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mirrorline/core/data/models/notification_event.dart';
 import 'package:mirrorline/features/notifications/notification_facade.dart';
+import 'package:mirrorline/shared/pagination/grouped_paginated_notifier.dart';
+import 'package:mirrorline/shared/pagination/paginated_list_state.dart';
 
 /// All mirrored notifications from the same app, grouped so the
 /// notifications list can show one row per app instead of one row per
@@ -54,3 +56,85 @@ final notificationGroupsProvider = Provider<List<NotificationGroup>>((ref) {
   );
   return groups;
 });
+
+/// Paginated version of [notificationGroupsProvider].
+/// Loads today+yesterday first (capped at 25 groups), then older
+/// groups on [NotificationGroupPaginated.loadMore].
+final notificationGroupsPaginatedProvider = StateNotifierProvider<
+    NotificationGroupPaginated,
+    PaginatedListState<NotificationGroup>>((ref) {
+  final notifier = NotificationGroupPaginated(ref);
+  Future.microtask(() => notifier.loadInitial());
+  return notifier;
+});
+
+class NotificationGroupPaginated
+    extends GroupedPaginatedNotifier<NotificationEvent, NotificationGroup> {
+  NotificationGroupPaginated(super.ref);
+
+  @override
+  Future<List<NotificationEvent>> fetchRecent({required int limit}) {
+    final facade = ref.read(notificationFacadeProvider.notifier);
+    return facade.loadRecent(limit: limit, since: yesterdayStart());
+  }
+
+  @override
+  Future<List<NotificationEvent>> fetchOlder({
+    required int limit,
+    required int offset,
+  }) {
+    final facade = ref.read(notificationFacadeProvider.notifier);
+    return facade.loadOlder(
+      limit: limit,
+      offset: offset,
+      before: yesterdayStart(),
+    );
+  }
+
+  @override
+  String groupKeyOf(NotificationEvent event) => event.groupKey;
+
+  @override
+  NotificationGroup buildGroup(String key, List<NotificationEvent> events) {
+    final sorted = events.toList()
+      ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    return NotificationGroup(
+      key: key,
+      appName: sorted.first.displayName,
+      events: sorted,
+    );
+  }
+
+  @override
+  DateTime groupTimestamp(NotificationGroup group) =>
+      group.lastEvent.timestamp;
+
+  @override
+  List<NotificationGroup> mergeGroups(
+    List<NotificationGroup> existing,
+    List<NotificationGroup> newGroups,
+  ) {
+    final map = <String, NotificationGroup>{};
+    for (final g in existing) {
+      map[g.key] = g;
+    }
+    for (final g in newGroups) {
+      final prev = map[g.key];
+      if (prev != null) {
+        final merged = [...prev.events, ...g.events]
+          ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+        map[g.key] = NotificationGroup(
+          key: g.key,
+          appName: g.appName,
+          events: merged,
+        );
+      } else {
+        map[g.key] = g;
+      }
+    }
+    final result = map.values.toList()
+      ..sort((a, b) =>
+          b.lastEvent.timestamp.compareTo(a.lastEvent.timestamp));
+    return result;
+  }
+}
