@@ -26,6 +26,7 @@ abstract class GroupedPaginatedNotifier<E, G>
   G buildGroup(String key, List<E> events);
   DateTime groupTimestamp(G group);
   List<G> mergeGroups(List<G> existing, List<G> newGroups);
+  List<G> replaceRecentGroups(List<G> existing, List<G> fresh);
 
   List<G> _remainingGroups = [];
   bool _hasMoreRecent = false;
@@ -45,7 +46,9 @@ abstract class GroupedPaginatedNotifier<E, G>
           ? kDefaultPageSize
           : allGroups.length;
       _remainingGroups = allGroups.sublist(visible);
-      final reachedEnd = !_hasMoreRecent && _remainingGroups.isEmpty;
+      // A short recent window only means today's data is exhausted. Older
+      // history remains available through fetchOlder.
+      final reachedEnd = false;
       state = PaginatedListState<G>(
         items: allGroups.sublist(0, visible),
         isLoading: false,
@@ -105,12 +108,11 @@ abstract class GroupedPaginatedNotifier<E, G>
       );
       final newGroups = _groupAndSort(raw);
       final merged = mergeGroups(state.items, newGroups);
-      final hasReachedEnd = raw.length < rawPageSize;
-      _exhaustedOlder = hasReachedEnd;
+      _exhaustedOlder = raw.length < rawPageSize;
       state = PaginatedListState<G>(
         items: merged,
         isLoading: false,
-        hasReachedEnd: hasReachedEnd,
+        hasReachedEnd: _exhaustedOlder,
         pageOffset: state.pageOffset + raw.length,
       );
     } catch (e) {
@@ -150,8 +152,9 @@ abstract class GroupedPaginatedNotifier<E, G>
           ? kDefaultPageSize
           : allGroups.length;
       _remainingGroups = allGroups.sublist(visible);
-      final merged = mergeGroups(state.items, allGroups.sublist(0, visible));
-      final reachedEnd = !_hasMoreRecent && _remainingGroups.isEmpty;
+      final merged = replaceRecentGroups(state.items, allGroups);
+      final reachedEnd =
+          !_hasMoreRecent && _remainingGroups.isEmpty && _exhaustedOlder;
       state = PaginatedListState<G>(
         items: merged,
         isLoading: false,

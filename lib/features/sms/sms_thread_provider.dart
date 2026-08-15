@@ -135,8 +135,8 @@ class SmsThreadPaginated
       final prev = map[g.address];
       if (prev != null) {
         final merged = dedupeById([
-          ...prev.messages,
           ...g.messages,
+          ...prev.messages,
         ], (m) => m.id)..sort((a, b) => a.timestamp.compareTo(b.timestamp));
         map[g.address] = SmsThread(
           address: g.address,
@@ -152,6 +152,48 @@ class SmsThreadPaginated
       ..sort(
         (a, b) => b.lastMessage.timestamp.compareTo(a.lastMessage.timestamp),
       );
+    return result;
+  }
+
+  @override
+  List<SmsThread> replaceRecentGroups(
+    List<SmsThread> existing,
+    List<SmsThread> fresh,
+  ) {
+    final cutoff = yesterdayStart();
+    final freshByAddress = {for (final thread in fresh) thread.address: thread};
+    final result = <SmsThread>[];
+    for (final thread in existing) {
+      final recent = freshByAddress.remove(thread.address);
+      final older = thread.messages
+          .where((message) => message.timestamp.isBefore(cutoff))
+          .toList();
+      if (recent != null) {
+        final messages = [...older, ...recent.messages]
+          ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+        result.add(
+          SmsThread(
+            address: recent.address,
+            contactName: recent.contactName,
+            messages: messages,
+            displayName: recent.displayName,
+          ),
+        );
+      } else if (older.isNotEmpty) {
+        result.add(
+          SmsThread(
+            address: thread.address,
+            contactName: thread.contactName,
+            messages: older,
+            displayName: thread.displayName,
+          ),
+        );
+      }
+    }
+    result.addAll(freshByAddress.values);
+    result.sort(
+      (a, b) => b.lastMessage.timestamp.compareTo(a.lastMessage.timestamp),
+    );
     return result;
   }
 }
@@ -241,7 +283,18 @@ class SmsThreadDetailPaginated
         limit: kDefaultPageSize,
       );
       if (!mounted) return;
-      final merged = dedupeById([...state.items, ...fresh], (m) => m.id)
+      // The newest page is authoritative. Retain only records older than its
+      // boundary so deletions and status/contact updates in the page are not
+      // hidden by stale in-memory copies.
+      final olderLoaded = fresh.isEmpty
+          ? const <SmsMessage>[]
+          : state.items
+                .where(
+                  (message) =>
+                      message.timestamp.isBefore(fresh.first.timestamp),
+                )
+                .toList();
+      final merged = [...olderLoaded, ...fresh]
         ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
       state = PaginatedListState<SmsMessage>(
         items: merged,
