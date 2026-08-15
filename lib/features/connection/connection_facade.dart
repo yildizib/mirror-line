@@ -419,8 +419,9 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
   }
 
   SocketManager _createSocketManager() {
-    final sm = SocketManager(
-      onMessage: _handleIncomingMessage,
+    late final SocketManager sm;
+    sm = SocketManager(
+      onMessage: (message) => _handleIncomingMessage(sm, message),
       onConnected: () {
         state = true;
         _reconnectScheduler.markConnected();
@@ -984,11 +985,16 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
   // Incoming peer messages
   // ---------------------------------------------------------------------
 
-  void _handleIncomingMessage(MirrorMessage message) async {
+  Future<void> _handleIncomingMessage(
+    SocketManager socketManager,
+    MirrorMessage message,
+  ) async {
     final key = _key;
-    if (key == null) return;
+    final sessionGeneration = socketManager.sessionGeneration;
+    if (key == null || sessionGeneration == null) return;
 
     final decrypted = await CryptoManager.decrypt(key, message.payload);
+    if (!socketManager.isSessionCurrent(sessionGeneration)) return;
     if (decrypted == null) {
       _logger.e('Decryption failed for message: ${message.id}');
       return;

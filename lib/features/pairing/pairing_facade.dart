@@ -180,8 +180,9 @@ class PairingFacade extends StateNotifier<PairingState> {
       verificationCode: verificationCode,
     );
 
-    _handshakeSocket = SocketManager(
-      onMessage: _handleHandshakeMessage,
+    late final SocketManager handshakeSocket;
+    handshakeSocket = SocketManager(
+      onMessage: (message) => _handleHandshakeMessage(handshakeSocket, message),
       onConnected: () {
         _logger.i('Handshake socket connected to $scannedIp:$scannedPort');
       },
@@ -192,6 +193,7 @@ class PairingFacade extends StateNotifier<PairingState> {
         }
       },
     );
+    _handshakeSocket = handshakeSocket;
 
     try {
       final ok = await _handshakeSocket!.connect(scannedIp, scannedPort, key);
@@ -270,11 +272,16 @@ class PairingFacade extends StateNotifier<PairingState> {
     }
   }
 
-  void _handleHandshakeMessage(MirrorMessage message) async {
+  Future<void> _handleHandshakeMessage(
+    SocketManager socketManager,
+    MirrorMessage message,
+  ) async {
     final key = _handshakeKey;
-    if (key == null) return;
+    final sessionGeneration = socketManager.sessionGeneration;
+    if (key == null || sessionGeneration == null) return;
 
     final decrypted = await CryptoManager.decrypt(key, message.payload);
+    if (!socketManager.isSessionCurrent(sessionGeneration)) return;
     if (decrypted == null) return;
 
     Map<String, dynamic>? payload;
