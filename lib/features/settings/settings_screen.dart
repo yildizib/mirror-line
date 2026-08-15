@@ -257,6 +257,7 @@ Widget _connectionStatusChip(
 class _InfoRow extends StatelessWidget {
   final String label;
   final String value;
+
   /// When true, long values (>24 chars) are shortened to `prefix…suffix`
   /// and the full value is shown via a Tooltip. Used for public keys.
   final bool shortenLong;
@@ -328,9 +329,13 @@ class _InfoRowPair extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Expanded(child: _InfoRow(label: labelA, value: valueA)),
+          Expanded(
+            child: _InfoRow(label: labelA, value: valueA),
+          ),
           const SizedBox(width: AppSpacing.md),
-          Expanded(child: _InfoRow(label: labelB, value: valueB)),
+          Expanded(
+            child: _InfoRow(label: labelB, value: valueB),
+          ),
         ],
       ),
     );
@@ -383,7 +388,10 @@ class _ThisDeviceSection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _SectionTitle(icon: Icons.phone_android_rounded, title: l.settingsThisDevice),
+        _SectionTitle(
+          icon: Icons.phone_android_rounded,
+          title: l.settingsThisDevice,
+        ),
         _SectionCard(
           child: peer == null
               ? Text(l.settingsNoDeviceInfo)
@@ -633,7 +641,9 @@ class _PairedDevicesSection extends ConsumerWidget {
               return _SectionCard(child: Text(l.settingsNoPairedDevices));
             }
             return Column(
-              children: peers.map((p) => _buildPeerCard(context, ref, p)).toList(),
+              children: peers
+                  .map((p) => _buildPeerCard(context, ref, p))
+                  .toList(),
             );
           },
           loading: () => const Center(child: CircularProgressIndicator()),
@@ -643,11 +653,7 @@ class _PairedDevicesSection extends ConsumerWidget {
     );
   }
 
-  Widget _buildPeerCard(
-    BuildContext context,
-    WidgetRef ref,
-    Peer p,
-  ) {
+  Widget _buildPeerCard(BuildContext context, WidgetRef ref, Peer p) {
     final theme = Theme.of(context);
     final l = AppLocalizations.of(context);
     return Card(
@@ -705,10 +711,7 @@ class _PairingActionsSection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _SectionTitle(
-          icon: Icons.qr_code_rounded,
-          title: l.settingsPairDevice,
-        ),
+        _SectionTitle(icon: Icons.qr_code_rounded, title: l.settingsPairDevice),
         _SectionCard(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -916,19 +919,13 @@ class _DangerZoneSection extends StatelessWidget {
           borderColor: errorColor.withValues(alpha: 0.4),
           child: ListTile(
             contentPadding: EdgeInsets.zero,
-            leading: Icon(
-              Icons.delete_forever_rounded,
-              color: errorColor,
-            ),
+            leading: Icon(Icons.delete_forever_rounded, color: errorColor),
             title: Text(
               l.settingsResetDevice,
               style: TextStyle(color: errorColor),
             ),
             subtitle: Text(l.settingsResetDesc),
-            trailing: Icon(
-              Icons.chevron_right_rounded,
-              color: errorColor,
-            ),
+            trailing: Icon(Icons.chevron_right_rounded, color: errorColor),
             onTap: onReset,
           ),
         ),
@@ -975,9 +972,7 @@ class _ForceConnectDialog extends ConsumerWidget {
               connected
                   ? Icons.check_circle_rounded
                   : Icons.error_outline_rounded,
-              color: connected
-                  ? theme.status.success
-                  : theme.colorScheme.error,
+              color: connected ? theme.status.success : theme.colorScheme.error,
             ),
           const SizedBox(width: 12),
           Text(

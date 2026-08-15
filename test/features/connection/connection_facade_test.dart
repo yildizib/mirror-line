@@ -75,45 +75,51 @@ void main() {
   });
 
   group('PeerDiscoveryCoordinator.maybeRunFallbackScan', () {
-    test('accepts immediate/force parameters and no-ops with no local IPs', () async {
-      var discoveredCalls = 0;
-      final coordinator = PeerDiscoveryCoordinator(
-        logger: Logger(),
-        onDiscovered: (ip, port, {required fromScan}) async {
-          discoveredCalls++;
-        },
-        getPeerId: () => 'self-id',
-        getPeerPort: () => 45678,
-        getDeviceName: () => 'Test Device',
-        getAllLocalIps: () => [], // forces the early "no local IPs" return
-        getExpectedPeerId: () => 'peer-id',
-      );
+    test(
+      'accepts immediate/force parameters and no-ops with no local IPs',
+      () async {
+        var discoveredCalls = 0;
+        final coordinator = PeerDiscoveryCoordinator(
+          logger: Logger(),
+          onDiscovered: (ip, port, {required fromScan}) async {
+            discoveredCalls++;
+          },
+          getPeerId: () => 'self-id',
+          getPeerPort: () => 45678,
+          getDeviceName: () => 'Test Device',
+          getAllLocalIps: () => [], // forces the early "no local IPs" return
+          getExpectedPeerId: () => 'peer-id',
+        );
 
-      coordinator.markDisconnected();
-      await coordinator.maybeRunFallbackScan(immediate: true, force: true);
+        coordinator.markDisconnected();
+        await coordinator.maybeRunFallbackScan(immediate: true, force: true);
 
-      expect(discoveredCalls, 0);
-    });
+        expect(discoveredCalls, 0);
+      },
+    );
 
-    test('does nothing while not disconnected and immediate is false', () async {
-      var discoveredCalls = 0;
-      final coordinator = PeerDiscoveryCoordinator(
-        logger: Logger(),
-        onDiscovered: (ip, port, {required fromScan}) async {
-          discoveredCalls++;
-        },
-        getPeerId: () => 'self-id',
-        getPeerPort: () => 45678,
-        getDeviceName: () => 'Test Device',
-        getAllLocalIps: () => ['192.168.1.10'],
-        getExpectedPeerId: () => 'peer-id',
-      );
+    test(
+      'does nothing while not disconnected and immediate is false',
+      () async {
+        var discoveredCalls = 0;
+        final coordinator = PeerDiscoveryCoordinator(
+          logger: Logger(),
+          onDiscovered: (ip, port, {required fromScan}) async {
+            discoveredCalls++;
+          },
+          getPeerId: () => 'self-id',
+          getPeerPort: () => 45678,
+          getDeviceName: () => 'Test Device',
+          getAllLocalIps: () => ['192.168.1.10'],
+          getExpectedPeerId: () => 'peer-id',
+        );
 
-      // Never marked disconnected -- the grace-period check must bail
-      // before ever touching the network.
-      await coordinator.maybeRunFallbackScan();
+        // Never marked disconnected -- the grace-period check must bail
+        // before ever touching the network.
+        await coordinator.maybeRunFallbackScan();
 
-      expect(discoveredCalls, 0);
-    });
+        expect(discoveredCalls, 0);
+      },
+    );
   });
 }

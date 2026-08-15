@@ -9,17 +9,18 @@ import 'package:mirrorline/core/telephony/telephony_channel.dart';
 import 'package:mirrorline/features/connection/connection_facade.dart';
 import 'package:uuid/uuid.dart';
 
-final smsFacadeProvider =
-    StateNotifierProvider<SmsFacade, List<SmsMessage>>((ref) {
-      final connectionFacade = ref.read(connectionFacadeProvider.notifier);
-      return SmsFacade(
-        ref: ref,
-        logger: Logger(),
-        isSource: () => connectionFacade.isSource,
-        sendOrQueue: connectionFacade.sendOrQueue,
-        notify: connectionFacade.notify,
-      );
-    });
+final smsFacadeProvider = StateNotifierProvider<SmsFacade, List<SmsMessage>>((
+  ref,
+) {
+  final connectionFacade = ref.read(connectionFacadeProvider.notifier);
+  return SmsFacade(
+    ref: ref,
+    logger: Logger(),
+    isSource: () => connectionFacade.isSource,
+    sendOrQueue: connectionFacade.sendOrQueue,
+    notify: connectionFacade.notify,
+  );
+});
 
 /// Merges the old SmsListNotifier (state + DAO ops) and SmsEventHandler
 /// (native/peer message handling) into one Facade, per issue #39's F1 --
@@ -79,6 +80,25 @@ class SmsFacade extends StateNotifier<List<SmsMessage>> {
   }) async {
     return _dao.getOlderByThread(
       threadId: threadId,
+      limit: limit,
+      offset: offset,
+    );
+  }
+
+  Future<List<SmsMessage>> loadRecentByAddress({
+    required String address,
+    required int limit,
+  }) async {
+    return _dao.getRecentByAddress(address: address, limit: limit);
+  }
+
+  Future<List<SmsMessage>> loadOlderByAddress({
+    required String address,
+    required int limit,
+    required int offset,
+  }) async {
+    return _dao.getOlderByAddress(
+      address: address,
       limit: limit,
       offset: offset,
     );

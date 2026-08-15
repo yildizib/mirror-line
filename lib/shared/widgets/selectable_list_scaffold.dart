@@ -80,17 +80,16 @@ class SelectableListScaffold<T> extends StatefulWidget {
     this.hasReachedEnd = false,
     super.key,
   }) : assert(
-          !useAppBarEntryPoint || nonSelectingTitle != null,
-          'nonSelectingTitle is required when useAppBarEntryPoint is true',
-        );
+         !useAppBarEntryPoint || nonSelectingTitle != null,
+         'nonSelectingTitle is required when useAppBarEntryPoint is true',
+       );
 
   @override
   State<SelectableListScaffold<T>> createState() =>
       _SelectableListScaffoldState<T>();
 }
 
-class _SelectableListScaffoldState<T>
-    extends State<SelectableListScaffold<T>> {
+class _SelectableListScaffoldState<T> extends State<SelectableListScaffold<T>> {
   bool _selecting = false;
   final Set<String> _selected = {};
   final ScrollController _scrollController = ScrollController();
@@ -149,7 +148,8 @@ class _SelectableListScaffoldState<T>
         padding: const EdgeInsets.all(16),
         itemCount: widget.items.length,
         separatorBuilder: (_, _) => const SizedBox(height: 8),
-        itemBuilder: (context, index) => _buildItem(context, widget.items[index]),
+        itemBuilder: (context, index) =>
+            _buildItem(context, widget.items[index]),
       );
     }
 

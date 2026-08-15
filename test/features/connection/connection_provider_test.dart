@@ -24,11 +24,19 @@ void main() {
 
   test('_handleNetworkChangedEvent accepts valid IPv4', () {
     // Valid: "192.168.1.1" should be accepted and setLocalIp called.
-    expect(true, true, reason: 'Integration test at higher level validates this');
+    expect(
+      true,
+      true,
+      reason: 'Integration test at higher level validates this',
+    );
   });
 
   test('_handleNetworkChangedEvent accepts valid IPv6', () {
     // Valid: "fe80::1" should be accepted and setLocalIp called.
-    expect(true, true, reason: 'Integration test at higher level validates this');
+    expect(
+      true,
+      true,
+      reason: 'Integration test at higher level validates this',
+    );
   });
 }

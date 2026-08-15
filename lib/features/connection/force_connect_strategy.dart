@@ -138,8 +138,9 @@ class ForceConnectStrategy {
       if (isConnected() || isConnecting()) break;
 
       final isScanCandidate = scanCandidates.contains(ip);
-      final timeout =
-          isScanCandidate ? null : const Duration(milliseconds: 1500);
+      final timeout = isScanCandidate
+          ? null
+          : const Duration(milliseconds: 1500);
       final ok = await connectWithProgress(
         ip,
         peerPort,

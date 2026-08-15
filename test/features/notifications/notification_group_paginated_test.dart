@@ -33,8 +33,9 @@ void main() {
 
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
-    tempDir = await Directory.systemTemp
-        .createTemp('mirrorline_notification_group_test');
+    tempDir = await Directory.systemTemp.createTemp(
+      'mirrorline_notification_group_test',
+    );
     PathProviderPlatform.instance = _FakePathProviderPlatform(tempDir.path);
   });
 
@@ -51,12 +52,13 @@ void main() {
             ref: ref,
             logger: Logger(),
             sendOrQueue: (type, payload) async => true,
-            notify: ({
-              required int id,
-              required String title,
-              required String body,
-              NotificationPayload? payload,
-            }) async {},
+            notify:
+                ({
+                  required int id,
+                  required String title,
+                  required String body,
+                  NotificationPayload? payload,
+                }) async {},
           );
         }),
       ],
@@ -90,33 +92,42 @@ void main() {
     await facade.load();
 
     final now = DateTime.now();
-    await facade.add(makeEvent(
-      id: 'today1',
-      timestamp: now.subtract(const Duration(hours: 1)),
-      packageName: 'com.app1',
-      appName: 'App1',
-    ));
-    await facade.add(makeEvent(
-      id: 'today2',
-      timestamp: now.subtract(const Duration(hours: 2)),
-      packageName: 'com.app2',
-      appName: 'App2',
-    ));
-    await facade.add(makeEvent(
-      id: 'old',
-      timestamp: now.subtract(const Duration(days: 10)),
-      packageName: 'com.app3',
-      appName: 'App3',
-    ));
+    await facade.add(
+      makeEvent(
+        id: 'today1',
+        timestamp: now.subtract(const Duration(hours: 1)),
+        packageName: 'com.app1',
+        appName: 'App1',
+      ),
+    );
+    await facade.add(
+      makeEvent(
+        id: 'today2',
+        timestamp: now.subtract(const Duration(hours: 2)),
+        packageName: 'com.app2',
+        appName: 'App2',
+      ),
+    );
+    await facade.add(
+      makeEvent(
+        id: 'old',
+        timestamp: now.subtract(const Duration(days: 10)),
+        packageName: 'com.app3',
+        appName: 'App3',
+      ),
+    );
 
-    final notifier =
-        container.read(notificationGroupsPaginatedProvider.notifier);
+    final notifier = container.read(
+      notificationGroupsPaginatedProvider.notifier,
+    );
     await notifier.loadInitial();
     final state = container.read(notificationGroupsPaginatedProvider);
 
     expect(state.items.length, 2);
     expect(
-        state.items.map((g) => g.key).toList(), containsAll(['com.app1', 'com.app2']));
+      state.items.map((g) => g.key).toList(),
+      containsAll(['com.app1', 'com.app2']),
+    );
     expect(state.hasReachedEnd, isTrue);
   });
 
@@ -130,24 +141,29 @@ void main() {
     final yesterdayStart = todayStart.subtract(const Duration(days: 1));
 
     for (var i = 0; i < 60; i++) {
-      await facade.add(makeEvent(
-        id: 'recent_$i',
-        timestamp: yesterdayStart.add(Duration(minutes: i * 20)),
-        packageName: 'com.recent$i',
-        appName: 'Recent$i',
-      ));
+      await facade.add(
+        makeEvent(
+          id: 'recent_$i',
+          timestamp: yesterdayStart.add(Duration(minutes: i * 20)),
+          packageName: 'com.recent$i',
+          appName: 'Recent$i',
+        ),
+      );
     }
     for (var i = 0; i < 100; i++) {
-      await facade.add(makeEvent(
-        id: 'old_$i',
-        timestamp: yesterdayStart.subtract(Duration(hours: i + 1)),
-        packageName: 'com.old$i',
-        appName: 'OldApp$i',
-      ));
+      await facade.add(
+        makeEvent(
+          id: 'old_$i',
+          timestamp: yesterdayStart.subtract(Duration(hours: i + 1)),
+          packageName: 'com.old$i',
+          appName: 'OldApp$i',
+        ),
+      );
     }
 
-    final notifier =
-        container.read(notificationGroupsPaginatedProvider.notifier);
+    final notifier = container.read(
+      notificationGroupsPaginatedProvider.notifier,
+    );
     await notifier.loadInitial();
     var state = container.read(notificationGroupsPaginatedProvider);
     final initialCount = state.items.length;
@@ -167,29 +183,36 @@ void main() {
     final todayStart = DateTime(now.year, now.month, now.day);
     final yesterdayStart = todayStart.subtract(const Duration(days: 1));
 
-    await facade.add(makeEvent(
-      id: 'recent_app1',
-      timestamp: now.subtract(const Duration(hours: 1)),
-      packageName: 'com.app1',
-      appName: 'App1',
-    ));
+    await facade.add(
+      makeEvent(
+        id: 'recent_app1',
+        timestamp: now.subtract(const Duration(hours: 1)),
+        packageName: 'com.app1',
+        appName: 'App1',
+      ),
+    );
     for (var i = 0; i < 30; i++) {
-      await facade.add(makeEvent(
-        id: 'filler_$i',
-        timestamp: yesterdayStart.add(Duration(minutes: i * 30)),
-        packageName: 'com.filler$i',
-        appName: 'Filler$i',
-      ));
+      await facade.add(
+        makeEvent(
+          id: 'filler_$i',
+          timestamp: yesterdayStart.add(Duration(minutes: i * 30)),
+          packageName: 'com.filler$i',
+          appName: 'Filler$i',
+        ),
+      );
     }
-    await facade.add(makeEvent(
-      id: 'old_app1',
-      timestamp: yesterdayStart.subtract(const Duration(days: 10)),
-      packageName: 'com.app1',
-      appName: 'App1',
-    ));
+    await facade.add(
+      makeEvent(
+        id: 'old_app1',
+        timestamp: yesterdayStart.subtract(const Duration(days: 10)),
+        packageName: 'com.app1',
+        appName: 'App1',
+      ),
+    );
 
-    final notifier =
-        container.read(notificationGroupsPaginatedProvider.notifier);
+    final notifier = container.read(
+      notificationGroupsPaginatedProvider.notifier,
+    );
     await notifier.loadInitial();
     await notifier.loadMore();
     await notifier.loadMore();
@@ -197,8 +220,7 @@ void main() {
     await notifier.loadMore();
     final state = container.read(notificationGroupsPaginatedProvider);
 
-    final app1Group =
-        state.items.where((g) => g.key == 'com.app1').first;
+    final app1Group = state.items.where((g) => g.key == 'com.app1').first;
     expect(app1Group.events.length, 2);
   });
 }

@@ -28,8 +28,9 @@ void main() {
   });
 
   setUp(() async {
-    tempDir = await Directory.systemTemp
-        .createTemp('mirrorline_notification_event_dao_test');
+    tempDir = await Directory.systemTemp.createTemp(
+      'mirrorline_notification_event_dao_test',
+    );
     PathProviderPlatform.instance = _FakePathProviderPlatform(tempDir.path);
     dao = NotificationEventDao();
   });
@@ -60,10 +61,12 @@ void main() {
   test('getRecent returns newest-first and respects limit', () async {
     final base = DateTime(2025, 1, 1, 12);
     for (var i = 0; i < 30; i++) {
-      await dao.insert(makeEvent(
-        id: 'n$i',
-        timestamp: base.add(Duration(minutes: i)),
-      ));
+      await dao.insert(
+        makeEvent(
+          id: 'n$i',
+          timestamp: base.add(Duration(minutes: i)),
+        ),
+      );
     }
 
     final recent = await dao.getRecent(limit: 10);
@@ -75,9 +78,11 @@ void main() {
   test('getRecent filters by since', () async {
     await dao.insert(makeEvent(id: 'old', timestamp: DateTime(2025, 6, 1)));
     await dao.insert(
-        makeEvent(id: 'yesterday', timestamp: DateTime(2025, 6, 14, 9)));
+      makeEvent(id: 'yesterday', timestamp: DateTime(2025, 6, 14, 9)),
+    );
     await dao.insert(
-        makeEvent(id: 'today', timestamp: DateTime(2025, 6, 15, 8)));
+      makeEvent(id: 'today', timestamp: DateTime(2025, 6, 15, 8)),
+    );
 
     final since = DateTime(2025, 6, 14);
     final recent = await dao.getRecent(limit: 100, since: since);
@@ -88,10 +93,12 @@ void main() {
   test('getOlder returns next page after offset', () async {
     final base = DateTime(2025, 1, 1, 12);
     for (var i = 0; i < 50; i++) {
-      await dao.insert(makeEvent(
-        id: 'n$i',
-        timestamp: base.add(Duration(minutes: i)),
-      ));
+      await dao.insert(
+        makeEvent(
+          id: 'n$i',
+          timestamp: base.add(Duration(minutes: i)),
+        ),
+      );
     }
 
     final page1 = await dao.getOlder(limit: 10, offset: 0);
@@ -108,10 +115,12 @@ void main() {
   test('getOlder filters by before', () async {
     final base = DateTime(2025, 1, 1, 12);
     for (var i = 0; i < 10; i++) {
-      await dao.insert(makeEvent(
-        id: 'n$i',
-        timestamp: base.add(Duration(minutes: i)),
-      ));
+      await dao.insert(
+        makeEvent(
+          id: 'n$i',
+          timestamp: base.add(Duration(minutes: i)),
+        ),
+      );
     }
 
     final cutoff = base.add(const Duration(minutes: 5));
@@ -124,10 +133,12 @@ void main() {
   test('getAll still returns all events (back-compat)', () async {
     final base = DateTime(2025, 1, 1, 12);
     for (var i = 0; i < 5; i++) {
-      await dao.insert(makeEvent(
-        id: 'n$i',
-        timestamp: base.add(Duration(minutes: i)),
-      ));
+      await dao.insert(
+        makeEvent(
+          id: 'n$i',
+          timestamp: base.add(Duration(minutes: i)),
+        ),
+      );
     }
     final all = await dao.getAll();
     expect(all.length, 5);

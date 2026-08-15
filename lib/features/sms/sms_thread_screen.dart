@@ -87,79 +87,83 @@ class _SmsThreadScreenState extends ConsumerState<SmsThreadScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
   }
 
- @override
- Widget build(BuildContext context) {
- final connected = ref.watch(connectionFacadeProvider);
- final threadState =
- ref.watch(smsThreadDetailPaginatedProvider(widget.address));
- final messages = threadState.items;
+  @override
+  Widget build(BuildContext context) {
+    final connected = ref.watch(connectionFacadeProvider);
+    final threadState = ref.watch(
+      smsThreadDetailPaginatedProvider(widget.address),
+    );
+    final messages = threadState.items;
 
- if (messages.isEmpty && !threadState.isLoading) {
- WidgetsBinding.instance.addPostFrameCallback((_) {
- if (mounted) Navigator.pop(context);
- });
- return const Scaffold(body: SizedBox.shrink());
- }
+    if (messages.isEmpty && !threadState.isLoading) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) Navigator.pop(context);
+      });
+      return const Scaffold(body: SizedBox.shrink());
+    }
 
- final displayName = messages.reversed
- .map((m) => m.contactName)
- .firstWhere((name) => name.isNotEmpty, orElse: () => widget.address);
+    final displayName = messages.reversed
+        .map((m) => m.contactName)
+        .firstWhere((name) => name.isNotEmpty, orElse: () => widget.address);
 
- return Scaffold(
- appBar: AppBar(title: Text(displayName)),
- body: Column(
- children: [
- Expanded(
- child: NotificationListener<ScrollNotification>(
- onNotification: (notification) {
- if (notification is ScrollEndNotification &&
- !threadState.isLoading &&
- !threadState.hasReachedEnd) {
- final metrics = notification.metrics;
- if (metrics.pixels <= metrics.minScrollExtent + 500) {
- ref
- .read(smsThreadDetailPaginatedProvider(widget.address)
- .notifier)
- .loadOlder();
- }
- }
- return false;
- },
- child: ListView(
- controller: _scrollController,
- padding: const EdgeInsets.all(AppSpacing.md),
- children: [
- if (threadState.isLoading)
- const Center(
- child: Padding(
- padding: EdgeInsets.symmetric(vertical: 16),
- child: SizedBox(
- width: 24,
- height: 24,
- child: CircularProgressIndicator(strokeWidth: 2),
- ),
- ),
- ),
- ...buildDateGroupedItems(
- context: context,
- items: messages,
- timestampOf: (message) => message.timestamp,
- itemBuilder: (context, message) =>
-          SmsBubble(message: message),
-        ),
-      ],
-    ),
-    ),
-    ),
-    _ComposeBar(
-    controller: _controller,
-    onSend: () => _send(messages.last),
-    enabled: connected,
-  ),
-  ],
-  ),
-  );
- }
+    return Scaffold(
+      appBar: AppBar(title: Text(displayName)),
+      body: Column(
+        children: [
+          Expanded(
+            child: NotificationListener<ScrollNotification>(
+              onNotification: (notification) {
+                if (notification is ScrollEndNotification &&
+                    !threadState.isLoading &&
+                    !threadState.hasReachedEnd) {
+                  final metrics = notification.metrics;
+                  if (metrics.pixels <= metrics.minScrollExtent + 500) {
+                    ref
+                        .read(
+                          smsThreadDetailPaginatedProvider(
+                            widget.address,
+                          ).notifier,
+                        )
+                        .loadOlder();
+                  }
+                }
+                return false;
+              },
+              child: ListView(
+                controller: _scrollController,
+                padding: const EdgeInsets.all(AppSpacing.md),
+                children: [
+                  if (threadState.isLoading)
+                    const Center(
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(vertical: 16),
+                        child: SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      ),
+                    ),
+                  ...buildDateGroupedItems(
+                    context: context,
+                    items: messages,
+                    timestampOf: (message) => message.timestamp,
+                    itemBuilder: (context, message) =>
+                        SmsBubble(message: message),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          _ComposeBar(
+            controller: _controller,
+            onSend: () => _send(messages.last),
+            enabled: connected,
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _ComposeBar extends StatelessWidget {

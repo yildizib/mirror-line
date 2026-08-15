@@ -30,8 +30,9 @@ void main() {
   });
 
   setUp(() async {
-    tempDir =
-        await Directory.systemTemp.createTemp('mirrorline_sms_facade_test');
+    tempDir = await Directory.systemTemp.createTemp(
+      'mirrorline_sms_facade_test',
+    );
     PathProviderPlatform.instance = _FakePathProviderPlatform(tempDir.path);
   });
 
@@ -49,12 +50,13 @@ void main() {
             logger: Logger(),
             isSource: () => false,
             sendOrQueue: (type, payload) async => true,
-            notify: ({
-              required int id,
-              required String title,
-              required String body,
-              NotificationPayload? payload,
-            }) async {},
+            notify:
+                ({
+                  required int id,
+                  required String title,
+                  required String body,
+                  NotificationPayload? payload,
+                }) async {},
           );
         }),
       ],
@@ -88,10 +90,12 @@ void main() {
 
     final base = DateTime(2025, 1, 1, 12);
     for (var i = 0; i < 30; i++) {
-      await facade.add(makeMessage(
-        id: 'm$i',
-        timestamp: base.add(Duration(minutes: i)),
-      ));
+      await facade.add(
+        makeMessage(
+          id: 'm$i',
+          timestamp: base.add(Duration(minutes: i)),
+        ),
+      );
     }
 
     final recent = await facade.loadRecent(limit: 10);
@@ -105,9 +109,11 @@ void main() {
 
     await facade.add(makeMessage(id: 'old', timestamp: DateTime(2025, 6, 1)));
     await facade.add(
-        makeMessage(id: 'yesterday', timestamp: DateTime(2025, 6, 14, 9)));
+      makeMessage(id: 'yesterday', timestamp: DateTime(2025, 6, 14, 9)),
+    );
     await facade.add(
-        makeMessage(id: 'today', timestamp: DateTime(2025, 6, 15, 8)));
+      makeMessage(id: 'today', timestamp: DateTime(2025, 6, 15, 8)),
+    );
 
     final since = DateTime(2025, 6, 14);
     final recent = await facade.loadRecent(limit: 100, since: since);
@@ -121,10 +127,12 @@ void main() {
 
     final base = DateTime(2025, 1, 1, 12);
     for (var i = 0; i < 50; i++) {
-      await facade.add(makeMessage(
-        id: 'm$i',
-        timestamp: base.add(Duration(minutes: i)),
-      ));
+      await facade.add(
+        makeMessage(
+          id: 'm$i',
+          timestamp: base.add(Duration(minutes: i)),
+        ),
+      );
     }
 
     final page1 = await facade.loadOlder(limit: 10, offset: 0);
@@ -142,11 +150,13 @@ void main() {
 
     final base = DateTime(2025, 1, 1, 12);
     for (var i = 0; i < 30; i++) {
-      await facade.add(makeMessage(
-        id: 'm$i',
-        timestamp: base.add(Duration(minutes: i)),
-        threadId: 't1',
-      ));
+      await facade.add(
+        makeMessage(
+          id: 'm$i',
+          timestamp: base.add(Duration(minutes: i)),
+          threadId: 't1',
+        ),
+      );
     }
 
     final recent = await facade.loadRecentByThread(threadId: 't1', limit: 25);
@@ -161,15 +171,20 @@ void main() {
 
     final base = DateTime(2025, 1, 1, 12);
     for (var i = 0; i < 30; i++) {
-      await facade.add(makeMessage(
-        id: 'm$i',
-        timestamp: base.add(Duration(minutes: i)),
-        threadId: 't1',
-      ));
+      await facade.add(
+        makeMessage(
+          id: 'm$i',
+          timestamp: base.add(Duration(minutes: i)),
+          threadId: 't1',
+        ),
+      );
     }
 
-    final older =
-        await facade.loadOlderByThread(threadId: 't1', limit: 25, offset: 25);
+    final older = await facade.loadOlderByThread(
+      threadId: 't1',
+      limit: 25,
+      offset: 25,
+    );
     expect(older.length, 5);
     expect(older.first.id, 'm0');
     expect(older.last.id, 'm4');

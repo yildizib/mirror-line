@@ -64,12 +64,16 @@ final smsThreadsProvider = Provider<List<SmsThread>>((ref) {
 
 /// Paginated SMS thread list (today+yesterday default, 25 threads per page).
 final smsThreadsPaginatedProvider =
-    StateNotifierProvider<SmsThreadPaginated, PaginatedListState<SmsThread>>(
-        (ref) {
-  final notifier = SmsThreadPaginated(ref);
-  Future.microtask(() => notifier.loadInitial());
-  return notifier;
-});
+    StateNotifierProvider<SmsThreadPaginated, PaginatedListState<SmsThread>>((
+      ref,
+    ) {
+      final notifier = SmsThreadPaginated(ref);
+      Future.microtask(() => notifier.loadInitial());
+      ref.listen(smsFacadeProvider, (_, _) {
+        Future.microtask(() => notifier.refresh());
+      });
+      return notifier;
+    });
 
 class SmsThreadPaginated
     extends GroupedPaginatedNotifier<SmsMessage, SmsThread> {
@@ -130,8 +134,10 @@ class SmsThreadPaginated
     for (final g in newGroups) {
       final prev = map[g.address];
       if (prev != null) {
-        final merged = [...prev.messages, ...g.messages]
-          ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+        final merged = dedupeById([
+          ...prev.messages,
+          ...g.messages,
+        ], (m) => m.id)..sort((a, b) => a.timestamp.compareTo(b.timestamp));
         map[g.address] = SmsThread(
           address: g.address,
           contactName: g.contactName,
@@ -143,8 +149,9 @@ class SmsThreadPaginated
       }
     }
     final result = map.values.toList()
-      ..sort((a, b) =>
-          b.lastMessage.timestamp.compareTo(a.lastMessage.timestamp));
+      ..sort(
+        (a, b) => b.lastMessage.timestamp.compareTo(a.lastMessage.timestamp),
+      );
     return result;
   }
 }
@@ -152,19 +159,24 @@ class SmsThreadPaginated
 /// Paginated SMS thread detail (single conversation).
 /// Loads newest 25 messages first (sorted ASC), then older messages
 /// on [SmsThreadDetailPaginated.loadOlder] via upward scroll.
-final smsThreadDetailPaginatedProvider = StateNotifierProvider.family<
-    SmsThreadDetailPaginated,
-    PaginatedListState<SmsMessage>,
-    String>((ref, address) {
-  final notifier = SmsThreadDetailPaginated(ref, address);
-  Future.microtask(() => notifier.loadInitial());
-  return notifier;
-});
+final smsThreadDetailPaginatedProvider =
+    StateNotifierProvider.family<
+      SmsThreadDetailPaginated,
+      PaginatedListState<SmsMessage>,
+      String
+    >((ref, address) {
+      final notifier = SmsThreadDetailPaginated(ref, address);
+      Future.microtask(() => notifier.loadInitial());
+      ref.listen(smsFacadeProvider, (_, _) {
+        Future.microtask(() => notifier.refresh());
+      });
+      return notifier;
+    });
 
 class SmsThreadDetailPaginated
     extends StateNotifier<PaginatedListState<SmsMessage>> {
   SmsThreadDetailPaginated(this.ref, this.address)
-      : super(PaginatedListState<SmsMessage>());
+    : super(PaginatedListState<SmsMessage>());
 
   final Ref ref;
   final String address;
@@ -174,8 +186,8 @@ class SmsThreadDetailPaginated
     state = state.copyWith(isLoading: true);
     try {
       final facade = ref.read(smsFacadeProvider.notifier);
-      final all = await facade.loadRecentByThread(
-        threadId: address,
+      final all = await facade.loadRecentByAddress(
+        address: address,
         limit: kDefaultPageSize,
       );
       state = PaginatedListState<SmsMessage>(
@@ -195,8 +207,8 @@ class SmsThreadDetailPaginated
     state = state.copyWith(isLoading: true);
     try {
       final facade = ref.read(smsFacadeProvider.notifier);
-      final older = await facade.loadOlderByThread(
-        threadId: address,
+      final older = await facade.loadOlderByAddress(
+        address: address,
         limit: kDefaultPageSize,
         offset: state.pageOffset,
       );
@@ -208,6 +220,34 @@ class SmsThreadDetailPaginated
         pageOffset: state.pageOffset + older.length,
       );
     } catch (e) {
+      state = state.copyWith(isLoading: false);
+      rethrow;
+    }
+  }
+
+  /// Re-fetches the newest messages for this thread and merges any new
+  /// incoming/reply messages into the already-loaded list (deduped by id),
+  /// preserving the oldest-first ascending order.
+  Future<void> refresh() async {
+    if (!mounted) return;
+    state = state.copyWith(isLoading: true);
+    try {
+      final facade = ref.read(smsFacadeProvider.notifier);
+      final fresh = await facade.loadRecentByAddress(
+        address: address,
+        limit: kDefaultPageSize,
+      );
+      if (!mounted) return;
+      final merged = dedupeById([...state.items, ...fresh], (m) => m.id)
+        ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+      state = PaginatedListState<SmsMessage>(
+        items: merged,
+        isLoading: false,
+        hasReachedEnd: state.hasReachedEnd,
+        pageOffset: state.pageOffset,
+      );
+    } catch (e) {
+      if (!mounted) return;
       state = state.copyWith(isLoading: false);
       rethrow;
     }

@@ -35,22 +35,19 @@ class NotificationEvent {
     'created_at': createdAt.millisecondsSinceEpoch,
   };
 
-  factory NotificationEvent.fromJson(Map<String, dynamic> json) =>
-      NotificationEvent(
-        id: json['id'] as String,
-        nativeId: json['native_id'] as String,
-        packageName: json['package_name'] as String,
-        appName: json['app_name'] as String? ?? '',
-        title: json['title'] as String? ?? '',
-        text: json['text'] as String? ?? '',
-        encrypted: json['encrypted'] as String,
-        timestamp: DateTime.fromMillisecondsSinceEpoch(
-          json['timestamp'] as int,
-        ),
-        createdAt: DateTime.fromMillisecondsSinceEpoch(
-          json['created_at'] as int,
-        ),
-      );
+  factory NotificationEvent.fromJson(
+    Map<String, dynamic> json,
+  ) => NotificationEvent(
+    id: json['id'] as String,
+    nativeId: json['native_id'] as String,
+    packageName: json['package_name'] as String,
+    appName: json['app_name'] as String? ?? '',
+    title: json['title'] as String? ?? '',
+    text: json['text'] as String? ?? '',
+    encrypted: json['encrypted'] as String,
+    timestamp: DateTime.fromMillisecondsSinceEpoch(json['timestamp'] as int),
+    createdAt: DateTime.fromMillisecondsSinceEpoch(json['created_at'] as int),
+  );
 
   /// Grouping identity for the notifications list -- one group per app.
   String get groupKey => packageName;

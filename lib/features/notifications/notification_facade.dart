@@ -89,9 +89,7 @@ class NotificationFacade extends StateNotifier<List<NotificationEvent>> {
         // Must match the id _notify() used when showing it (nativeId's
         // hash, not the local event id) or the wrong OS notification --
         // or none -- gets cancelled.
-        await NotificationService.cancel(
-          target.nativeId.hashCode & 0x7fffffff,
-        );
+        await NotificationService.cancel(target.nativeId.hashCode & 0x7fffffff);
       } catch (e) {
         _logger.e('Failed to cancel mirrored notification: $e');
       }
@@ -233,7 +231,10 @@ class NotificationFacade extends StateNotifier<List<NotificationEvent>> {
           id: nativeId.hashCode & 0x7fffffff,
           title: appName,
           body: (title.isNotEmpty && title != appName) ? '$title: $text' : text,
-          payload: NotificationPayload(type: 'mirrored_notification', id: event.id),
+          payload: NotificationPayload(
+            type: 'mirrored_notification',
+            id: event.id,
+          ),
         );
         break;
 

@@ -51,22 +51,25 @@ final notificationGroupsProvider = Provider<List<NotificationGroup>>((ref) {
     );
   }).toList();
 
-  groups.sort(
-    (a, b) => b.lastEvent.timestamp.compareTo(a.lastEvent.timestamp),
-  );
+  groups.sort((a, b) => b.lastEvent.timestamp.compareTo(a.lastEvent.timestamp));
   return groups;
 });
 
 /// Paginated version of [notificationGroupsProvider].
 /// Loads today+yesterday first (capped at 25 groups), then older
 /// groups on [NotificationGroupPaginated.loadMore].
-final notificationGroupsPaginatedProvider = StateNotifierProvider<
-    NotificationGroupPaginated,
-    PaginatedListState<NotificationGroup>>((ref) {
-  final notifier = NotificationGroupPaginated(ref);
-  Future.microtask(() => notifier.loadInitial());
-  return notifier;
-});
+final notificationGroupsPaginatedProvider =
+    StateNotifierProvider<
+      NotificationGroupPaginated,
+      PaginatedListState<NotificationGroup>
+    >((ref) {
+      final notifier = NotificationGroupPaginated(ref);
+      Future.microtask(() => notifier.loadInitial());
+      ref.listen(notificationFacadeProvider, (_, _) {
+        Future.microtask(() => notifier.refresh());
+      });
+      return notifier;
+    });
 
 class NotificationGroupPaginated
     extends GroupedPaginatedNotifier<NotificationEvent, NotificationGroup> {
@@ -106,8 +109,7 @@ class NotificationGroupPaginated
   }
 
   @override
-  DateTime groupTimestamp(NotificationGroup group) =>
-      group.lastEvent.timestamp;
+  DateTime groupTimestamp(NotificationGroup group) => group.lastEvent.timestamp;
 
   @override
   List<NotificationGroup> mergeGroups(
@@ -121,7 +123,7 @@ class NotificationGroupPaginated
     for (final g in newGroups) {
       final prev = map[g.key];
       if (prev != null) {
-        final merged = [...prev.events, ...g.events]
+        final merged = dedupeById([...prev.events, ...g.events], (e) => e.id)
           ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
         map[g.key] = NotificationGroup(
           key: g.key,
@@ -133,8 +135,7 @@ class NotificationGroupPaginated
       }
     }
     final result = map.values.toList()
-      ..sort((a, b) =>
-          b.lastEvent.timestamp.compareTo(a.lastEvent.timestamp));
+      ..sort((a, b) => b.lastEvent.timestamp.compareTo(a.lastEvent.timestamp));
     return result;
   }
 }
