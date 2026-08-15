@@ -5,7 +5,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:logger/logger.dart';
 import 'package:mirrorline/core/data/database.dart';
 import 'package:mirrorline/core/data/models/call_event.dart';
-import 'package:mirrorline/features/connection/connection_facade.dart';
 import 'package:mirrorline/core/services/notification_service.dart';
 import 'package:mirrorline/features/calls/call_facade.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
