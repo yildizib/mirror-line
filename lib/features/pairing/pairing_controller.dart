@@ -16,26 +16,36 @@ class PairingController {
 
   PairingController(this._ref);
 
-  /// Returns false if there was no live socket to accept on (mirrors the
-  /// old inline `socketManager != null` gate) -- the caller combines this
+  /// Returns false if there was no live transport to accept on -- the caller
+  /// combines this
   /// with the facade's post-accept errorCode to know whether pairing
   /// actually succeeded.
   Future<bool> acceptPairingRequest() async {
-    final socketManager = _ref
+    final transport = _ref
         .read(connectionFacadeProvider.notifier)
-        .socketManager;
-    if (socketManager == null) return false;
+        .pairingTransport;
+    if (transport == null) return false;
 
     final notifier = _ref.read(pairingFacadeProvider.notifier);
-    final scannerInfo = notifier.pendingScannerInfo ?? {};
     final status = _ref.read(connectionStatusProvider);
     final myIp = status.localIp ?? '';
-    await notifier.acceptRequest(
-      socketManager: socketManager,
-      scannerInfo: scannerInfo,
+    final accepted = await notifier.acceptRequest(
+      transport: transport,
       myIp: myIp,
     );
+    if (!accepted) return false;
     await _ref.read(connectionFacadeProvider.notifier).refresh();
+    return true;
+  }
+
+  Future<bool> rejectPairingRequest() async {
+    final transport = _ref
+        .read(connectionFacadeProvider.notifier)
+        .pairingTransport;
+    if (transport == null) return false;
+    await _ref
+        .read(pairingFacadeProvider.notifier)
+        .rejectRequest(transport: transport);
     return true;
   }
 

@@ -146,10 +146,8 @@ class PeerFacade extends StateNotifier<Peer?> {
   /// other device on both sides, regardless of who scanned whom. Preserves
   /// this device's own role/key/port.
   ///
-  /// The [ip] is the scanner's real IP, claimed by the scanner itself in
-  /// its pairingRequest (preferred over the TCP remote address, which can
-  /// be wrong on NAT/VLAN setups). Beacon discovery will further refine it
-  /// if the scanner later roams to a new address -- see
+  /// The [ip] is the scanner address observed by the pairing transport.
+  /// Beacon discovery will further refine it if the scanner later roams -- see
   /// ConnectionFacade._recordDiscoveredAddress.
   Future<void> applyPairedPeer({
     required String id,
@@ -168,6 +166,24 @@ class PeerFacade extends StateNotifier<Peer?> {
     await _dao.replaceId(current.id, updated);
     await KeyStore.setPeerId(updated.id);
     state = updated;
+  }
+
+  /// Restores the pre-handshake row and key if pairing fails after a write.
+  Future<void> rollbackPairing({
+    required Peer? previous,
+    required String attemptedId,
+  }) async {
+    await _dao.delete(attemptedId);
+    if (previous == null) {
+      await KeyStore.clearPeerId();
+      await KeyStore.clearPeerKey();
+      state = null;
+      return;
+    }
+    await _dao.insert(previous);
+    await KeyStore.setPeerId(previous.id);
+    await KeyStore.setPeerKey(SecretKey(base64Decode(previous.key)));
+    state = previous;
   }
 
   /// Applies an updated peer record (e.g. newly discovered IP address).

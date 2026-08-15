@@ -423,13 +423,7 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
         return _IncomingRequestDialog(
           pairingState: pairingState,
           onReject: () async {
-            final socketManager = ref
-                .read(connectionFacadeProvider.notifier)
-                .socketManager;
-            if (socketManager != null) {
-              final notifier = ref.read(pairingFacadeProvider.notifier);
-              await notifier.rejectRequest(socketManager: socketManager);
-            }
+            await ref.read(pairingControllerProvider).rejectPairingRequest();
             if (mounted) {
               setState(() => _isProcessing = false);
             }

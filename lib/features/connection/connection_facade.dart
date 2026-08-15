@@ -27,6 +27,7 @@ import 'package:mirrorline/features/connection/peer_discovery_coordinator.dart';
 import 'package:mirrorline/features/connection/reconnect_scheduler.dart';
 import 'package:mirrorline/features/notifications/notification_facade.dart';
 import 'package:mirrorline/features/pairing/pairing_facade.dart';
+import 'package:mirrorline/features/pairing/pairing_transport.dart';
 import 'package:mirrorline/features/pairing/peer_facade.dart';
 import 'package:mirrorline/features/sms/sms_facade.dart';
 import 'package:uuid/uuid.dart';
@@ -47,6 +48,28 @@ typedef ShowNotification =
       required String body,
       NotificationPayload? payload,
     });
+
+class _SocketPairingTransport implements PairingTransport {
+  _SocketPairingTransport(this._socket, this._generation);
+
+  final SocketManager _socket;
+  final int _generation;
+
+  @override
+  Object get connectionToken => (_socket, _generation);
+
+  @override
+  bool get isCurrent => _socket.isSessionCurrent(_generation);
+
+  @override
+  String? get remoteAddress => isCurrent ? _socket.remoteAddress : null;
+
+  @override
+  Future<bool> send(String type, Map<String, dynamic> payload) async {
+    if (!isCurrent) return false;
+    return _socket.sendMessage(type, payload);
+  }
+}
 
 final connectionFacadeProvider = StateNotifierProvider<ConnectionFacade, bool>((
   ref,
@@ -87,6 +110,7 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
   final SubnetScanner _scanner = SubnetScanner();
 
   SocketManager? _socketManager;
+  _SocketPairingTransport? _pairingTransport;
   Peer? _peer;
   SecretKey? _key;
   Timer? _healthTimer;
@@ -163,8 +187,14 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
   bool get isSource => _peer?.role == 'source';
   bool get isConnecting => _connecting;
 
-  /// Exposed so PairingFacade can reply on the live connection.
-  SocketManager? get socketManager => _socketManager;
+  PairingTransport? get pairingTransport {
+    final socket = _socketManager;
+    final generation = socket?.sessionGeneration;
+    if (socket == null || generation == null) return null;
+    final current = _pairingTransport;
+    if (current?.connectionToken == (socket, generation)) return current;
+    return _pairingTransport = _SocketPairingTransport(socket, generation);
+  }
 
   void _init() async {
     WidgetsBinding.instance.addObserver(this);
@@ -445,6 +475,13 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
         _peerDiscoveryCoordinator.setThrottle(true);
       },
       onDisconnected: () {
+        final pairingTransport = _pairingTransport;
+        if (pairingTransport != null) {
+          _ref
+              .read(pairingFacadeProvider.notifier)
+              .handleTransportDisconnected(pairingTransport);
+          _pairingTransport = null;
+        }
         state = false;
         _peerDiscoveryCoordinator.markDisconnected();
         _logger.w(
@@ -1050,9 +1087,12 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
 
       case MessageTypes.pairingRequest:
         _logger.i('pairingRequest received from scanner.');
-        _ref
-            .read(pairingFacadeProvider.notifier)
-            .handleIncomingRequest(payload);
+        final transport = pairingTransport;
+        if (transport != null) {
+          await _ref
+              .read(pairingFacadeProvider.notifier)
+              .handleIncomingRequest(transport, payload);
+        }
         break;
 
       case MessageTypes.pairingAck:
@@ -1061,11 +1101,18 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
         // arrives on this device's regular socket (unlike pairingAccept/
         // pairingReject below, which the *scanner* receives on its own
         // separate handshake socket, never here).
-        _ref.read(pairingFacadeProvider.notifier).handlePairingAck();
+        final transport = pairingTransport;
+        if (transport != null) {
+          _ref
+              .read(pairingFacadeProvider.notifier)
+              .handlePairingAck(transport, payload);
+        }
         break;
 
       case MessageTypes.pairingAccept:
       case MessageTypes.pairingReject:
+      case MessageTypes.pairingComplete:
+      case MessageTypes.pairingAbort:
         // Handled by PairingFacade's own socket on the scanner side.
         // On the scanned side we never receive these (we send them).
         break;

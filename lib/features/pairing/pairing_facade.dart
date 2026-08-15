@@ -9,7 +9,9 @@ import 'package:mirrorline/core/network/socket_manager.dart';
 import 'package:mirrorline/core/security/crypto_manager.dart';
 import 'package:mirrorline/core/security/key_store.dart';
 import 'package:mirrorline/features/pairing/peer_facade.dart';
+import 'package:mirrorline/features/pairing/pairing_transport.dart';
 import 'package:mirrorline/l10n/app_localizations.dart';
+import 'package:uuid/uuid.dart';
 
 /// What went wrong during pairing, kept as a code (not a rendered string)
 /// so it can be localized at the widget layer -- see [pairingErrorText].
@@ -89,6 +91,97 @@ class PairingState {
   }
 }
 
+enum PairingSessionRole { scanner, scanned }
+
+enum PairingSessionPhase {
+  connecting,
+  waitingForAccept,
+  awaitingDecision,
+  waitingForAck,
+  waitingForCompletion,
+  persisting,
+  completed,
+  failed,
+}
+
+class _PairingSession {
+  _PairingSession({
+    required this.id,
+    required this.role,
+    required this.phase,
+    required this.transport,
+    required this.peerInfo,
+  });
+
+  final String id;
+  final PairingSessionRole role;
+  PairingSessionPhase phase;
+  final PairingTransport transport;
+  Object? transportToken;
+  final Map<String, dynamic> peerInfo;
+  final Completer<bool> response = Completer<bool>();
+  final Completer<bool> completion = Completer<bool>();
+  Map<String, dynamic>? responsePayload;
+  bool cleanedUp = false;
+}
+
+class _SocketPairingClientTransport implements PairingClientTransport {
+  _SocketPairingClientTransport({
+    required this._onMessage,
+    required void Function() onDisconnected,
+  }) {
+    late final SocketManager socket;
+    socket = SocketManager(
+      onMessage: (message) async {
+        final key = _key;
+        final generation = socket.sessionGeneration;
+        if (key == null || generation == null) return;
+        final decrypted = await CryptoManager.decrypt(key, message.payload);
+        if (!socket.isSessionCurrent(generation)) return;
+        Map<String, dynamic>? payload;
+        try {
+          payload = jsonDecode(decrypted ?? '') as Map<String, dynamic>;
+        } catch (_) {
+          payload = null;
+        }
+        await _onMessage(message.type, payload);
+      },
+      onConnected: () {},
+      onDisconnected: onDisconnected,
+    );
+    _socket = socket;
+  }
+
+  final PairingMessageHandler _onMessage;
+  late final SocketManager _socket;
+  SecretKey? _key;
+
+  @override
+  Object get connectionToken => (_socket, _socket.sessionGeneration);
+
+  @override
+  bool get isCurrent {
+    final generation = _socket.sessionGeneration;
+    return generation != null && _socket.isSessionCurrent(generation);
+  }
+
+  @override
+  String? get remoteAddress => _socket.remoteAddress;
+
+  @override
+  Future<bool> connect(String ip, int port, SecretKey key) {
+    _key = key;
+    return _socket.connect(ip, port, key);
+  }
+
+  @override
+  Future<void> disconnect() => _socket.disconnect();
+
+  @override
+  Future<bool> send(String type, Map<String, dynamic> payload) =>
+      _socket.sendMessage(type, payload);
+}
+
 final pairingFacadeProvider =
     StateNotifierProvider<PairingFacade, PairingState>((ref) {
       return PairingFacade(ref);
@@ -111,33 +204,55 @@ final pairingFacadeProvider =
 class PairingFacade extends StateNotifier<PairingState> {
   final Logger _logger = Logger();
   final Ref _ref;
+  final PairingClientTransportFactory _clientFactory;
+  final Duration _acceptTimeout;
+  final Duration _ackTimeout;
+  final String Function() _createSessionId;
+  final Future<void> Function(Map<String, dynamic>)? _persistScannerOverride;
+  final Future<void> Function(Map<String, dynamic>)? _persistScannedOverride;
+  final Future<void> Function(Map<String, dynamic>)? _rollbackScannerOverride;
+  final Future<void> Function(Map<String, dynamic>)? _rollbackScannedOverride;
+  final Future<Map<String, dynamic>> Function()? _localIdentityOverride;
+  final String Function()? _verificationCodeOverride;
+  _PairingSession? _session;
 
-  /// Temporary socket used by the *scanner* side during handshake.
-  SocketManager? _handshakeSocket;
-  SecretKey? _handshakeKey;
-  Completer<bool>? _acceptCompleter;
+  PairingFacade(
+    this._ref, {
+    PairingClientTransportFactory? clientFactory,
+    this._acceptTimeout = const Duration(seconds: 30),
+    this._ackTimeout = const Duration(seconds: 15),
+    String Function()? createSessionId,
+    Future<void> Function(Map<String, dynamic>)? persistScanner,
+    Future<void> Function(Map<String, dynamic>)? persistScanned,
+    Future<void> Function(Map<String, dynamic>)? rollbackScanner,
+    Future<void> Function(Map<String, dynamic>)? rollbackScanned,
+    Future<Map<String, dynamic>> Function()? localIdentity,
+    String Function()? verificationCode,
+  }) : _clientFactory = clientFactory ?? _createSocketClient,
+       _createSessionId = createSessionId ?? const Uuid().v4,
+       _persistScannerOverride = persistScanner,
+       _persistScannedOverride = persistScanned,
+       _rollbackScannerOverride = rollbackScanner,
+       _rollbackScannedOverride = rollbackScanned,
+       _localIdentityOverride = localIdentity,
+       _verificationCodeOverride = verificationCode,
+       super(const PairingState());
 
-  /// Stashed accept payload from the scanned device (set by
-  /// _handleHandshakeMessage when pairingAccept arrives). Holds the
-  /// scanned device's real IP/role/deviceName as it claims them -- used
-  /// to overwrite the QR-derived values (which may be stale or wrong on
-  /// NAT/VLAN setups) when persisting the peer.
-  Map<String, dynamic>? _acceptPayload;
-
-  /// Scanned side: resolves once the scanner's pairingAck arrives (or times
-  /// out). Persisting the paired peer (applyPairedPeer) is gated on this so
-  /// a lost pairingAccept can't leave the scanned device believing it's
-  /// paired while the scanner never actually completed its own side --
-  /// same reasoning as SocketManager's authOk/authAck two-step commit.
-  Completer<bool>? _pairAckCompleter;
-
-  /// Stashed scanner info on the *scanned* side (set by handleIncomingRequest).
-  Map<String, dynamic>? _pendingScannerInfo;
-
-  PairingFacade(this._ref) : super(const PairingState());
+  static PairingClientTransport _createSocketClient({
+    required PairingMessageHandler onMessage,
+    required void Function() onDisconnected,
+  }) => _SocketPairingClientTransport(
+    onMessage: onMessage,
+    onDisconnected: onDisconnected,
+  );
 
   /// Pending scanner info (for UI to pass to acceptRequest).
-  Map<String, dynamic>? get pendingScannerInfo => _pendingScannerInfo;
+  Map<String, dynamic>? get pendingScannerInfo {
+    final session = _session;
+    return session?.role == PairingSessionRole.scanned
+        ? Map.unmodifiable(session!.peerInfo)
+        : null;
+  }
 
   // --------------------------------------------------------------------
   // Scanner side
@@ -166,150 +281,174 @@ class PairingFacade extends StateNotifier<PairingState> {
   }) async {
     final keyBytes = base64Decode(scannedKeyBase64);
     final key = SecretKey(keyBytes);
-    _handshakeKey = key;
-
+    final sessionId = _createSessionId();
     final verificationCode = PeerFacade.generateVerificationCode(
       scannedKeyBase64,
       scannedId,
     );
-
+    late final _PairingSession session;
+    final transport = _clientFactory(
+      onMessage: (type, payload) =>
+          _handleScannerMessage(session, type, payload),
+      onDisconnected: () => _handleDisconnect(session),
+    );
+    session = _PairingSession(
+      id: sessionId,
+      role: PairingSessionRole.scanner,
+      phase: PairingSessionPhase.connecting,
+      transport: transport,
+      peerInfo: {
+        'id': scannedId,
+        'ip': scannedIp,
+        'port': scannedPort,
+        'key': scannedKeyBase64,
+        'deviceName': scannedDeviceName,
+        'publicKey': scannedPublicKey,
+        'role': myRole,
+      },
+    );
+    await _replaceSession(session);
     state = PairingState(
       isWaitingForAccept: true,
       remoteDeviceName: scannedDeviceName,
       remotePeerId: scannedId,
       verificationCode: verificationCode,
     );
-
-    late final SocketManager handshakeSocket;
-    handshakeSocket = SocketManager(
-      onMessage: (message) => _handleHandshakeMessage(handshakeSocket, message),
-      onConnected: () {
-        _logger.i('Handshake socket connected to $scannedIp:$scannedPort');
-      },
-      onDisconnected: () {
-        _logger.w('Handshake socket disconnected.');
-        if (_acceptCompleter != null && !_acceptCompleter!.isCompleted) {
-          _acceptCompleter!.complete(false);
-        }
-      },
-    );
-    _handshakeSocket = handshakeSocket;
+    Future<void> Function()? rollback;
 
     try {
-      final ok = await _handshakeSocket!.connect(scannedIp, scannedPort, key);
-      if (!ok) {
+      final ok = await transport.connect(scannedIp, scannedPort, key);
+      if (!_owns(session)) return;
+      if (!ok || !transport.isCurrent) {
+        session.phase = PairingSessionPhase.failed;
         state = const PairingState(
           errorCode: PairingErrorCode.connectionFailed,
         );
-        await _cleanupSocket();
         return;
       }
-
-      await _handshakeSocket!.sendMessage(MessageTypes.pairingRequest, {
+      session.transportToken = transport.connectionToken;
+      session.phase = PairingSessionPhase.waitingForAccept;
+      // The response completer is part of the session and exists before this
+      // send, so an immediate accept cannot race waiter installation.
+      final sent = await transport.send(MessageTypes.pairingRequest, {
+        'sessionId': session.id,
         'deviceName': myDeviceName,
         'peerId': myPeerId,
         'role': myRole,
         'publicKey': myPublicKey,
         'ip': myIp,
       });
-
-      _acceptCompleter = Completer<bool>();
-      final accepted = await _acceptCompleter!.future.timeout(
-        const Duration(seconds: 30),
+      if (!sent || !_ownsCurrent(session)) {
+        _complete(session, false);
+      }
+      final accepted = await session.response.future.timeout(
+        _acceptTimeout,
         onTimeout: () => false,
       );
-
-      if (accepted) {
-        // Scanner side: save the scanned device's info as our peer record.
-        // The Peer record represents the *other* device: id/ip/port/name are
-        // the scanned device's.  But `role` is THIS device's own role
-        // (so ConnectionFacade knows whether to start as source or main).
-        // `key` is the shared AES key from the QR.  `publicKey` is the
-        // scanned device's Ed25519 public key for auth.
-        //
-        // Prefer the IP/deviceName the scanned device itself reported in
-        // its pairingAccept (more reliable than the QR's IP, which may be
-        // stale or wrong on NAT/VLAN setups) -- fall back to the QR values
-        // if the scanned device didn't claim an IP.
-        final accept = _acceptPayload;
-        final peerIp = (accept?['ip'] as String?)?.isNotEmpty == true
-            ? accept!['ip'] as String
-            : scannedIp;
-        final peerDeviceName =
-            (accept?['deviceName'] as String?)?.isNotEmpty == true
-            ? accept!['deviceName'] as String
-            : scannedDeviceName;
-        await _ref
-            .read(peerFacadeProvider.notifier)
-            .createPeerFromQr(
-              id: scannedId,
-              ip: peerIp,
-              port: scannedPort,
-              keyBase64: scannedKeyBase64,
-              role: myRole,
-              deviceName: peerDeviceName,
-              publicKey: scannedPublicKey,
-            );
-        // Tell the scanned side we actually persisted our end -- see
-        // pairingAck's doc comment in message_protocol.dart. Sent on the
-        // same handshake socket before it's torn down below.
-        _logger.i('Sending pairingAck on handshake socket...');
-        await _handshakeSocket?.sendMessage(MessageTypes.pairingAck, {});
-      } else {
+      if (!_owns(session)) return;
+      if (!accepted) {
+        session.phase = PairingSessionPhase.failed;
         state = state.copyWith(
           isWaitingForAccept: false,
-          errorCode: PairingErrorCode.rejectedOrTimedOut,
+          errorCode: state.errorCode ?? PairingErrorCode.rejectedOrTimedOut,
         );
+        return;
       }
+      session.phase = PairingSessionPhase.persisting;
+      rollback = await _persistScanner(session);
+      if (!_ownsCurrent(session)) {
+        throw StateError('Pairing transport changed during persistence');
+      }
+      // Enter the completion phase before sending ACK so an immediate
+      // pairingComplete response cannot race the state transition.
+      session.phase = PairingSessionPhase.waitingForCompletion;
+      final ackSent = await transport.send(MessageTypes.pairingAck, {
+        'sessionId': session.id,
+      });
+      if (!ackSent || !_ownsCurrent(session)) {
+        throw StateError('Pairing transport disconnected before ACK');
+      }
+      final completed = await session.completion.future.timeout(
+        _ackTimeout,
+        onTimeout: () => false,
+      );
+      if (!completed || !_ownsCurrent(session)) {
+        throw StateError('Peer did not complete pairing');
+      }
+      session.phase = PairingSessionPhase.completed;
+      rollback = null;
+      state = const PairingState();
     } catch (e) {
+      try {
+        await rollback?.call();
+      } catch (rollbackError) {
+        _logger.e('Pairing rollback failed: $rollbackError');
+      }
+      if (!_owns(session)) return;
+      session.phase = PairingSessionPhase.failed;
       _logger.e('Pairing sendRequest failed: $e');
       state = PairingState(
         errorCode: PairingErrorCode.handshakeFailed,
         errorDetail: '$e',
       );
     } finally {
-      await _cleanupSocket();
+      await _cleanupSession(session);
     }
   }
 
-  Future<void> _handleHandshakeMessage(
-    SocketManager socketManager,
-    MirrorMessage message,
-  ) async {
-    final key = _handshakeKey;
-    final sessionGeneration = socketManager.sessionGeneration;
-    if (key == null || sessionGeneration == null) return;
-
-    final decrypted = await CryptoManager.decrypt(key, message.payload);
-    if (!socketManager.isSessionCurrent(sessionGeneration)) return;
-    if (decrypted == null) return;
-
-    Map<String, dynamic>? payload;
-    try {
-      payload = jsonDecode(decrypted) as Map<String, dynamic>;
-    } catch (_) {
-      payload = null;
+  void _handleScannerMessage(
+    _PairingSession session,
+    String type,
+    Map<String, dynamic>? payload,
+  ) {
+    if (!_ownsCurrent(session)) return;
+    final responseSessionId = payload?['sessionId'];
+    if (responseSessionId is! String || responseSessionId.isEmpty) {
+      if (session.phase == PairingSessionPhase.waitingForAccept) {
+        state = const PairingState(
+          errorCode: PairingErrorCode.handshakeFailed,
+          errorDetail: 'Pairing response is missing its session ID',
+        );
+        session.phase = PairingSessionPhase.failed;
+        _complete(session, false);
+      }
+      return;
     }
-
-    switch (message.type) {
+    if (responseSessionId != session.id) return;
+    switch (type) {
       case MessageTypes.pairingAccept:
-        _logger.i('Pairing accepted by remote.');
-        _acceptPayload = payload;
-        state = state.copyWith(isWaitingForAccept: false);
-        if (_acceptCompleter != null && !_acceptCompleter!.isCompleted) {
-          _acceptCompleter!.complete(true);
+        if (session.phase != PairingSessionPhase.waitingForAccept ||
+            !_validIdentity(payload, session.peerInfo)) {
+          if (session.phase == PairingSessionPhase.waitingForAccept) {
+            state = const PairingState(
+              errorCode: PairingErrorCode.handshakeFailed,
+              errorDetail: 'Pairing accept identity did not match the QR',
+            );
+            _complete(session, false);
+          }
+          return;
         }
+        session.responsePayload = payload;
+        session.phase = PairingSessionPhase.persisting;
+        state = state.copyWith(isWaitingForAccept: false);
+        _complete(session, true);
         break;
-
       case MessageTypes.pairingReject:
-        _logger.i('Pairing rejected by remote.');
+        if (session.phase != PairingSessionPhase.waitingForAccept) return;
+        session.phase = PairingSessionPhase.failed;
         state = state.copyWith(
           isWaitingForAccept: false,
           errorCode: PairingErrorCode.rejected,
         );
-        if (_acceptCompleter != null && !_acceptCompleter!.isCompleted) {
-          _acceptCompleter!.complete(false);
-        }
+        _complete(session, false);
+        break;
+      case MessageTypes.pairingComplete:
+        if (session.phase != PairingSessionPhase.waitingForCompletion) return;
+        session.completion.complete(true);
+        break;
+      case MessageTypes.pairingAbort:
+        if (session.phase != PairingSessionPhase.waitingForCompletion) return;
+        session.completion.complete(false);
         break;
     }
   }
@@ -320,18 +459,45 @@ class PairingFacade extends StateNotifier<PairingState> {
 
   /// Called when a `pairingRequest` message arrives on the *scanned* device.
   /// Updates state so the UI can show a confirmation dialog.
-  void handleIncomingRequest(Map<String, dynamic> payload) {
+  Future<void> handleIncomingRequest(
+    PairingTransport transport,
+    Map<String, dynamic> payload,
+  ) async {
+    final sessionId = payload['sessionId'];
+    final peerId = payload['peerId'];
+    final publicKey = payload['publicKey'];
+    final role = payload['role'];
+    if (!transport.isCurrent ||
+        sessionId is! String ||
+        sessionId.isEmpty ||
+        peerId is! String ||
+        peerId.isEmpty ||
+        publicKey is! String ||
+        publicKey.isEmpty ||
+        role is! String ||
+        role.isEmpty) {
+      _logger.w('Rejected malformed or stale pairing request.');
+      state = const PairingState(
+        errorCode: PairingErrorCode.handshakeFailed,
+        errorDetail: 'Pairing request is malformed or missing its session ID',
+      );
+      return;
+    }
+    if (_session != null) {
+      _logger.w('Rejected out-of-order pairing request while session active.');
+      return;
+    }
     // Left null (not defaulted here) so the UI's own
     // `remoteDeviceName ?? l.pairingUnknownDevice` fallback -- localized to
     // *this* device's language -- is what actually renders, instead of a
     // fixed-language placeholder baked in before the widget ever sees it.
     final deviceName = payload['deviceName'] as String?;
-    final peerId = payload['peerId'] as String? ?? '';
-    final publicKey = payload['publicKey'] as String? ?? '';
     final scannerIp = payload['ip'] as String?;
 
-    final peer = _ref.read(peerFacadeProvider);
-    final verificationCode = peer?.verificationCode ?? '';
+    final verificationCode =
+        _verificationCodeOverride?.call() ??
+        _ref.read(peerFacadeProvider)?.verificationCode ??
+        '';
 
     state = PairingState(
       isShowingRequest: true,
@@ -343,19 +509,25 @@ class PairingFacade extends StateNotifier<PairingState> {
       'Incoming pairing request from $deviceName ($peerId, pubKey=${publicKey.substring(0, publicKey.length > 8 ? 8 : publicKey.length)}..., ip=$scannerIp)',
     );
 
-    // Stash the scanner's info for later use in acceptRequest.
-    _pendingScannerInfo = {
-      'deviceName': deviceName,
-      'peerId': peerId,
-      'role': payload['role'] as String? ?? 'main',
-      'publicKey': publicKey,
-      'ip': scannerIp,
-    };
+    final session = _PairingSession(
+      id: sessionId,
+      role: PairingSessionRole.scanned,
+      phase: PairingSessionPhase.awaitingDecision,
+      transport: transport,
+      peerInfo: {
+        'deviceName': deviceName,
+        'peerId': peerId,
+        'role': role,
+        'publicKey': publicKey,
+        'ip': scannerIp,
+      },
+    )..transportToken = transport.connectionToken;
+    await _replaceSession(session);
   }
 
   /// Called by the UI when the *scanned* device user confirms the request.
   ///
-  /// [socketManager] is the live connection from ConnectionFacade so we
+  /// [transport] is the live connection port from ConnectionFacade so we
   /// can reply on the same channel.  [scannerInfo] carries the scanner's
   /// identity to persist as our peer.  [myIp] is this device's live local
   /// IP -- sent to the scanner so it can store it as the peer IP (more
@@ -370,110 +542,290 @@ class PairingFacade extends StateNotifier<PairingState> {
   /// nothing saved at all -- an asymmetric state a plain re-scan couldn't
   /// cleanly recover from, since this device's permanent socket would then
   /// demand real challenge-response auth the scanner isn't set up to do.
-  Future<void> acceptRequest({
-    required SocketManager socketManager,
-    required Map<String, dynamic> scannerInfo,
+  Future<bool> acceptRequest({
+    required PairingTransport transport,
     required String myIp,
   }) async {
-    final myPeer = _ref.read(peerFacadeProvider);
-    final myPublicKey = await KeyStore.ensureDeviceKeyPair();
-
-    _logger.i('Sending pairingAccept to scanner...');
-    await socketManager.sendMessage(MessageTypes.pairingAccept, {
+    final session = _session;
+    if (session == null ||
+        session.role != PairingSessionRole.scanned ||
+        session.phase != PairingSessionPhase.awaitingDecision ||
+        !_matchesTransport(session, transport)) {
+      return false;
+    }
+    final identity = await _localIdentity();
+    if (!_ownsCurrent(session)) return false;
+    session.phase = PairingSessionPhase.waitingForAck;
+    state = state.copyWith(isShowingRequest: false, isFinalizing: true);
+    // The session's ACK completer exists before pairingAccept is sent.
+    final sent = await transport.send(MessageTypes.pairingAccept, {
+      'sessionId': session.id,
       // Sent to the other device as identity data -- locale-neutral
       // fallback, same reasoning as peer_facade.dart's _getDeviceName().
-      'deviceName': myPeer?.deviceName ?? 'Unknown Device',
-      'peerId': myPeer?.id ?? '',
-      'publicKey': myPublicKey,
-      'role': myPeer?.role ?? 'main',
+      'deviceName': identity['deviceName'],
+      'peerId': identity['peerId'],
+      'publicKey': identity['publicKey'],
+      'role': identity['role'],
       'ip': myIp,
     });
-
-    state = state.copyWith(isShowingRequest: false, isFinalizing: true);
-
-    _pairAckCompleter = Completer<bool>();
-    final acked = await _pairAckCompleter!.future.timeout(
-      const Duration(seconds: 15),
+    if (!sent || !_ownsCurrent(session)) _complete(session, false);
+    final acked = await session.response.future.timeout(
+      _ackTimeout,
       onTimeout: () => false,
     );
-
+    if (!_owns(session)) return false;
     if (!acked) {
+      session.phase = PairingSessionPhase.failed;
       state = const PairingState(errorCode: PairingErrorCode.ackTimeout);
-      _pendingScannerInfo = null;
-      return;
+      await _cleanupSession(session);
+      return false;
     }
-
-    // Persist the scanner's full identity (id, name, public key), and its
-    // real IP. Prefer the IP the scanner itself claimed in its
-    // pairingRequest (more reliable than the TCP remote address, which can
-    // be wrong on NAT/VLAN setups) -- fall back to the TCP remote address
-    // if the scanner didn't claim an IP.
-    final scannerId = scannerInfo['peerId'] as String? ?? '';
-    // Persisted identity data -- locale-neutral fallback, same reasoning as
-    // peer_facade.dart's _getDeviceName().
-    final scannerDeviceName =
-        scannerInfo['deviceName'] as String? ?? 'Unknown Device';
-    final scannerPublicKey = scannerInfo['publicKey'] as String? ?? '';
-    final scannerClaimedIp = scannerInfo['ip'] as String?;
-    final scannerIp = (scannerClaimedIp != null && scannerClaimedIp.isNotEmpty)
-        ? scannerClaimedIp
-        : socketManager.remoteAddress;
-    if (scannerId.isNotEmpty && scannerPublicKey.isNotEmpty) {
-      await _ref
-          .read(peerFacadeProvider.notifier)
-          .applyPairedPeer(
-            id: scannerId,
-            deviceName: scannerDeviceName,
-            publicKey: scannerPublicKey,
-            ip: scannerIp,
-          );
+    Future<void> Function()? rollback;
+    try {
+      session.phase = PairingSessionPhase.persisting;
+      rollback = await _persistScanned(session);
+      if (!_owns(session)) {
+        await rollback();
+        return false;
+      }
+      final completed = await transport.send(MessageTypes.pairingComplete, {
+        'sessionId': session.id,
+      });
+      if (!completed || !_ownsCurrent(session)) {
+        throw StateError('Failed to confirm pairing completion');
+      }
+      session.phase = PairingSessionPhase.completed;
+      rollback = null;
+      state = const PairingState();
+      return true;
+    } catch (e) {
+      try {
+        await rollback?.call();
+      } catch (rollbackError) {
+        _logger.e('Pairing rollback failed: $rollbackError');
+      }
+      session.phase = PairingSessionPhase.failed;
+      if (transport.isCurrent) {
+        await transport.send(MessageTypes.pairingAbort, {
+          'sessionId': session.id,
+        });
+      }
+      state = PairingState(
+        errorCode: PairingErrorCode.handshakeFailed,
+        errorDetail: '$e',
+      );
+      return false;
+    } finally {
+      await _cleanupSession(session);
     }
-
-    state = const PairingState();
   }
 
   /// Scanned side: the scanner confirmed it persisted its own end. Safe to
   /// commit our side now (see acceptRequest).
-  void handlePairingAck() {
-    _logger.i('handlePairingAck called — completing _pairAckCompleter.');
-    if (_pairAckCompleter != null && !_pairAckCompleter!.isCompleted) {
-      _pairAckCompleter!.complete(true);
+  void handlePairingAck(
+    PairingTransport transport,
+    Map<String, dynamic> payload,
+  ) {
+    final session = _session;
+    if (session == null ||
+        session.role != PairingSessionRole.scanned ||
+        session.phase != PairingSessionPhase.waitingForAck ||
+        payload['sessionId'] != session.id ||
+        !_matchesTransport(session, transport)) {
+      return;
     }
+    session.phase = PairingSessionPhase.persisting;
+    _complete(session, true);
+  }
+
+  void handleTransportDisconnected(PairingTransport transport) {
+    final session = _session;
+    if (session == null ||
+        session.transportToken != transport.connectionToken) {
+      return;
+    }
+    _complete(session, false);
   }
 
   /// Called by the UI when the *scanned* device user rejects the request.
-  Future<void> rejectRequest({required SocketManager socketManager}) async {
-    await socketManager.sendMessage(MessageTypes.pairingReject, {});
+  Future<void> rejectRequest({required PairingTransport transport}) async {
+    final session = _session;
+    if (session == null ||
+        session.role != PairingSessionRole.scanned ||
+        session.phase != PairingSessionPhase.awaitingDecision ||
+        !_matchesTransport(session, transport)) {
+      return;
+    }
+    await transport.send(MessageTypes.pairingReject, {'sessionId': session.id});
     state = const PairingState();
+    await _cleanupSession(session);
   }
 
   /// Reset to idle (e.g. dialog dismissed without action).
   void reset() {
+    final session = _session;
     state = const PairingState();
-    if (_acceptCompleter != null && !_acceptCompleter!.isCompleted) {
-      _acceptCompleter!.complete(false);
+    if (session != null) {
+      _complete(session, false);
+      if (!session.completion.isCompleted) {
+        session.completion.complete(false);
+      }
+      _cleanupSession(session);
     }
-    if (_pairAckCompleter != null && !_pairAckCompleter!.isCompleted) {
-      _pairAckCompleter!.complete(false);
-    }
-    _pendingScannerInfo = null;
-    _cleanupSocket();
   }
 
-  // --------------------------------------------------------------------
+  bool _owns(_PairingSession session) => identical(_session, session);
 
-  Future<void> _cleanupSocket() async {
+  bool _ownsCurrent(_PairingSession session) =>
+      _owns(session) &&
+      session.transport.isCurrent &&
+      session.transportToken == session.transport.connectionToken;
+
+  bool _matchesTransport(_PairingSession session, PairingTransport transport) =>
+      transport.isCurrent &&
+      session.transportToken == transport.connectionToken;
+
+  bool _validIdentity(
+    Map<String, dynamic>? payload,
+    Map<String, dynamic> expected,
+  ) =>
+      payload != null &&
+      payload['peerId'] is String &&
+      payload['publicKey'] is String &&
+      payload['peerId'] == expected['id'] &&
+      payload['publicKey'] == expected['publicKey'];
+
+  void _complete(_PairingSession session, bool result) {
+    if (!session.response.isCompleted) session.response.complete(result);
+  }
+
+  void _handleDisconnect(_PairingSession session) {
+    if (!_owns(session)) return;
+    _complete(session, false);
+    if (!session.completion.isCompleted) session.completion.complete(false);
+  }
+
+  Future<void> _replaceSession(_PairingSession next) async {
+    final previous = _session;
+    _session = next;
+    if (previous != null) {
+      _complete(previous, false);
+      if (!previous.completion.isCompleted) {
+        previous.completion.complete(false);
+      }
+      await _cleanupSession(previous);
+    }
+  }
+
+  Future<Future<void> Function()> _persistScanner(
+    _PairingSession session,
+  ) async {
+    final accept = session.responsePayload!;
+    final data = {
+      ...session.peerInfo,
+      'ip': session.transport.remoteAddress ?? session.peerInfo['ip'],
+      'deviceName': (accept['deviceName'] as String?)?.isNotEmpty == true
+          ? accept['deviceName']
+          : session.peerInfo['deviceName'],
+    };
+    final override = _persistScannerOverride;
+    if (override != null) {
+      try {
+        await override(data);
+      } catch (_) {
+        await _rollbackScannerOverride?.call(data);
+        rethrow;
+      }
+      return () async => _rollbackScannerOverride?.call(data);
+    }
+    final peerFacade = _ref.read(peerFacadeProvider.notifier);
+    final previous = _ref.read(peerFacadeProvider);
     try {
-      await _handshakeSocket?.disconnect();
-    } catch (_) {}
-    _handshakeSocket = null;
-    _handshakeKey = null;
-    _acceptPayload = null;
+      await peerFacade.createPeerFromQr(
+        id: data['id']! as String,
+        ip: data['ip']! as String,
+        port: data['port']! as int,
+        keyBase64: data['key']! as String,
+        role: data['role']! as String,
+        deviceName: data['deviceName']! as String,
+        publicKey: data['publicKey']! as String,
+      );
+    } catch (_) {
+      await peerFacade.rollbackPairing(
+        previous: previous,
+        attemptedId: data['id']! as String,
+      );
+      rethrow;
+    }
+    return () => peerFacade.rollbackPairing(
+      previous: previous,
+      attemptedId: data['id']! as String,
+    );
+  }
+
+  Future<Map<String, dynamic>> _localIdentity() async {
+    final override = _localIdentityOverride;
+    if (override != null) return override();
+    final peer = _ref.read(peerFacadeProvider);
+    return {
+      'deviceName': peer?.deviceName ?? 'Unknown Device',
+      'peerId': peer?.id ?? '',
+      'publicKey': await KeyStore.ensureDeviceKeyPair(),
+      'role': peer?.role ?? 'main',
+    };
+  }
+
+  Future<Future<void> Function()> _persistScanned(
+    _PairingSession session,
+  ) async {
+    final data = {...session.peerInfo, 'ip': session.transport.remoteAddress};
+    final override = _persistScannedOverride;
+    if (override != null) {
+      try {
+        await override(data);
+      } catch (_) {
+        await _rollbackScannedOverride?.call(data);
+        rethrow;
+      }
+      return () async => _rollbackScannedOverride?.call(data);
+    }
+    final peerFacade = _ref.read(peerFacadeProvider.notifier);
+    final previous = _ref.read(peerFacadeProvider);
+    try {
+      await peerFacade.applyPairedPeer(
+        id: data['peerId']! as String,
+        deviceName: data['deviceName'] as String? ?? 'Unknown Device',
+        publicKey: data['publicKey']! as String,
+        ip: data['ip'] as String?,
+      );
+    } catch (_) {
+      await peerFacade.rollbackPairing(
+        previous: previous,
+        attemptedId: data['peerId']! as String,
+      );
+      rethrow;
+    }
+    return () => peerFacade.rollbackPairing(
+      previous: previous,
+      attemptedId: data['peerId']! as String,
+    );
+  }
+
+  Future<void> _cleanupSession(_PairingSession session) async {
+    if (session.cleanedUp) return;
+    session.cleanedUp = true;
+    if (_owns(session)) _session = null;
+    if (session.transport is PairingClientTransport) {
+      try {
+        await (session.transport as PairingClientTransport).disconnect();
+      } catch (_) {}
+    }
   }
 
   @override
   void dispose() {
-    _cleanupSocket();
+    final session = _session;
+    if (session != null) _cleanupSession(session);
     super.dispose();
   }
 }

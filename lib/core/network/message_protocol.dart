@@ -68,6 +68,10 @@ abstract class MessageTypes {
   // ağ üzerinde kaybolursa Scanned kendini eşleşmiş sanır ama Scanner hiç
   // kaydetmemiş olur -- asimetrik, kendi kendine düzelmeyen bir durum.
   static const String pairingAck = 'pairing_ack';
+  // Scanned -> Scanner: local persistence completed successfully.
+  static const String pairingComplete = 'pairing_complete';
+  // Either side: the session failed after provisional persistence.
+  static const String pairingAbort = 'pairing_abort';
 
   // ---- Connection authentication (challenge-response) -----------------
   // Server -> Client:  "Bana kim olduğunu kanıtla" (nonce içerir)
