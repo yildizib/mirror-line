@@ -22,6 +22,47 @@ class SmsMessageDao {
     return maps.map(SmsMessage.fromJson).toList();
   }
 
+  Future<List<SmsMessage>> getRecent({
+    required int limit,
+    DateTime? since,
+  }) async {
+    final db = await _database;
+    final where = since != null ? 'timestamp >= ?' : null;
+    final whereArgs =
+        since != null ? [since.millisecondsSinceEpoch] : null;
+    final maps = await db.query(
+      'sms_message',
+      where: where,
+      whereArgs: whereArgs,
+      orderBy: 'timestamp DESC',
+      limit: limit,
+    );
+    return maps.map(SmsMessage.fromJson).toList();
+  }
+
+  Future<List<SmsMessage>> getOlder({
+    required int limit,
+    required int offset,
+    DateTime? before,
+  }) async {
+    final db = await _database;
+    String? where;
+    List<Object>? whereArgs;
+    if (before != null) {
+      where = 'timestamp < ?';
+      whereArgs = [before.millisecondsSinceEpoch];
+    }
+    final maps = await db.query(
+      'sms_message',
+      where: where,
+      whereArgs: whereArgs,
+      orderBy: 'timestamp DESC',
+      limit: limit,
+      offset: offset,
+    );
+    return maps.map(SmsMessage.fromJson).toList();
+  }
+
   Future<List<SmsMessage>> getByThread(String threadId) async {
     final db = await _database;
     final maps = await db.query(
@@ -29,6 +70,40 @@ class SmsMessageDao {
       where: 'thread_id = ?',
       whereArgs: [threadId],
       orderBy: 'timestamp ASC',
+    );
+    return maps.map(SmsMessage.fromJson).toList();
+  }
+
+  Future<List<SmsMessage>> getRecentByThread({
+    required String threadId,
+    required int limit,
+  }) async {
+    final db = await _database;
+    final maps = await db.query(
+      'sms_message',
+      where: 'thread_id = ?',
+      whereArgs: [threadId],
+      orderBy: 'timestamp DESC',
+      limit: limit,
+    );
+    final result = maps.map(SmsMessage.fromJson).toList();
+    result.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+    return result;
+  }
+
+  Future<List<SmsMessage>> getOlderByThread({
+    required String threadId,
+    required int limit,
+    required int offset,
+  }) async {
+    final db = await _database;
+    final maps = await db.query(
+      'sms_message',
+      where: 'thread_id = ?',
+      whereArgs: [threadId],
+      orderBy: 'timestamp ASC',
+      limit: limit,
+      offset: offset,
     );
     return maps.map(SmsMessage.fromJson).toList();
   }
