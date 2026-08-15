@@ -415,4 +415,37 @@ Device test by developer → gh issue close #ID && gh pr merge #PR --squash --de
 - Do NOT open multiple PRs for one feature; keep it as one reviewable PR
 - If tasks are independent enough to parallelize, commit them separately but still on the same branch and in the same PR
 
+## QA Rules
+
+### Code Formatting
+- Run `dart format lib/ test/` before every commit
+- Line length: 80 (Dart default)
+- CI gate: `dart format --set-exit-if-changed lib/ test/` — fails PR if unformatted
+
+### Static Analysis
+- Run `dart analyze --fatal-infos` before every commit — treats warnings as errors
+- Run `flutter analyze` before every commit — catches Flutter-specific issues
+- Fix ALL warnings: unused imports, unused fields, missing const, etc.
+- Never commit with analyzer warnings or info-level issues
+
+### Pre-Commit Checklist
+Run these in order before every commit. All must pass:
+```bash
+dart format lib/ test/
+dart analyze --fatal-infos
+flutter analyze
+flutter test
+Build Verification
+- Run flutter build apk --debug before pushing feature branches
+- Verify no compile errors in release mode before release PRs
+Test Coverage
+- New feature → add its tests
+- Bug fix → add/update test covering the fix
+- Tests must cover all changes (DAOs, facades, providers, UI)
+- All existing tests must still pass
+CI Expectations
+- dart analyze --fatal-infos exits 0 (no warnings)
+- dart format --set-exit-if-changed exits 0 (formatted)
+- flutter test all pass
+- If any of these fail, fix before requesting review
 ---
