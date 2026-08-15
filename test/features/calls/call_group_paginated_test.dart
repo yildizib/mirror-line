@@ -209,4 +209,48 @@ void main() {
     final aliceGroup = state.items.where((g) => g.key == 'Alice').first;
     expect(aliceGroup.calls.length, 2);
   });
+
+  test('refresh merges newly arrived calls without duplicates', () async {
+    final container = buildContainer();
+    final facade = container.read(callFacadeProvider.notifier);
+    await facade.load();
+
+    final now = DateTime.now();
+    await facade.add(
+      makeEvent(
+        id: 'call1',
+        timestamp: now.subtract(const Duration(hours: 2)),
+        contactName: 'Alice',
+      ),
+    );
+
+    final notifier = container.read(callGroupsPaginatedProvider.notifier);
+    await notifier.loadInitial();
+    expect(container.read(callGroupsPaginatedProvider).items.length, 1);
+
+    await facade.add(
+      makeEvent(
+        id: 'call2',
+        timestamp: now.subtract(const Duration(hours: 1)),
+        contactName: 'Alice',
+      ),
+    );
+    await facade.add(
+      makeEvent(
+        id: 'call3',
+        timestamp: now.subtract(const Duration(minutes: 30)),
+        contactName: 'Bob',
+      ),
+    );
+
+    await notifier.refresh();
+    final state = container.read(callGroupsPaginatedProvider);
+
+    expect(state.items.length, 2);
+    final alice = state.items.where((g) => g.key == 'Alice').first;
+    final bob = state.items.where((g) => g.key == 'Bob').first;
+    expect(alice.calls.map((c) => c.id).toList(), ['call2', 'call1']);
+    expect(bob.calls.map((c) => c.id).toList(), ['call3']);
+    expect(state.items.first.key, 'Bob');
+  });
 }

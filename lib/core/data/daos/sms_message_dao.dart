@@ -90,6 +90,23 @@ class SmsMessageDao {
     return result;
   }
 
+  Future<List<SmsMessage>> getRecentByAddress({
+    required String address,
+    required int limit,
+  }) async {
+    final db = await _database;
+    final maps = await db.query(
+      'sms_message',
+      where: 'address = ?',
+      whereArgs: [address],
+      orderBy: 'timestamp DESC',
+      limit: limit,
+    );
+    final result = maps.map(SmsMessage.fromJson).toList();
+    result.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+    return result;
+  }
+
   Future<List<SmsMessage>> getOlderByThread({
     required String threadId,
     required int limit,
@@ -100,6 +117,25 @@ class SmsMessageDao {
       'sms_message',
       where: 'thread_id = ?',
       whereArgs: [threadId],
+      orderBy: 'timestamp DESC',
+      limit: limit,
+      offset: offset,
+    );
+    final result = maps.map(SmsMessage.fromJson).toList();
+    result.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+    return result;
+  }
+
+  Future<List<SmsMessage>> getOlderByAddress({
+    required String address,
+    required int limit,
+    required int offset,
+  }) async {
+    final db = await _database;
+    final maps = await db.query(
+      'sms_message',
+      where: 'address = ?',
+      whereArgs: [address],
       orderBy: 'timestamp DESC',
       limit: limit,
       offset: offset,

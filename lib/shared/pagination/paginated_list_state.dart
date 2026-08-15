@@ -28,6 +28,14 @@ class PaginatedListState<T> {
 
 const int kDefaultPageSize = 25;
 
+/// Removes duplicate entries by identity, keeping the first occurrence.
+/// Used when merging freshly-fetched rows into an already-loaded paginated
+/// list so live updates don't duplicate items.
+List<T> dedupeById<T>(List<T> items, String Function(T) idOf) {
+  final seen = <String>{};
+  return items.where((item) => seen.add(idOf(item))).toList();
+}
+
 DateTime yesterdayStart() {
   final now = DateTime.now();
   return DateTime(

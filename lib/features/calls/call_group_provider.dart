@@ -80,6 +80,9 @@ final callGroupsPaginatedProvider =
     ) {
       final notifier = CallGroupPaginated(ref);
       Future.microtask(() => notifier.loadInitial());
+      ref.listen(callFacadeProvider, (_, _) {
+        Future.microtask(() => notifier.refresh());
+      });
       return notifier;
     });
 
@@ -136,7 +139,7 @@ class CallGroupPaginated
     for (final g in newGroups) {
       final prev = map[g.key];
       if (prev != null) {
-        final merged = [...prev.calls, ...g.calls]
+        final merged = dedupeById([...prev.calls, ...g.calls], (c) => c.id)
           ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
         map[g.key] = CallGroup(
           key: g.key,

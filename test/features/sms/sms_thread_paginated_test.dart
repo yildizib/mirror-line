@@ -150,12 +150,10 @@ void main() {
     }
 
     final notifier = container.read(
-      smsThreadDetailPaginatedProvider('thread_alice').notifier,
+      smsThreadDetailPaginatedProvider('+111').notifier,
     );
     await notifier.loadInitial();
-    final state = container.read(
-      smsThreadDetailPaginatedProvider('thread_alice'),
-    );
+    final state = container.read(smsThreadDetailPaginatedProvider('+111'));
 
     expect(state.items.length, 10);
     expect(state.items.first.id, 'm0');
@@ -181,20 +179,103 @@ void main() {
     }
 
     final notifier = container.read(
-      smsThreadDetailPaginatedProvider('thread_alice').notifier,
+      smsThreadDetailPaginatedProvider('+111').notifier,
     );
     await notifier.loadInitial();
-    var state = container.read(
-      smsThreadDetailPaginatedProvider('thread_alice'),
-    );
+    var state = container.read(smsThreadDetailPaginatedProvider('+111'));
     expect(state.items.length, 25);
     expect(state.items.first.id, 'm5');
     expect(state.items.last.id, 'm29');
 
     await notifier.loadOlder();
-    state = container.read(smsThreadDetailPaginatedProvider('thread_alice'));
+    state = container.read(smsThreadDetailPaginatedProvider('+111'));
     expect(state.items.length, 30);
     expect(state.items.first.id, 'm0');
     expect(state.items.last.id, 'm29');
   });
+
+  test('thread detail is keyed by address not threadId', () async {
+    final container = buildContainer();
+    final facade = container.read(smsFacadeProvider.notifier);
+    await facade.load();
+
+    final base = DateTime(2025, 1, 1, 12);
+    await facade.add(
+      makeMessage(
+        id: 'a1',
+        timestamp: base,
+        threadId: '',
+        address: '+111',
+        contactName: 'Alice',
+      ),
+    );
+    await facade.add(
+      makeMessage(
+        id: 'a2',
+        timestamp: base.add(const Duration(minutes: 1)),
+        threadId: '',
+        address: '+111',
+        contactName: 'Alice',
+      ),
+    );
+    await facade.add(
+      makeMessage(
+        id: 'other',
+        timestamp: base.add(const Duration(minutes: 2)),
+        threadId: '',
+        address: '+222',
+        contactName: 'Bob',
+      ),
+    );
+
+    final notifier = container.read(
+      smsThreadDetailPaginatedProvider('+111').notifier,
+    );
+    await notifier.loadInitial();
+    final state = container.read(smsThreadDetailPaginatedProvider('+111'));
+
+    expect(state.items.length, 2);
+    expect(state.items.map((m) => m.id).toList(), ['a1', 'a2']);
+  });
+
+  test(
+    'thread detail refresh merges new messages without duplicates',
+    () async {
+      final container = buildContainer();
+      final facade = container.read(smsFacadeProvider.notifier);
+      await facade.load();
+
+      final base = DateTime(2025, 1, 1, 12);
+      await facade.add(
+        makeMessage(
+          id: 'm0',
+          timestamp: base,
+          address: '+111',
+          contactName: 'Alice',
+        ),
+      );
+
+      final notifier = container.read(
+        smsThreadDetailPaginatedProvider('+111').notifier,
+      );
+      await notifier.loadInitial();
+
+      await facade.add(
+        makeMessage(
+          id: 'm1',
+          timestamp: base.add(const Duration(minutes: 1)),
+          address: '+111',
+          contactName: 'Alice',
+        ),
+      );
+      await notifier.refresh();
+
+      final state = container.read(smsThreadDetailPaginatedProvider('+111'));
+      expect(state.items.map((m) => m.id).toList(), ['m0', 'm1']);
+
+      await notifier.refresh();
+      final state2 = container.read(smsThreadDetailPaginatedProvider('+111'));
+      expect(state2.items.map((m) => m.id).toList(), ['m0', 'm1']);
+    },
+  );
 }

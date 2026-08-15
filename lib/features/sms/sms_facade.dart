@@ -85,6 +85,25 @@ class SmsFacade extends StateNotifier<List<SmsMessage>> {
     );
   }
 
+  Future<List<SmsMessage>> loadRecentByAddress({
+    required String address,
+    required int limit,
+  }) async {
+    return _dao.getRecentByAddress(address: address, limit: limit);
+  }
+
+  Future<List<SmsMessage>> loadOlderByAddress({
+    required String address,
+    required int limit,
+    required int offset,
+  }) async {
+    return _dao.getOlderByAddress(
+      address: address,
+      limit: limit,
+      offset: offset,
+    );
+  }
+
   /// Upsert: replaces the existing entry if [message.id] is already
   /// present instead of appending a duplicate (see CallFacade.add for why
   /// this matters -- native events can repeat for what is logically the

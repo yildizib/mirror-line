@@ -129,4 +129,39 @@ abstract class GroupedPaginatedNotifier<E, G>
     groups.sort((a, b) => groupTimestamp(b).compareTo(groupTimestamp(a)));
     return groups;
   }
+
+  /// Re-fetches the recent window and merges any new items into the
+  /// already-loaded list without losing pagination progress. Called when
+  /// the underlying facade state changes (live updates from the socket).
+  ///
+  /// Idempotent (last fetch wins), so it deliberately does NOT guard on
+  /// [state.isLoading] -- rapid live updates must each re-fetch rather
+  /// than be dropped while a previous refresh is still in flight.
+  Future<void> refresh() async {
+    if (!mounted) return;
+    state = state.copyWith(isLoading: true);
+    try {
+      _recentLimit = rawPageSize;
+      final raw = await fetchRecent(limit: _recentLimit);
+      if (!mounted) return;
+      final allGroups = _groupAndSort(raw);
+      _hasMoreRecent = raw.length >= _recentLimit;
+      final visible = allGroups.length > kDefaultPageSize
+          ? kDefaultPageSize
+          : allGroups.length;
+      _remainingGroups = allGroups.sublist(visible);
+      final merged = mergeGroups(state.items, allGroups.sublist(0, visible));
+      final reachedEnd = !_hasMoreRecent && _remainingGroups.isEmpty;
+      state = PaginatedListState<G>(
+        items: merged,
+        isLoading: false,
+        hasReachedEnd: reachedEnd,
+        pageOffset: 0,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      state = state.copyWith(isLoading: false);
+      rethrow;
+    }
+  }
 }

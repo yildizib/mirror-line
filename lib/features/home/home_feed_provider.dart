@@ -12,6 +12,8 @@ import 'package:mirrorline/shared/pagination/paginated_list_state.dart';
 /// timestamp without caring which kind each one is.
 sealed class HomeFeedItem {
   DateTime get timestamp;
+
+  String get id;
 }
 
 class CallFeedItem extends HomeFeedItem {
@@ -21,6 +23,9 @@ class CallFeedItem extends HomeFeedItem {
 
   @override
   DateTime get timestamp => event.timestamp;
+
+  @override
+  String get id => event.id;
 }
 
 class SmsFeedItem extends HomeFeedItem {
@@ -30,6 +35,9 @@ class SmsFeedItem extends HomeFeedItem {
 
   @override
   DateTime get timestamp => message.timestamp;
+
+  @override
+  String get id => message.id;
 }
 
 class NotificationFeedItem extends HomeFeedItem {
@@ -39,6 +47,9 @@ class NotificationFeedItem extends HomeFeedItem {
 
   @override
   DateTime get timestamp => event.timestamp;
+
+  @override
+  String get id => event.id;
 }
 
 /// Merges callFacadeProvider + smsFacadeProvider + notificationFacadeProvider
@@ -68,6 +79,15 @@ final homeFeedPaginatedProvider =
     ) {
       final notifier = HomeFeedPaginated(ref);
       Future.microtask(() => notifier.loadInitial());
+      ref.listen(callFacadeProvider, (_, _) {
+        Future.microtask(() => notifier.refresh());
+      });
+      ref.listen(smsFacadeProvider, (_, _) {
+        Future.microtask(() => notifier.refresh());
+      });
+      ref.listen(notificationFacadeProvider, (_, _) {
+        Future.microtask(() => notifier.refresh());
+      });
       return notifier;
     });
 
@@ -174,6 +194,45 @@ class HomeFeedPaginated
     ];
     items.sort((a, b) => b.timestamp.compareTo(a.timestamp));
     return items;
+  }
+
+  /// Re-fetches the recent window from all three sources and merges any
+  /// new items into the already-loaded list (deduped by id) so live
+  /// updates from the socket appear without an app restart.
+  Future<void> refresh() async {
+    if (!mounted) return;
+    state = state.copyWith(isLoading: true);
+    try {
+      final since = yesterdayStart();
+      final callFuture = ref
+          .read(callFacadeProvider.notifier)
+          .loadRecent(limit: kDefaultPageSize, since: since);
+      final smsFuture = ref
+          .read(smsFacadeProvider.notifier)
+          .loadRecent(limit: kDefaultPageSize, since: since);
+      final notifFuture = ref
+          .read(notificationFacadeProvider.notifier)
+          .loadRecent(limit: kDefaultPageSize, since: since);
+
+      final calls = await callFuture;
+      final sms = await smsFuture;
+      final notifications = await notifFuture;
+      if (!mounted) return;
+
+      final fresh = _mergeAndSort(calls, sms, notifications);
+      final merged = dedupeById([...fresh, ...state.items], (i) => i.id)
+        ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+      state = PaginatedListState<HomeFeedItem>(
+        items: merged,
+        isLoading: false,
+        hasReachedEnd: state.hasReachedEnd,
+        pageOffset: state.pageOffset,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      state = state.copyWith(isLoading: false);
+      rethrow;
+    }
   }
 
   int _callOffset = 0;
