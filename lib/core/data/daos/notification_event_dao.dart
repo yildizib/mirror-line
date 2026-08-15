@@ -25,6 +25,50 @@ class NotificationEventDao {
     return maps.map(NotificationEvent.fromJson).toList();
   }
 
+  Future<List<NotificationEvent>> getRecent({
+    required int limit,
+    DateTime? since,
+  }) async {
+    final db = await _database;
+    String? where;
+    List<Object>? whereArgs;
+    if (since != null) {
+      where = 'timestamp >= ?';
+      whereArgs = [since.millisecondsSinceEpoch];
+    }
+    final maps = await db.query(
+      'notification_event',
+      where: where,
+      whereArgs: whereArgs,
+      orderBy: 'timestamp DESC',
+      limit: limit,
+    );
+    return maps.map(NotificationEvent.fromJson).toList();
+  }
+
+  Future<List<NotificationEvent>> getOlder({
+    required int limit,
+    required int offset,
+    DateTime? before,
+  }) async {
+    final db = await _database;
+    String? where;
+    List<Object>? whereArgs;
+    if (before != null) {
+      where = 'timestamp < ?';
+      whereArgs = [before.millisecondsSinceEpoch];
+    }
+    final maps = await db.query(
+      'notification_event',
+      where: where,
+      whereArgs: whereArgs,
+      orderBy: 'timestamp DESC',
+      limit: limit,
+      offset: offset,
+    );
+    return maps.map(NotificationEvent.fromJson).toList();
+  }
+
   Future<void> delete(String id) async {
     final db = await _database;
     await db.delete('notification_event', where: 'id = ?', whereArgs: [id]);

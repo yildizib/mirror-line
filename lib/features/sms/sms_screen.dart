@@ -13,13 +13,17 @@ class SmsScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final threads = ref.watch(smsThreadsProvider);
+    final threadsState = ref.watch(smsThreadsPaginatedProvider);
+    final threads = threadsState.items;
     final l = AppLocalizations.of(context);
 
     return SelectableListScaffold(
       items: threads,
       itemKey: (thread) => thread.address,
       dateHeaderOf: (thread) => thread.lastMessage.timestamp,
+      onLoadMore: ref.read(smsThreadsPaginatedProvider.notifier).loadMore,
+      isLoadingMore: threadsState.isLoading,
+      hasReachedEnd: threadsState.hasReachedEnd,
       itemBuilder: (context, thread, isSelecting, isSelected, onTapSelect) =>
           SmsThreadTile(
             thread: thread,

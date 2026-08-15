@@ -50,6 +50,40 @@ class SmsFacade extends StateNotifier<List<SmsMessage>> {
     state = await _dao.getAll();
   }
 
+  Future<List<SmsMessage>> loadRecent({
+    required int limit,
+    DateTime? since,
+  }) async {
+    return _dao.getRecent(limit: limit, since: since);
+  }
+
+  Future<List<SmsMessage>> loadOlder({
+    required int limit,
+    required int offset,
+    DateTime? before,
+  }) async {
+    return _dao.getOlder(limit: limit, offset: offset, before: before);
+  }
+
+  Future<List<SmsMessage>> loadRecentByThread({
+    required String threadId,
+    required int limit,
+  }) async {
+    return _dao.getRecentByThread(threadId: threadId, limit: limit);
+  }
+
+  Future<List<SmsMessage>> loadOlderByThread({
+    required String threadId,
+    required int limit,
+    required int offset,
+  }) async {
+    return _dao.getOlderByThread(
+      threadId: threadId,
+      limit: limit,
+      offset: offset,
+    );
+  }
+
   /// Upsert: replaces the existing entry if [message.id] is already
   /// present instead of appending a duplicate (see CallFacade.add for why
   /// this matters -- native events can repeat for what is logically the

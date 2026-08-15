@@ -49,6 +49,21 @@ class NotificationFacade extends StateNotifier<List<NotificationEvent>> {
     state = await _dao.getAll();
   }
 
+  Future<List<NotificationEvent>> loadRecent({
+    required int limit,
+    DateTime? since,
+  }) async {
+    return _dao.getRecent(limit: limit, since: since);
+  }
+
+  Future<List<NotificationEvent>> loadOlder({
+    required int limit,
+    required int offset,
+    DateTime? before,
+  }) async {
+    return _dao.getOlder(limit: limit, offset: offset, before: before);
+  }
+
   Future<void> add(NotificationEvent event) async {
     await _dao.insert(event);
     final exists = state.any((e) => e.id == event.id);

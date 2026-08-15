@@ -95,6 +95,21 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
     state = await _dao.getAll();
   }
 
+  Future<List<CallEvent>> loadRecent({
+    required int limit,
+    DateTime? since,
+  }) async {
+    return _dao.getRecent(limit: limit, since: since);
+  }
+
+  Future<List<CallEvent>> loadOlder({
+    required int limit,
+    required int offset,
+    DateTime? before,
+  }) async {
+    return _dao.getOlder(limit: limit, offset: offset, before: before);
+  }
+
   /// Upsert: replaces the existing entry if [event.id] is already present
   /// instead of appending a duplicate. Native call events can legitimately
   /// fire more than once for what is logically the same call (see
