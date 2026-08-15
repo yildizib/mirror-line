@@ -225,10 +225,15 @@ class SocketManager {
     _listen(session);
 
     // Start challenge-response authentication before announcing connection.
-    // Skip auth if no peer public key is configured (pairing mode).
+    // Skip auth only when neither side has paired identity material.
     if (_isServer) {
-      if (_peerPublicKeyBase64 != null && _peerPublicKeyBase64!.isNotEmpty) {
+      final hasPeerIdentity =
+          _peerPublicKeyBase64 != null && _peerPublicKeyBase64!.isNotEmpty;
+      if (hasPeerIdentity && _localKeyPair != null) {
         _startServerAuth(session);
+      } else if (hasPeerIdentity || _localKeyPair != null) {
+        _logger.e('Incomplete server auth identity. Closing connection.');
+        _closeSession(session);
       } else {
         _logger.i(
           'Server: no peer public key set — pairing mode, skipping auth.',
@@ -236,8 +241,13 @@ class SocketManager {
         _onAuthSuccess(session);
       }
     } else {
-      if (_localKeyPair != null) {
+      final hasPeerIdentity =
+          _peerPublicKeyBase64 != null && _peerPublicKeyBase64!.isNotEmpty;
+      if (_localKeyPair != null && hasPeerIdentity) {
         _startClientAuth(session);
+      } else if (_localKeyPair != null || hasPeerIdentity) {
+        _logger.e('Incomplete client auth identity. Closing connection.');
+        _closeSession(session);
       } else {
         _logger.i(
           'Client: no local key pair set — pairing mode, skipping auth.',
@@ -435,12 +445,22 @@ class SocketManager {
   // --------------------------------------------------------------------
 
   /// Server side: send a random nonce to the client.
-  void _startServerAuth(_SocketSession session) {
+  void _startServerAuth(_SocketSession session) async {
     final nonce = CryptoManager.generateNonce();
+    final localKeyPair = _localKeyPair;
+    if (localKeyPair == null) {
+      _closeSession(session);
+      return;
+    }
     session.authPhase = _AuthPhase.awaitResponse;
     session.challengeNonce = nonce;
+    final signature = await CryptoManager.sign(localKeyPair, nonce);
+    if (!_isCurrent(session)) return;
     _logger.i('Server sending auth challenge.');
-    sendMessage(MessageTypes.authChallenge, {'nonce': nonce});
+    await sendMessage(MessageTypes.authChallenge, {
+      'nonce': nonce,
+      'signature': signature,
+    });
 
     // If the client never responds (e.g. it silently died), don't hold this
     // connection slot forever — close it so a real reconnect can get through.
@@ -507,8 +527,24 @@ class SocketManager {
     }
     final payload = jsonDecode(decrypted) as Map<String, dynamic>;
     final nonce = payload['nonce'] as String? ?? '';
+    final serverSignature = payload['signature'] as String? ?? '';
     if (nonce.isEmpty) {
       _logger.e('Empty nonce in auth challenge.');
+      _closeSession(session);
+      return;
+    }
+
+    final peerPublicKey = _peerPublicKeyBase64;
+    final serverVerified =
+        peerPublicKey != null &&
+        await CryptoManager.verifySignature(
+          signatureBase64: serverSignature,
+          message: nonce,
+          publicKeyBase64: peerPublicKey,
+        );
+    if (!_isCurrent(session)) return;
+    if (!serverVerified) {
+      _logger.e('Server authentication failed.');
       _closeSession(session);
       return;
     }
@@ -551,7 +587,11 @@ class SocketManager {
     final payload = jsonDecode(decrypted) as Map<String, dynamic>;
     final nonce = payload['nonce'] as String? ?? '';
     final signature = payload['signature'] as String? ?? '';
-    if (nonce.isEmpty || nonce != session.challengeNonce) {
+    final expectedNonce = session.challengeNonce;
+    // Consume the challenge before verification so a nonce cannot be reused
+    // after an invalid signature or a concurrent duplicate response.
+    session.challengeNonce = null;
+    if (nonce.isEmpty || nonce != expectedNonce) {
       _logger.w('Client authentication failed (invalid nonce).');
       _closeSession(session);
       return;

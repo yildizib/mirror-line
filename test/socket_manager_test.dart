@@ -263,9 +263,11 @@ void main() {
       );
       unawaited(
         Future<void>.delayed(const Duration(milliseconds: 650), () async {
+          final nonce = CryptoManager.generateNonce();
+          final signature = await CryptoManager.sign(serverKeyPair, nonce);
           final encrypted = await CryptoManager.encrypt(
             key,
-            jsonEncode({'nonce': CryptoManager.generateNonce()}),
+            jsonEncode({'nonce': nonce, 'signature': signature}),
           );
           final challenge = MirrorMessage(
             type: MessageTypes.authChallenge,
@@ -450,5 +452,51 @@ void main() {
     expect(server.isAuthed, isFalse);
     await socket.close();
     await server.disconnect();
+  });
+
+  test('client rejects a server challenge signed by the wrong key', () async {
+    final key = CryptoManager.generateKey();
+    final ed25519 = Ed25519();
+    final trustedServerKeyPair = await ed25519.newKeyPair();
+    final wrongServerKeyPair = await ed25519.newKeyPair();
+    final clientKeyPair = await ed25519.newKeyPair();
+    final trustedServerPub = base64Encode(
+      (await trustedServerKeyPair.extractPublicKey()).bytes,
+    );
+    final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 45912);
+    final sockets = <Socket>[];
+    final subscription = server.listen((socket) {
+      sockets.add(socket);
+      unawaited(() async {
+        final nonce = CryptoManager.generateNonce();
+        final signature = await CryptoManager.sign(wrongServerKeyPair, nonce);
+        final encrypted = await CryptoManager.encrypt(
+          key,
+          jsonEncode({'nonce': nonce, 'signature': signature}),
+        );
+        final challenge = MirrorMessage(
+          type: MessageTypes.authChallenge,
+          id: 'wrong-server-signature',
+          timestamp: DateTime.now().millisecondsSinceEpoch,
+          payload: encrypted,
+        );
+        socket.write('${challenge.encode()}\n');
+        await socket.flush();
+      }());
+    });
+
+    final client = SocketManager(onMessage: (_) {});
+    client.setAuthIdentity(
+      peerPublicKeyBase64: trustedServerPub,
+      localKeyPair: clientKeyPair,
+    );
+    expect(await client.connect('127.0.0.1', 45912, key), isFalse);
+
+    await client.disconnect();
+    for (final socket in sockets) {
+      socket.destroy();
+    }
+    await subscription.cancel();
+    await server.close();
   });
 }
