@@ -32,7 +32,10 @@ class CallsScreen extends ConsumerWidget {
             isSelecting: isSelecting,
             isSelected: isSelected,
             onTapSelect: onTapSelect,
-            onReject: () => _handleReject(ref, group.lastCall),
+            onReject: () {
+              final ringingCall = group.ringingCall;
+              if (ringingCall != null) _handleReject(ref, ringingCall);
+            },
             onTap: () {
               if (group.count > 1) {
                 Navigator.push(

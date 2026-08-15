@@ -123,6 +123,7 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
   bool _forceConnecting = false;
   ScanCancellationToken? _scanCancellation;
   bool _telephonyHandlerRegistered = false;
+  void Function()? _clearTelephonyHandler;
   bool _online = true;
   String? _lastDiscoveredIp;
   // Resolved once (KeyStore reads are async) and cached for
@@ -846,7 +847,7 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
     final updated = peer.copyWith(ip: ip, port: port);
     _peer = updated;
     unawaited(_peerDao.update(updated));
-    _ref.read(peerFacadeProvider.notifier).applyUpdate(updated);
+    unawaited(_ref.read(peerFacadeProvider.notifier).applyUpdate(updated));
     _ref.read(connectionStatusProvider.notifier).setPeerIp(ip);
   }
 
@@ -1194,7 +1195,10 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
     if (_telephonyHandlerRegistered) return;
     _telephonyHandlerRegistered = true;
 
-    TelephonyChannel.setEventHandler((type, data) async {
+    _clearTelephonyHandler = TelephonyChannel.setEventHandler((
+      type,
+      data,
+    ) async {
       if (type == 'onNetworkChanged') {
         _handleNetworkChangedEvent(data);
         return;
@@ -1391,22 +1395,6 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
           .read(smsFacadeProvider.notifier)
           .sendSmsNotification(address, body, id: id);
 
-  Future<bool> sendReplySms(
-    String address,
-    String body, {
-    String? id,
-    String? contactName,
-    String? threadId,
-  }) => _ref
-      .read(smsFacadeProvider.notifier)
-      .sendReplySms(
-        address,
-        body,
-        id: id,
-        contactName: contactName,
-        threadId: threadId,
-      );
-
   Future<void> _flushQueue() async {
     final items = await _queue.pendingItems();
     if (items.isEmpty) return;
@@ -1429,10 +1417,8 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
     }
   }
 
-  /// Records a failed send attempt; if that was the last retry (item
-  /// permanently dropped), reflects it back onto the originating SMS/call
-  /// entry as 'failed' instead of the item just silently vanishing --
-  /// otherwise the sender has no way to know their message never arrived.
+  /// Records a failed mirror delivery without changing the authoritative
+  /// telephony outcome of the originating call or SMS.
   Future<void> _onQueueItemFailed(
     QueueItem item,
     Map<String, dynamic>? payload,
@@ -1450,12 +1436,12 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
       case MessageTypes.smsStatus:
         await _ref
             .read(smsFacadeProvider.notifier)
-            .updateStatus(entryId, 'failed');
+            .updateDeliveryStatus(entryId, 'failed');
         break;
       case MessageTypes.callIncoming:
         await _ref
             .read(callFacadeProvider.notifier)
-            .updateStatus(entryId, 'failed');
+            .updateDeliveryStatus(entryId, 'failed');
         break;
     }
   }
@@ -1559,6 +1545,9 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
   void dispose() {
     _disposed = true;
     _lifecycleGeneration++;
+    _clearTelephonyHandler?.call();
+    _clearTelephonyHandler = null;
+    _telephonyHandlerRegistered = false;
     unawaited(_markNativeEventsNotReady());
     WidgetsBinding.instance.removeObserver(this);
     _connectivity.stopListening();

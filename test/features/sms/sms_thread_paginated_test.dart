@@ -68,6 +68,16 @@ void main() {
     return container;
   }
 
+  SmsThreadDetailPaginated listenToThread(
+    ProviderContainer container,
+    String address,
+  ) {
+    final provider = smsThreadDetailPaginatedProvider(address);
+    final subscription = container.listen(provider, (_, _) {});
+    addTearDown(subscription.close);
+    return container.read(provider.notifier);
+  }
+
   SmsMessage makeMessage({
     required String id,
     required DateTime timestamp,
@@ -149,9 +159,7 @@ void main() {
       );
     }
 
-    final notifier = container.read(
-      smsThreadDetailPaginatedProvider('+111').notifier,
-    );
+    final notifier = listenToThread(container, '+111');
     await notifier.loadInitial();
     final state = container.read(smsThreadDetailPaginatedProvider('+111'));
 
@@ -178,9 +186,7 @@ void main() {
       );
     }
 
-    final notifier = container.read(
-      smsThreadDetailPaginatedProvider('+111').notifier,
-    );
+    final notifier = listenToThread(container, '+111');
     await notifier.loadInitial();
     var state = container.read(smsThreadDetailPaginatedProvider('+111'));
     expect(state.items.length, 25);
@@ -228,9 +234,7 @@ void main() {
       ),
     );
 
-    final notifier = container.read(
-      smsThreadDetailPaginatedProvider('+111').notifier,
-    );
+    final notifier = listenToThread(container, '+111');
     await notifier.loadInitial();
     final state = container.read(smsThreadDetailPaginatedProvider('+111'));
 
@@ -255,9 +259,7 @@ void main() {
         ),
       );
 
-      final notifier = container.read(
-        smsThreadDetailPaginatedProvider('+111').notifier,
-      );
+      final notifier = listenToThread(container, '+111');
       await notifier.loadInitial();
 
       await facade.add(
@@ -276,6 +278,22 @@ void main() {
       await notifier.refresh();
       final state2 = container.read(smsThreadDetailPaginatedProvider('+111'));
       expect(state2.items.map((m) => m.id).toList(), ['m0', 'm1']);
+    },
+  );
+
+  test(
+    'thread detail provider is disposed when no longer listened to',
+    () async {
+      final container = buildContainer();
+      final provider = smsThreadDetailPaginatedProvider('+111');
+      final subscription = container.listen(provider, (_, _) {});
+      final first = container.read(provider.notifier);
+
+      subscription.close();
+      await container.pump();
+      final second = container.read(provider.notifier);
+
+      expect(identical(first, second), isFalse);
     },
   );
 }

@@ -9,6 +9,11 @@ class NotificationEventDao {
 
   Future<void> insert(NotificationEvent event) async {
     final db = await _database;
+    await db.delete(
+      'notification_event',
+      where: 'package_name = ? AND native_id = ? AND id != ?',
+      whereArgs: [event.packageName, event.nativeId, event.id],
+    );
     await db.insert(
       'notification_event',
       event.toJson(),

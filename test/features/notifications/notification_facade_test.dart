@@ -89,7 +89,8 @@ void main() {
     expect(identical(initialized, notifier.initialized), isTrue);
     await initialized;
 
-    expect(notifier.state, {'com.example.chat'});
+    expect(notifier.state.isInitialized, isTrue);
+    expect(notifier.state.packages, {'com.example.chat'});
   });
 
   test('handleNativeEvent is a no-op when the package is unwatched', () async {

@@ -73,6 +73,7 @@ void main() {
     required DateTime timestamp,
     String number = '+15555550100',
     String contactName = 'Alice',
+    String status = 'missed',
   }) {
     return CallEvent(
       id: id,
@@ -81,10 +82,29 @@ void main() {
       contactName: contactName,
       timestamp: timestamp,
       encrypted: '',
-      status: 'missed',
+      status: status,
       createdAt: timestamp,
     );
   }
+
+  test('group exposes the ringing call instead of the latest call', () {
+    final now = DateTime.now();
+    final ringing = makeEvent(
+      id: 'ringing',
+      timestamp: now.subtract(const Duration(minutes: 1)),
+      status: 'ringing',
+    );
+    final latest = makeEvent(id: 'latest', timestamp: now);
+    final group = CallGroup(
+      key: 'Alice',
+      displayName: 'Alice',
+      calls: [latest, ringing],
+    );
+
+    expect(group.lastCall.id, 'latest');
+    expect(group.ringingCall?.id, 'ringing');
+    expect(group.hasActive, isTrue);
+  });
 
   test('loadInitial loads today+yesterday groups', () async {
     final container = buildContainer();

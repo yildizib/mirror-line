@@ -159,12 +159,11 @@ class SmsThreadPaginated
 /// Paginated SMS thread detail (single conversation).
 /// Loads newest 25 messages first (sorted ASC), then older messages
 /// on [SmsThreadDetailPaginated.loadOlder] via upward scroll.
-final smsThreadDetailPaginatedProvider =
-    StateNotifierProvider.family<
-      SmsThreadDetailPaginated,
-      PaginatedListState<SmsMessage>,
-      String
-    >((ref, address) {
+final smsThreadDetailPaginatedProvider = StateNotifierProvider.autoDispose
+    .family<SmsThreadDetailPaginated, PaginatedListState<SmsMessage>, String>((
+      ref,
+      address,
+    ) {
       final notifier = SmsThreadDetailPaginated(ref, address);
       Future.microtask(() => notifier.loadInitial());
       ref.listen(smsFacadeProvider, (_, _) {
@@ -182,7 +181,7 @@ class SmsThreadDetailPaginated
   final String address;
 
   Future<void> loadInitial() async {
-    if (state.isLoading) return;
+    if (!mounted || state.isLoading) return;
     state = state.copyWith(isLoading: true);
     try {
       final facade = ref.read(smsFacadeProvider.notifier);
@@ -190,6 +189,7 @@ class SmsThreadDetailPaginated
         address: address,
         limit: kDefaultPageSize,
       );
+      if (!mounted) return;
       state = PaginatedListState<SmsMessage>(
         items: all,
         isLoading: false,
@@ -197,13 +197,14 @@ class SmsThreadDetailPaginated
         pageOffset: all.length,
       );
     } catch (e) {
+      if (!mounted) return;
       state = state.copyWith(isLoading: false);
       rethrow;
     }
   }
 
   Future<void> loadOlder() async {
-    if (state.isLoading || state.hasReachedEnd) return;
+    if (!mounted || state.isLoading || state.hasReachedEnd) return;
     state = state.copyWith(isLoading: true);
     try {
       final facade = ref.read(smsFacadeProvider.notifier);
@@ -212,6 +213,7 @@ class SmsThreadDetailPaginated
         limit: kDefaultPageSize,
         offset: state.pageOffset,
       );
+      if (!mounted) return;
       final merged = [...older, ...state.items];
       state = PaginatedListState<SmsMessage>(
         items: merged,
@@ -220,6 +222,7 @@ class SmsThreadDetailPaginated
         pageOffset: state.pageOffset + older.length,
       );
     } catch (e) {
+      if (!mounted) return;
       state = state.copyWith(isLoading: false);
       rethrow;
     }

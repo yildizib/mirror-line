@@ -43,5 +43,6 @@ class ConnectivityService {
   void stopListening() {
     _subscription?.cancel();
     _subscription = null;
+    onChanged = null;
   }
 }

@@ -33,9 +33,13 @@ class CallGroup {
 
   int get count => calls.length;
 
+  /// The newest call in this group that can actually be rejected.
+  CallEvent? get ringingCall =>
+      calls.where((c) => c.status == 'ringing').firstOrNull;
+
   /// True when there's still a ringing call in the group -- the calls list
   /// uses this to keep showing the reject button on the grouped row.
-  bool get hasActive => calls.any((c) => c.status == 'ringing');
+  bool get hasActive => ringingCall != null;
 
   /// Aggregated status label for the group row: if any call is still
   /// ringing, that; otherwise the most recent call's status.

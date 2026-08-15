@@ -27,10 +27,20 @@ final pairedPeersProvider = FutureProvider<List<Peer>>((ref) async {
 });
 
 class PeerFacade extends StateNotifier<Peer?> {
-  final PeerDao _dao = PeerDao();
+  final PeerDao _dao;
+  final Future<void> Function() _clearPeerCredentials;
+  late final Future<void> initialized;
 
-  PeerFacade() : super(null) {
-    _load();
+  PeerFacade({PeerDao? dao, Future<void> Function()? clearPeerCredentials})
+    : _dao = dao ?? PeerDao(),
+      _clearPeerCredentials =
+          clearPeerCredentials ??
+          (() async {
+            await KeyStore.clearPeerId();
+            await KeyStore.clearPeerKey();
+          }),
+      super(null) {
+    initialized = _load();
   }
 
   Future<void> _load() async {
@@ -57,6 +67,7 @@ class PeerFacade extends StateNotifier<Peer?> {
   }
 
   Future<void> createPeer(String role) async {
+    await initialized;
     final existing = await _dao.getPeer();
     if (existing != null) {
       final updated = existing.copyWith(role: role);
@@ -106,6 +117,7 @@ class PeerFacade extends StateNotifier<Peer?> {
     required String deviceName,
     required String publicKey,
   }) async {
+    await initialized;
     final keyBytes = base64Decode(keyBase64);
     final key = SecretKey(keyBytes);
 
@@ -155,6 +167,7 @@ class PeerFacade extends StateNotifier<Peer?> {
     required String publicKey,
     String? ip,
   }) async {
+    await initialized;
     final current = state;
     if (current == null) return;
     final updated = current.copyWith(
@@ -173,6 +186,7 @@ class PeerFacade extends StateNotifier<Peer?> {
     required Peer? previous,
     required String attemptedId,
   }) async {
+    await initialized;
     await _dao.delete(attemptedId);
     if (previous == null) {
       await KeyStore.clearPeerId();
@@ -187,7 +201,8 @@ class PeerFacade extends StateNotifier<Peer?> {
   }
 
   /// Applies an updated peer record (e.g. newly discovered IP address).
-  void applyUpdate(Peer peer) {
+  Future<void> applyUpdate(Peer peer) async {
+    await initialized;
     state = peer;
   }
 
@@ -198,6 +213,7 @@ class PeerFacade extends StateNotifier<Peer?> {
   /// local address is what made Settings' diagnostics show the same IP for
   /// both "This Device" and "Peer Device".
   Future<void> refreshLocalIp() async {
+    await initialized;
     final current = state;
     if (current == null) return;
     if (current.publicKey.isNotEmpty) return;
@@ -210,6 +226,7 @@ class PeerFacade extends StateNotifier<Peer?> {
   }
 
   Future<void> updateConnectionInfo(String ip, int port) async {
+    await initialized;
     final current = state;
     if (current == null) return;
     final updated = current.copyWith(ip: ip, port: port);
@@ -217,35 +234,27 @@ class PeerFacade extends StateNotifier<Peer?> {
     state = updated;
   }
 
-  /// Deletes a specific peer record.
-  /// If it was the active peer, the next available peer becomes active
-  /// (and its key is restored); otherwise the device becomes unpaired.
+  /// Deletes a peer record. Removing an inactive row leaves the active peer
+  /// untouched. Removing the active peer clears every row and unpairs: this
+  /// architecture stores only one active peer key and has no persisted peer
+  /// selector, so promoting an arbitrary leftover row would be unsafe.
   Future<void> deletePeer(Peer peer) async {
-    await _dao.delete(peer.id);
+    await initialized;
     final current = state;
-    if (current?.id != peer.id) return;
-
-    final remaining = await _dao.getPeer();
-    if (remaining != null) {
-      final keyBytes = base64Decode(remaining.key);
-      final key = SecretKey(keyBytes);
-      await KeyStore.setPeerId(remaining.id);
-      await KeyStore.setPeerKey(key);
-      state = remaining;
-    } else {
-      await KeyStore.clearPeerId();
-      await KeyStore.clearPeerKey();
-      state = null;
+    if (current?.id != peer.id) {
+      await _dao.delete(peer.id);
+      return;
     }
+
+    await _dao.deleteAll();
+    await _clearPeerCredentials();
+    state = null;
   }
 
   Future<void> reset() async {
-    final current = state;
-    if (current != null) {
-      await _dao.delete(current.id);
-    }
-    await KeyStore.clearPeerId();
-    await KeyStore.clearPeerKey();
+    await initialized;
+    await _dao.deleteAll();
+    await _clearPeerCredentials();
     state = null;
   }
 }

@@ -9,6 +9,7 @@ class SmsMessage {
   final String encrypted; // base64 ciphertext
   final String direction; // 'incoming' | 'outgoing'
   final String status; // 'received' | 'sent' | 'delivered' | 'failed'
+  final String deliveryStatus;
   final DateTime timestamp;
   final DateTime createdAt;
 
@@ -21,6 +22,7 @@ class SmsMessage {
     required this.encrypted,
     required this.direction,
     required this.status,
+    this.deliveryStatus = 'none',
     required this.timestamp,
     required this.createdAt,
   });
@@ -34,6 +36,7 @@ class SmsMessage {
     'encrypted': encrypted,
     'direction': direction,
     'status': status,
+    'delivery_status': deliveryStatus,
     'timestamp': timestamp.millisecondsSinceEpoch,
     'created_at': createdAt.millisecondsSinceEpoch,
   };
@@ -47,23 +50,29 @@ class SmsMessage {
     encrypted: json['encrypted'] as String,
     direction: json['direction'] as String,
     status: json['status'] as String,
+    deliveryStatus: json['delivery_status'] as String? ?? 'none',
     timestamp: DateTime.fromMillisecondsSinceEpoch(json['timestamp'] as int),
     createdAt: DateTime.fromMillisecondsSinceEpoch(json['created_at'] as int),
   );
 
-  SmsMessage copyWith({String? status, String? body, String? encrypted}) =>
-      SmsMessage(
-        id: id,
-        threadId: threadId,
-        address: address,
-        contactName: contactName,
-        body: body ?? this.body,
-        encrypted: encrypted ?? this.encrypted,
-        direction: direction,
-        status: status ?? this.status,
-        timestamp: timestamp,
-        createdAt: createdAt,
-      );
+  SmsMessage copyWith({
+    String? status,
+    String? body,
+    String? encrypted,
+    String? deliveryStatus,
+  }) => SmsMessage(
+    id: id,
+    threadId: threadId,
+    address: address,
+    contactName: contactName,
+    body: body ?? this.body,
+    encrypted: encrypted ?? this.encrypted,
+    direction: direction,
+    status: status ?? this.status,
+    deliveryStatus: deliveryStatus ?? this.deliveryStatus,
+    timestamp: timestamp,
+    createdAt: createdAt,
+  );
 
   /// Locale-independent grouping identity, mirroring [CallEvent.groupKey].
   String get groupKey => contactName.isNotEmpty ? contactName : address;

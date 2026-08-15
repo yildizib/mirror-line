@@ -37,7 +37,7 @@ final callEventMapProvider = Provider<Map<String, CallEvent>>((ref) {
 /// change: still the same native events, peer messages and send/notify
 /// callbacks as before.
 class CallFacade extends StateNotifier<List<CallEvent>> {
-  final CallEventDao _dao = CallEventDao();
+  final CallEventDao _dao;
   final Ref _ref;
   final Logger _logger;
   final bool Function() _isSource;
@@ -89,7 +89,9 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
     required this._sendOrQueue,
     required this._notify,
     Future<bool> Function()? rejectCall,
-  }) : _rejectCall = rejectCall ?? TelephonyChannel.rejectCall,
+    CallEventDao? dao,
+  }) : _dao = dao ?? CallEventDao(),
+       _rejectCall = rejectCall ?? TelephonyChannel.rejectCall,
        super([]) {
     _initialized = load();
   }
@@ -125,6 +127,7 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
   /// MirrorLineService's RINGING de-duplication) -- this keeps a stray
   /// repeat from ever showing up as two list entries.
   Future<void> add(CallEvent event) async {
+    await initialized;
     await _dao.insert(event);
     final exists = state.any((e) => e.id == event.id);
     state = exists
@@ -133,6 +136,7 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
   }
 
   Future<void> updateStatus(String id, String status) async {
+    await initialized;
     await _dao.updateStatus(id, status);
     state = state
         .map((e) => e.id == id ? e.copyWith(status: status) : e)
@@ -142,6 +146,15 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
     if (status != 'ringing') _cancelWatchdog(id);
   }
 
+  Future<void> updateDeliveryStatus(String id, String status) async {
+    await initialized;
+    if (!state.any((event) => event.id == id)) return;
+    await _dao.updateDeliveryStatus(id, status);
+    state = state
+        .map((e) => e.id == id ? e.copyWith(deliveryStatus: status) : e)
+        .toList();
+  }
+
   /// Patches the caller's number/contact name on an already-tracked call
   /// (see RINGING_UPDATE) without treating it as a new event.
   Future<void> updateCallerInfo(
@@ -149,6 +162,7 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
     String? number,
     String? contactName,
   }) async {
+    await initialized;
     await _dao.updateCallerInfo(id, number: number, contactName: contactName);
     state = state
         .map(
@@ -160,6 +174,7 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
   }
 
   Future<void> remove(String id) async {
+    await initialized;
     _cancelWatchdog(id);
     await _dao.delete(id);
     state = state.where((e) => e.id != id).toList();
@@ -167,6 +182,7 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
 
   /// Permanently deletes every call in [ids] (used by multi-select clear).
   Future<void> removeMany(Iterable<String> ids) async {
+    await initialized;
     final idSet = ids.toSet();
     for (final id in idSet) {
       _cancelWatchdog(id);
@@ -177,6 +193,7 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
 
   /// Permanently deletes all calls (used by "clear all" / device reset).
   Future<void> removeAll() async {
+    await initialized;
     _cancelAllWatchdogs();
     await _dao.deleteAll();
     state = [];
@@ -343,6 +360,7 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
     MirrorMessage message,
     DateTime now,
   ) async {
+    await initialized;
     switch (type) {
       case MessageTypes.callIncoming:
         final number = payload['number'] as String? ?? '';

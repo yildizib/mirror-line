@@ -63,12 +63,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   void _handleNavRequest() {
     final req = NotificationRouter.instance.requests.value;
     if (req == null) return;
-    NotificationRouter.instance.consume();
-
     final payload = req.payload;
     switch (payload.type) {
       case 'call':
         setState(() => _selectedIndex = 1);
+        NotificationRouter.instance.consume();
         break;
       case 'sms':
         setState(() => _selectedIndex = 2);
@@ -81,7 +80,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 builder: (_) => SmsThreadScreen(address: payload.address!),
               ),
             );
+            NotificationRouter.instance.consume();
           });
+        } else {
+          NotificationRouter.instance.consume();
         }
         break;
       case 'mirrored_notification':
@@ -107,6 +109,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 ),
               ),
             );
+            NotificationRouter.instance.consume();
           });
         }
         break;

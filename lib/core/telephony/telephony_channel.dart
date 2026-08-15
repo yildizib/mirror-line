@@ -120,6 +120,7 @@ class TelephonyChannel {
   static const MethodChannel _channel = MethodChannel(
     'io.github.yildizib.mirrorline/telephony',
   );
+  static int _eventHandlerGeneration = 0;
 
   static Future<MirroringServiceResult> startListening() =>
       _start('startListening');
@@ -352,9 +353,10 @@ class TelephonyChannel {
     }
   }
 
-  static void setEventHandler(
+  static void Function() setEventHandler(
     FutureOr<void> Function(String type, Map<dynamic, dynamic> data) handler,
   ) {
+    final generation = ++_eventHandlerGeneration;
     _channel.setMethodCallHandler((call) async {
       switch (call.method) {
         case 'onCall':
@@ -368,5 +370,10 @@ class TelephonyChannel {
           return null;
       }
     });
+    return () {
+      if (generation != _eventHandlerGeneration) return;
+      _eventHandlerGeneration++;
+      _channel.setMethodCallHandler(null);
+    };
   }
 }

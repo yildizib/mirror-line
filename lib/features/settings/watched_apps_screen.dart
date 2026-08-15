@@ -64,7 +64,7 @@ class _WatchedAppsScreenState extends ConsumerState<WatchedAppsScreen> {
             ),
           ),
           Expanded(
-            child: _loading
+            child: _loading || !watched.isInitialized
                 ? const Center(child: CircularProgressIndicator())
                 : ListView.builder(
                     itemCount: filtered.length,
@@ -73,7 +73,7 @@ class _WatchedAppsScreenState extends ConsumerState<WatchedAppsScreen> {
                       return SwitchListTile(
                         secondary: _AppIcon(packageName: app.packageName),
                         title: Text(app.appName),
-                        value: watched.contains(app.packageName),
+                        value: watched.packages.contains(app.packageName),
                         onChanged: (value) => ref
                             .read(watchedAppsProvider.notifier)
                             .setWatched(app.packageName, value),

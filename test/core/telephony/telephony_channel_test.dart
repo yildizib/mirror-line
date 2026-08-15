@@ -13,7 +13,7 @@ void main() {
 
   tearDown(() {
     messenger.setMockMethodCallHandler(channel, null);
-    TelephonyChannel.setEventHandler((_, _) {});
+    TelephonyChannel.setEventHandler((_, _) {})();
   });
 
   test('decodes lifecycle maps from sync and get', () async {
@@ -141,5 +141,39 @@ void main() {
     final envelope = await response.future;
     expect(const StandardMethodCodec().decodeEnvelope(envelope!), isNull);
     expect(completed, true);
+  });
+
+  testWidgets('event handler disposer clears only its own registration', (
+    tester,
+  ) async {
+    var firstCalls = 0;
+    var secondCalls = 0;
+    final clearFirst = TelephonyChannel.setEventHandler((_, _) {
+      firstCalls++;
+    });
+    final clearSecond = TelephonyChannel.setEventHandler((_, _) {
+      secondCalls++;
+    });
+
+    clearFirst();
+    await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+      channel.name,
+      const StandardMethodCodec().encodeMethodCall(
+        const MethodCall('onCall', {'state': 'RINGING'}),
+      ),
+      (_) {},
+    );
+    expect(firstCalls, 0);
+    expect(secondCalls, 1);
+
+    clearSecond();
+    await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+      channel.name,
+      const StandardMethodCodec().encodeMethodCall(
+        const MethodCall('onCall', {'state': 'RINGING'}),
+      ),
+      (_) {},
+    );
+    expect(secondCalls, 1);
   });
 }

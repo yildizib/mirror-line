@@ -10,6 +10,7 @@ class CallEvent {
   // 'ringing' (still active, can be rejected) | 'answered' | 'missed' |
   // 'rejected' | 'ended' (was answered, now finished) | 'failed'
   final String status;
+  final String deliveryStatus;
   final DateTime createdAt;
 
   CallEvent({
@@ -20,6 +21,7 @@ class CallEvent {
     required this.timestamp,
     required this.encrypted,
     required this.status,
+    this.deliveryStatus = 'none',
     required this.createdAt,
   });
 
@@ -31,6 +33,7 @@ class CallEvent {
     'timestamp': timestamp.millisecondsSinceEpoch,
     'encrypted': encrypted,
     'status': status,
+    'delivery_status': deliveryStatus,
     'created_at': createdAt.millisecondsSinceEpoch,
   };
 
@@ -42,22 +45,28 @@ class CallEvent {
     timestamp: DateTime.fromMillisecondsSinceEpoch(json['timestamp'] as int),
     encrypted: json['encrypted'] as String,
     status: json['status'] as String,
+    deliveryStatus: json['delivery_status'] as String? ?? 'none',
     createdAt: DateTime.fromMillisecondsSinceEpoch(json['created_at'] as int),
   );
 
-  CallEvent copyWith({String? status, String? number, String? contactName}) =>
-      CallEvent(
-        id: id,
-        direction: direction,
-        number: (number != null && number.isNotEmpty) ? number : this.number,
-        contactName: (contactName != null && contactName.isNotEmpty)
-            ? contactName
-            : this.contactName,
-        timestamp: timestamp,
-        encrypted: encrypted,
-        status: status ?? this.status,
-        createdAt: createdAt,
-      );
+  CallEvent copyWith({
+    String? status,
+    String? number,
+    String? contactName,
+    String? deliveryStatus,
+  }) => CallEvent(
+    id: id,
+    direction: direction,
+    number: (number != null && number.isNotEmpty) ? number : this.number,
+    contactName: (contactName != null && contactName.isNotEmpty)
+        ? contactName
+        : this.contactName,
+    timestamp: timestamp,
+    encrypted: encrypted,
+    status: status ?? this.status,
+    deliveryStatus: deliveryStatus ?? this.deliveryStatus,
+    createdAt: createdAt,
+  );
 
   /// Locale-independent grouping identity for the calls list (contact name
   /// if resolved, else the raw number, else '' so all "unknown number"

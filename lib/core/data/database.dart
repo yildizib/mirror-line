@@ -6,7 +6,7 @@ import 'package:sqflite/sqflite.dart';
 class AppDatabase {
   static final AppDatabase instance = AppDatabase._internal();
   static Database? _database;
-  static const int schemaVersion = 6;
+  static const int schemaVersion = 7;
 
   AppDatabase._internal();
 
@@ -81,6 +81,25 @@ class AppDatabase {
         )
       ''');
     }
+    if (oldVersion < 7) {
+      await db.execute(
+        'ALTER TABLE call_event ADD COLUMN delivery_status TEXT NOT NULL DEFAULT "none";',
+      );
+      await db.execute(
+        'ALTER TABLE sms_message ADD COLUMN delivery_status TEXT NOT NULL DEFAULT "none";',
+      );
+      await db.execute('''
+        DELETE FROM notification_event
+        WHERE rowid NOT IN (
+          SELECT MIN(rowid) FROM notification_event
+          GROUP BY package_name, native_id
+        )
+      ''');
+      await db.execute(
+        'CREATE UNIQUE INDEX IF NOT EXISTS notification_event_source_key '
+        'ON notification_event(package_name, native_id);',
+      );
+    }
   }
 
   /// Exposed (not private) so tests can create a fresh-install schema
@@ -109,6 +128,7 @@ class AppDatabase {
         timestamp INTEGER NOT NULL,
         encrypted TEXT NOT NULL,
         status TEXT NOT NULL,
+        delivery_status TEXT NOT NULL DEFAULT "none",
         created_at INTEGER NOT NULL
       )
     ''');
@@ -123,6 +143,7 @@ class AppDatabase {
         encrypted TEXT NOT NULL,
         direction TEXT NOT NULL,
         status TEXT NOT NULL,
+        delivery_status TEXT NOT NULL DEFAULT "none",
         timestamp INTEGER NOT NULL,
         created_at INTEGER NOT NULL
       )
@@ -162,6 +183,10 @@ class AppDatabase {
         created_at INTEGER NOT NULL
       )
     ''');
+    await db.execute(
+      'CREATE UNIQUE INDEX notification_event_source_key '
+      'ON notification_event(package_name, native_id)',
+    );
   }
 
   Future<void> close() async {
