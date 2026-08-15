@@ -43,12 +43,16 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
   final bool Function() _isSource;
   final SendOrQueue _sendOrQueue;
   final ShowNotification _notify;
+  final Future<bool> Function() _rejectCall;
+  late final Future<void> _initialized;
 
-  // The Dart-generated id of the call currently ringing (or, once
-  // answered, still ongoing) on this Source device. Native reports state
-  // *transitions* without an id, so this is how they get matched back to
-  // the right CallEvent.
+  final Map<String, String> _callIdByNativeSession = {};
+
+  // The one call that can currently be rejected. Session mappings above
+  // remain independently addressable after a newer call starts ringing.
   String? _activeCallId;
+  String? _activeNativeCallSessionId;
+  String? _legacyCallId;
 
   // Serializes native call events (Source side only): the previous event
   // must fully complete -- including its awaited `sendCallNotification` /
@@ -84,9 +88,13 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
     required this._isSource,
     required this._sendOrQueue,
     required this._notify,
-  }) : super([]) {
-    load();
+    Future<bool> Function()? rejectCall,
+  }) : _rejectCall = rejectCall ?? TelephonyChannel.rejectCall,
+       super([]) {
+    _initialized = load();
   }
+
+  Future<void> get initialized => _initialized;
 
   // -----------------------------------------------------------------------
   // State (formerly CallListNotifier)
@@ -195,6 +203,7 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
 
     Future<void> run() async {
       if (previous != null) await previous;
+      await initialized;
       await _handleNativeEventImpl(data, id: id, now: now);
     }
 
@@ -214,6 +223,7 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
     required DateTime now,
   }) async {
     final callState = (data['state'] as String?) ?? 'RINGING';
+    final nativeCallSessionId = data['callSessionId'] as String?;
 
     if (callState == 'RINGING') {
       final number = (data['number'] as String?) ?? '';
@@ -229,6 +239,13 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
         createdAt: now,
       );
       _activeCallId = id;
+      _activeNativeCallSessionId = nativeCallSessionId;
+      if (nativeCallSessionId == null) {
+        _legacyCallId = id;
+      } else {
+        _legacyCallId = null;
+        _callIdByNativeSession[nativeCallSessionId] = id;
+      }
       await add(event);
       await sendCallNotification(number, id: id, contactName: contactName);
       return;
@@ -237,7 +254,7 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
     if (callState == 'RINGING_UPDATE') {
       // Same call, e.g. the number/contact only resolved on a later
       // broadcast -- patch the existing entry, don't create a new one.
-      final callId = _activeCallId;
+      final callId = _callIdForNativeSession(nativeCallSessionId);
       if (callId == null) return;
       final number = data['number'] as String?;
       final contactName = data['contactName'] as String?;
@@ -250,9 +267,7 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
       return;
     }
 
-    // ANSWERED / MISSED / ENDED: a state change for whichever call is
-    // currently active, not a new call.
-    final callId = _activeCallId;
+    final callId = _callIdForNativeSession(nativeCallSessionId);
     if (callId == null) return;
     final newStatus = switch (callState) {
       'ANSWERED' => 'answered',
@@ -261,6 +276,11 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
       _ => null,
     };
     if (newStatus == null) return;
+    if (callState == 'ANSWERED') {
+      _clearActiveIfCurrent(nativeCallSessionId, callId);
+    } else {
+      _removeNativeSession(nativeCallSessionId, callId);
+    }
 
     final current = _findCall(callId);
     // Don't override a status we already know locally -- e.g. we just
@@ -288,16 +308,36 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
       'id': callId,
       'status': newStatus,
     });
-    if (callState != 'ANSWERED') {
-      _activeCallId = null;
+  }
+
+  String? _callIdForNativeSession(String? nativeCallSessionId) {
+    if (nativeCallSessionId == null) return _legacyCallId;
+    return _callIdByNativeSession[nativeCallSessionId];
+  }
+
+  void _clearActiveIfCurrent(String? nativeCallSessionId, String callId) {
+    if (_activeCallId != callId ||
+        _activeNativeCallSessionId != nativeCallSessionId) {
+      return;
     }
+    _activeCallId = null;
+    _activeNativeCallSessionId = null;
+  }
+
+  void _removeNativeSession(String? nativeCallSessionId, String callId) {
+    if (nativeCallSessionId == null) {
+      if (_legacyCallId == callId) _legacyCallId = null;
+    } else {
+      _callIdByNativeSession.remove(nativeCallSessionId);
+    }
+    _clearActiveIfCurrent(nativeCallSessionId, callId);
   }
 
   // -----------------------------------------------------------------------
   // Incoming peer messages (either device)
   // -----------------------------------------------------------------------
 
-  Future<void> handleIncomingMessage(
+  Future<bool> handleIncomingMessage(
     String type,
     Map<String, dynamic> payload,
     MirrorMessage message,
@@ -355,14 +395,16 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
         // guards against a reject command arriving after the call was
         // already answered/missed/ended, which would otherwise hang up
         // an unrelated live call instead of rejecting a ringing one.
-        if (_isSource() && id != null && id == _activeCallId) {
-          await TelephonyChannel.rejectCall();
-          _activeCallId = null;
-        }
-        if (id != null) {
-          await updateStatus(id, 'rejected');
-        }
-        break;
+        if (!_isSource() || id == null || id != _activeCallId) return false;
+        final rejected = await _rejectCall();
+        if (!rejected) return false;
+        _removeNativeSession(_activeNativeCallSessionId, id);
+        await updateStatus(id, 'rejected');
+        await _sendOrQueue(MessageTypes.callStatus, {
+          'id': id,
+          'status': 'rejected',
+        });
+        return true;
 
       case MessageTypes.callStatus:
         final id = payload['id'] as String?;
@@ -403,6 +445,7 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
       default:
         _logger.i('CallFacade: unhandled message type $type');
     }
+    return true;
   }
 
   CallEvent? _findCall(String id) => state.where((e) => e.id == id).firstOrNull;

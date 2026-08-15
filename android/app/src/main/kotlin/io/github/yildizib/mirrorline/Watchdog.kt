@@ -4,7 +4,6 @@ import android.app.AlarmManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.os.Build
 import android.os.SystemClock
 import android.util.Log
 
@@ -17,16 +16,18 @@ import android.util.Log
  * tied to this process, so it survives that kind of kill and can bring the
  * service back.
  *
- * On Android 12+, exact alarms are used if the SCHEDULE_EXACT_ALARM
- * permission is granted and canScheduleExactAlarms() returns true, ensuring
- * the alarm fires at the intended time rather than being deferred by Doze.
- * Falls back to inexact (setAndAllowWhileIdle) for older APIs or when the
- * system denies exact alarm permission.
+ * This intentionally uses an inexact alarm and is only armed while native
+ * lifecycle policy says mirroring is eligible.
  */
 object Watchdog {
     private const val CHECK_INTERVAL_MS = 5 * 60 * 1000L // 5 minutes
 
     fun schedule(context: Context) {
+        val (state, permissions) = MirroringServiceController.lifecycle(context)
+        if (!WatchdogPolicy.shouldArm(state, permissions)) {
+            cancel(context)
+            return
+        }
         try {
             val appContext = context.applicationContext
             val alarmManager =
@@ -40,19 +41,6 @@ object Watchdog {
             )
             val triggerAt = SystemClock.elapsedRealtime() + CHECK_INTERVAL_MS
 
-            // Try exact alarm on Android 12+ if system permits it
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                if (alarmManager.canScheduleExactAlarms()) {
-                    alarmManager.setExactAndAllowWhileIdle(
-                        AlarmManager.ELAPSED_REALTIME_WAKEUP,
-                        triggerAt,
-                        pendingIntent
-                    )
-                    return
-                }
-            }
-
-            // Fallback to inexact alarm for older APIs or when permission denied
             alarmManager.setAndAllowWhileIdle(
                 AlarmManager.ELAPSED_REALTIME_WAKEUP,
                 triggerAt,
@@ -62,4 +50,27 @@ object Watchdog {
             Log.e("MirrorLine", "Failed to schedule watchdog alarm: ${e.message}", e)
         }
     }
+
+    fun cancel(context: Context) {
+        try {
+            val appContext = context.applicationContext
+            val alarmManager = appContext.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
+                ?: return
+            val pendingIntent = PendingIntent.getBroadcast(
+                appContext,
+                0,
+                Intent(appContext, WatchdogReceiver::class.java),
+                PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE,
+            ) ?: return
+            alarmManager.cancel(pendingIntent)
+            pendingIntent.cancel()
+        } catch (e: Exception) {
+            Log.w("MirrorLine", "Failed to cancel watchdog alarm: ${e.message}")
+        }
+    }
+}
+
+object WatchdogPolicy {
+    fun shouldArm(state: MirroringLifecycleState, permissionsGranted: Boolean): Boolean =
+        MirroringLifecyclePolicy.isEligible(state, permissionsGranted)
 }

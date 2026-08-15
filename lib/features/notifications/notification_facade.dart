@@ -31,6 +31,7 @@ class NotificationFacade extends StateNotifier<List<NotificationEvent>> {
   final Logger _logger;
   final SendOrQueue _sendOrQueue;
   final ShowNotification _notify;
+  late final Future<void> _initialized;
 
   NotificationFacade({
     required this._ref,
@@ -38,8 +39,10 @@ class NotificationFacade extends StateNotifier<List<NotificationEvent>> {
     required this._sendOrQueue,
     required this._notify,
   }) : super([]) {
-    load();
+    _initialized = load();
   }
+
+  Future<void> get initialized => _initialized;
 
   // -----------------------------------------------------------------------
   // State
@@ -147,6 +150,10 @@ class NotificationFacade extends StateNotifier<List<NotificationEvent>> {
     required String id,
     required DateTime now,
   }) async {
+    await Future.wait([
+      initialized,
+      _ref.read(watchedAppsProvider.notifier).initialized,
+    ]);
     final packageName = (data['packageName'] as String?) ?? 'unknown';
     if (packageName == 'io.github.yildizib.mirrorline') return;
     // Read live, not captured at construction -- the watched set can
@@ -187,6 +194,10 @@ class NotificationFacade extends StateNotifier<List<NotificationEvent>> {
   }
 
   Future<void> handleNativeRemoval(Map<dynamic, dynamic> data) async {
+    await Future.wait([
+      initialized,
+      _ref.read(watchedAppsProvider.notifier).initialized,
+    ]);
     // Intentionally a no-op. Android fires onNotificationRemoved for many
     // reasons (dismiss, auto-cancel on open, summary regrouping) that don't
     // mean the user wants the mirrored record gone. We keep events in the

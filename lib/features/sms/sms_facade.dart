@@ -32,6 +32,7 @@ class SmsFacade extends StateNotifier<List<SmsMessage>> {
   final bool Function() _isSource;
   final SendOrQueue _sendOrQueue;
   final ShowNotification _notify;
+  late final Future<void> _initialized;
 
   SmsFacade({
     required this._ref,
@@ -40,8 +41,10 @@ class SmsFacade extends StateNotifier<List<SmsMessage>> {
     required this._sendOrQueue,
     required this._notify,
   }) : super([]) {
-    load();
+    _initialized = load();
   }
+
+  Future<void> get initialized => _initialized;
 
   // -----------------------------------------------------------------------
   // State (formerly SmsListNotifier)
@@ -185,6 +188,7 @@ class SmsFacade extends StateNotifier<List<SmsMessage>> {
     required String id,
     required DateTime now,
   }) async {
+    await initialized;
     final address = (data['address'] as String?) ?? '';
     final contactName = (data['contactName'] as String?) ?? '';
     final body = (data['body'] as String?) ?? '';

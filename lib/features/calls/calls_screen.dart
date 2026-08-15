@@ -32,7 +32,7 @@ class CallsScreen extends ConsumerWidget {
             isSelecting: isSelecting,
             isSelected: isSelected,
             onTapSelect: onTapSelect,
-            onReject: () => _handleReject(context, ref, group.lastCall),
+            onReject: () => _handleReject(ref, group.lastCall),
             onTap: () {
               if (group.count > 1) {
                 Navigator.push(
@@ -64,14 +64,8 @@ class CallsScreen extends ConsumerWidget {
     );
   }
 
-  void _handleReject(BuildContext context, WidgetRef ref, CallEvent call) {
-    ref.read(callFacadeProvider.notifier).updateStatus(call.id, 'rejected');
-
-    ref.read(connectionFacadeProvider.notifier).sendCallRejected(call.id);
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(AppLocalizations.of(context).callsRejected)),
-    );
+  Future<void> _handleReject(WidgetRef ref, CallEvent call) async {
+    await ref.read(connectionFacadeProvider.notifier).sendCallRejected(call.id);
   }
 }
 

@@ -1,27 +1,213 @@
+import 'dart:async';
+
 import 'package:flutter/services.dart';
+
+enum MirroringRole {
+  main('main'),
+  source('source'),
+  unknown('');
+
+  const MirroringRole(this.nativeValue);
+
+  final String nativeValue;
+
+  static MirroringRole fromNative(Object? value) => switch (value) {
+    'main' => MirroringRole.main,
+    'source' => MirroringRole.source,
+    _ => MirroringRole.unknown,
+  };
+}
+
+enum MirroringServiceOutcome {
+  startRequested,
+  stopped,
+  ineligible,
+  permissionsRequired,
+  failed,
+  unavailable;
+
+  static MirroringServiceOutcome fromNative(Object? value) => switch (value) {
+    'start_requested' => MirroringServiceOutcome.startRequested,
+    'stopped' => MirroringServiceOutcome.stopped,
+    'ineligible' => MirroringServiceOutcome.ineligible,
+    'permissions_required' => MirroringServiceOutcome.permissionsRequired,
+    'failed' => MirroringServiceOutcome.failed,
+    _ => MirroringServiceOutcome.failed,
+  };
+}
+
+class MirroringLifecycle {
+  const MirroringLifecycle({
+    required this.initialized,
+    required this.enabled,
+    required this.role,
+    required this.paired,
+    required this.permissionsGranted,
+    required this.eligible,
+    required this.networkMonitoringEligible,
+  });
+
+  factory MirroringLifecycle.fromMap(Map<Object?, Object?> map) {
+    return MirroringLifecycle(
+      initialized: map['initialized'] == true,
+      enabled: map['enabled'] == true,
+      role: MirroringRole.fromNative(map['role']),
+      paired: map['paired'] == true,
+      permissionsGranted: map['permissionsGranted'] == true,
+      eligible: map['eligible'] == true,
+      networkMonitoringEligible: map['networkMonitoringEligible'] == true,
+    );
+  }
+
+  final bool initialized;
+  final bool enabled;
+  final MirroringRole role;
+  final bool paired;
+  final bool permissionsGranted;
+  final bool eligible;
+  final bool networkMonitoringEligible;
+}
+
+class MirroringServiceResult {
+  const MirroringServiceResult({required this.outcome, this.error});
+
+  const MirroringServiceResult.unavailable()
+    : outcome = MirroringServiceOutcome.unavailable,
+      error = null;
+
+  factory MirroringServiceResult.fromMap(Map<Object?, Object?> map) {
+    return MirroringServiceResult(
+      outcome: MirroringServiceOutcome.fromNative(map['outcome']),
+      error: map['error'] as String?,
+    );
+  }
+
+  final MirroringServiceOutcome outcome;
+  final String? error;
+}
+
+class TelephonyChannelException implements Exception {
+  const TelephonyChannelException({
+    required this.operation,
+    required this.code,
+    this.message,
+    this.details,
+  });
+
+  factory TelephonyChannelException.fromPlatform(
+    String operation,
+    PlatformException exception,
+  ) {
+    return TelephonyChannelException(
+      operation: operation,
+      code: exception.code,
+      message: exception.message,
+      details: exception.details,
+    );
+  }
+
+  final String operation;
+  final String code;
+  final String? message;
+  final Object? details;
+
+  @override
+  String toString() =>
+      'TelephonyChannelException($operation, $code, $message, $details)';
+}
 
 class TelephonyChannel {
   static const MethodChannel _channel = MethodChannel(
     'io.github.yildizib.mirrorline/telephony',
   );
 
-  static Future<void> startListening() async {
+  static Future<MirroringServiceResult> startListening() =>
+      _start('startListening');
+
+  static Future<MirroringServiceResult> _start(String method) async {
     try {
-      await _channel.invokeMethod('startListening');
+      final result = await _channel.invokeMapMethod<Object?, Object?>(method);
+      return MirroringServiceResult.fromMap(result ?? const {});
     } on MissingPluginException {
-      // Native side not implemented yet; ignore on non-Android or in tests.
+      return const MirroringServiceResult.unavailable();
     } on PlatformException catch (e) {
-      throw Exception('Failed to start telephony listener: ${e.message}');
+      throw TelephonyChannelException.fromPlatform(method, e);
     }
   }
 
-  static Future<void> stopListening() async {
+  static Future<MirroringServiceResult> stopListening({
+    bool enabled = false,
+    MirroringRole role = MirroringRole.unknown,
+    bool paired = false,
+  }) => _stop('stopListening', enabled: enabled, role: role, paired: paired);
+
+  static Future<MirroringServiceResult> _stop(
+    String method, {
+    required bool enabled,
+    required MirroringRole role,
+    required bool paired,
+  }) async {
     try {
-      await _channel.invokeMethod('stopListening');
+      final result = await _channel.invokeMapMethod<Object?, Object?>(method, {
+        'enabled': enabled,
+        'role': role.nativeValue,
+        'paired': paired,
+      });
+      return MirroringServiceResult.fromMap(result ?? const {});
     } on MissingPluginException {
-      // ignore
+      return const MirroringServiceResult.unavailable();
     } on PlatformException catch (e) {
-      throw Exception('Failed to stop telephony listener: ${e.message}');
+      throw TelephonyChannelException.fromPlatform(method, e);
+    }
+  }
+
+  static Future<MirroringLifecycle?> syncMirroringEligibility({
+    required bool enabled,
+    required MirroringRole role,
+    required bool paired,
+  }) async {
+    try {
+      final result = await _channel.invokeMapMethod<Object?, Object?>(
+        'syncMirroringEligibility',
+        {'enabled': enabled, 'role': role.nativeValue, 'paired': paired},
+      );
+      return result == null ? null : MirroringLifecycle.fromMap(result);
+    } on MissingPluginException {
+      return null;
+    } on PlatformException catch (e) {
+      throw TelephonyChannelException.fromPlatform(
+        'syncMirroringEligibility',
+        e,
+      );
+    }
+  }
+
+  static Future<MirroringLifecycle?> getMirroringLifecycle() async {
+    try {
+      final result = await _channel.invokeMapMethod<Object?, Object?>(
+        'getMirroringLifecycle',
+      );
+      return result == null ? null : MirroringLifecycle.fromMap(result);
+    } on MissingPluginException {
+      return null;
+    } on PlatformException catch (e) {
+      throw TelephonyChannelException.fromPlatform('getMirroringLifecycle', e);
+    }
+  }
+
+  static Future<void> nativeEventsReady() => _setNativeReadiness(true);
+
+  /// Marks Dart unavailable and clears native's pending event queue.
+  static Future<void> nativeEventsNotReady() => _setNativeReadiness(false);
+
+  static Future<void> _setNativeReadiness(bool ready) async {
+    final method = ready ? 'nativeEventsReady' : 'nativeEventsNotReady';
+    try {
+      await _channel.invokeMethod<void>(method);
+    } on MissingPluginException {
+      // Graceful on non-Android platforms and unit tests without a handler.
+    } on PlatformException catch (e) {
+      throw TelephonyChannelException.fromPlatform(method, e);
     }
   }
 
@@ -32,7 +218,7 @@ class TelephonyChannel {
     } on MissingPluginException {
       return false;
     } on PlatformException catch (e) {
-      throw Exception('Failed to reject call: ${e.message}');
+      throw TelephonyChannelException.fromPlatform('rejectCall', e);
     }
   }
 
@@ -45,29 +231,18 @@ class TelephonyChannel {
     } on MissingPluginException {
       // ignore
     } on PlatformException catch (e) {
-      throw Exception('Failed to send SMS: ${e.message}');
+      throw TelephonyChannelException.fromPlatform('sendSms', e);
     }
   }
 
-  static Future<void> startService() async {
-    try {
-      await _channel.invokeMethod('startService');
-    } on MissingPluginException {
-      // ignore
-    } on PlatformException catch (e) {
-      throw Exception('Failed to start service: ${e.message}');
-    }
-  }
+  static Future<MirroringServiceResult> startService() =>
+      _start('startService');
 
-  static Future<void> stopService() async {
-    try {
-      await _channel.invokeMethod('stopService');
-    } on MissingPluginException {
-      // ignore
-    } on PlatformException catch (e) {
-      throw Exception('Failed to stop telephony listener: ${e.message}');
-    }
-  }
+  static Future<MirroringServiceResult> stopService({
+    bool enabled = false,
+    MirroringRole role = MirroringRole.unknown,
+    bool paired = false,
+  }) => _stop('stopService', enabled: enabled, role: role, paired: paired);
 
   static Future<bool> isNotificationListenerEnabled() async {
     try {
@@ -178,7 +353,7 @@ class TelephonyChannel {
   }
 
   static void setEventHandler(
-    void Function(String type, Map<dynamic, dynamic> data) handler,
+    FutureOr<void> Function(String type, Map<dynamic, dynamic> data) handler,
   ) {
     _channel.setMethodCallHandler((call) async {
       switch (call.method) {
@@ -187,7 +362,7 @@ class TelephonyChannel {
         case 'onNotification':
         case 'onNotificationRemoved':
         case 'onNetworkChanged':
-          handler(call.method, (call.arguments as Map? ?? {}));
+          await handler(call.method, (call.arguments as Map? ?? {}));
           return null;
         default:
           return null;

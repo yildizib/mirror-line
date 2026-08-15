@@ -19,6 +19,7 @@ import 'package:mirrorline/core/security/key_store.dart';
 import 'package:mirrorline/core/services/connectivity_service.dart';
 import 'package:mirrorline/core/services/notification_service.dart';
 import 'package:mirrorline/core/services/queue_service.dart';
+import 'package:mirrorline/core/services/watched_apps_service.dart';
 import 'package:mirrorline/core/telephony/telephony_channel.dart';
 import 'package:mirrorline/features/calls/call_facade.dart';
 import 'package:mirrorline/features/connection/connection_status_provider.dart';
@@ -321,6 +322,42 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
         return;
       }
 
+      final peer = _peer;
+      final pairingValid =
+          peer != null && peer.publicKey.isNotEmpty && _key != null;
+      final nativeRole = _mirroringRole(peer?.role);
+      try {
+        await TelephonyChannel.syncMirroringEligibility(
+          enabled: pairingValid,
+          role: nativeRole,
+          paired: pairingValid,
+        );
+        if (!_isLifecycleCurrent(lifecycleGeneration)) {
+          await TelephonyChannel.nativeEventsNotReady();
+          return;
+        }
+        if (pairingValid && nativeRole != MirroringRole.unknown) {
+          await Future.wait([
+            _ref.read(callFacadeProvider.notifier).initialized,
+            _ref.read(smsFacadeProvider.notifier).initialized,
+            _ref.read(notificationFacadeProvider.notifier).initialized,
+            _ref.read(watchedAppsProvider.notifier).initialized,
+          ]);
+          if (!_isLifecycleCurrent(lifecycleGeneration)) {
+            await TelephonyChannel.nativeEventsNotReady();
+            return;
+          }
+          await TelephonyChannel.nativeEventsReady();
+          if (!_isLifecycleCurrent(lifecycleGeneration)) {
+            await TelephonyChannel.nativeEventsNotReady();
+            return;
+          }
+        }
+      } catch (e) {
+        _logger.e('Failed to synchronize native mirroring lifecycle: $e');
+        return;
+      }
+
       final statusNotifier = _ref.read(connectionStatusProvider.notifier);
       // Use getAllLocalIps for VPN support: collects WiFi + VPN TUN + etc.
       final allIps = await PeerDiscovery().getAllLocalIps();
@@ -329,8 +366,8 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
       statusNotifier.setLocalIp(allIps.isNotEmpty ? allIps.first.ip : null);
       statusNotifier.setPeerIp(_peer?.ip);
 
-      if (_peer == null || _key == null) {
-        _logger.w('No peer info or key found. Waiting for pairing.');
+      if (!pairingValid) {
+        _logger.w('No valid paired peer or key found. Waiting for pairing.');
         await _stopMachinery();
         return;
       }
@@ -356,6 +393,12 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
       _online &&
       !_networkingStopped &&
       !_disposed;
+
+  MirroringRole _mirroringRole(String? role) => switch (role) {
+    'source' => MirroringRole.source,
+    'main' => MirroringRole.main,
+    _ => MirroringRole.unknown,
+  };
 
   /// Refreshes the reported local IP without touching the peer record.
   /// Used when showing the pairing QR, where the address must be current but
@@ -433,10 +476,28 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
     }
 
     try {
-      await TelephonyChannel.startListening();
+      final result = await TelephonyChannel.startListening();
       if (!_isLifecycleCurrent(lifecycleGeneration)) {
-        await TelephonyChannel.stopListening();
+        await TelephonyChannel.stopListening(
+          enabled: false,
+          role: MirroringRole.source,
+          paired: false,
+        );
         return;
+      }
+      switch (result.outcome) {
+        case MirroringServiceOutcome.startRequested:
+          _logger.i('Native mirroring service start requested.');
+        case MirroringServiceOutcome.permissionsRequired:
+          _logger.w('Native mirroring permissions are required.');
+        case MirroringServiceOutcome.ineligible:
+          _logger.w('Native mirroring service is ineligible to start.');
+        case MirroringServiceOutcome.failed:
+          _logger.e('Native mirroring service failed: ${result.error}');
+        case MirroringServiceOutcome.unavailable:
+          _logger.d('Native mirroring service unavailable on this platform.');
+        case MirroringServiceOutcome.stopped:
+          _logger.w('Native mirroring start unexpectedly returned stopped.');
       }
     } catch (e) {
       _logger.e('Telephony startListening failed: $e');
@@ -1425,6 +1486,7 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
     _peerDiscoveryCoordinator.cancelActiveScan();
     _connectGeneration++;
     _connecting = false;
+    await _disableNativeMirroring();
     await _broadcaster.stop();
     await _peerDiscoveryCoordinator.stopListening();
     await _socketManager?.disconnect();
@@ -1432,9 +1494,40 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
     _lastDiscoveredIp = null;
     state = false;
     _ref.read(connectionStatusProvider.notifier).setServer(0, false);
+  }
+
+  Future<void> _disableNativeMirroring() async {
+    final role = _mirroringRole(_peer?.role);
+    await _markNativeEventsNotReady();
     try {
-      await TelephonyChannel.stopListening();
-    } catch (_) {}
+      await TelephonyChannel.syncMirroringEligibility(
+        enabled: false,
+        role: role,
+        paired: false,
+      );
+    } catch (e) {
+      _logger.e('Failed to disable native mirroring eligibility: $e');
+    }
+    try {
+      final result = await TelephonyChannel.stopListening(
+        enabled: false,
+        role: role,
+        paired: false,
+      );
+      if (result.outcome == MirroringServiceOutcome.failed) {
+        _logger.e('Native mirroring service stop failed: ${result.error}');
+      }
+    } catch (e) {
+      _logger.e('Failed to stop native mirroring service: $e');
+    }
+  }
+
+  Future<void> _markNativeEventsNotReady() async {
+    try {
+      await TelephonyChannel.nativeEventsNotReady();
+    } catch (e) {
+      _logger.e('Failed to mark native events not ready: $e');
+    }
   }
 
   /// Stops networking (e.g. after device reset).
@@ -1466,6 +1559,7 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
   void dispose() {
     _disposed = true;
     _lifecycleGeneration++;
+    unawaited(_markNativeEventsNotReady());
     WidgetsBinding.instance.removeObserver(this);
     _connectivity.stopListening();
     _healthTimer?.cancel();

@@ -18,6 +18,8 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.lang.ref.WeakReference
 import java.net.Inet4Address
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.RejectedExecutionException
 
 /**
  * Owns the "io.github.yildizib.mirrorline/telephony" MethodChannel and its
@@ -54,6 +56,9 @@ object MirrorLineChannel {
     private var wasOffline = false
     private val networkHandler = Handler(Looper.getMainLooper())
     private var pendingNetworkChange: Runnable? = null
+    private val resolverExecutor: ExecutorService = BoundedExecutors.single("mirrorline-resolvers")
+    private var networkRegistrationAttempts = 0
+    private var pendingNetworkRetry: Runnable? = null
 
     // Android can fire several onLinkPropertiesChanged callbacks in quick
     // succession for one real network transition (address assigned, then
@@ -66,9 +71,6 @@ object MirrorLineChannel {
         add(Manifest.permission.ANSWER_PHONE_CALLS)
         add(Manifest.permission.RECEIVE_SMS)
         add(Manifest.permission.SEND_SMS)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            add(Manifest.permission.FOREGROUND_SERVICE_PHONE_CALL)
-        }
     }.toTypedArray()
 
     // Requested alongside the required ones (one combined system dialog),
@@ -86,15 +88,61 @@ object MirrorLineChannel {
         val appContext = context.applicationContext
         val methodChannel = MethodChannel(engine.dartExecutor.binaryMessenger, CHANNEL_NAME)
         channel = methodChannel
+        NativeEventRouter.attach(methodChannel)
 
         methodChannel.setMethodCallHandler { call, result ->
             when (call.method) {
                 "startListening", "startService" -> {
-                    ensureAndStart(appContext)
-                    result.success(null)
+                    result.success(ensureAndStart(appContext).toMap())
                 }
                 "stopListening", "stopService" -> {
-                    stopMirrorService(appContext)
+                    val current = MirroringLifecycleStore(appContext).read()
+                    val synced = MirroringLifecycleState(
+                        initialized = true,
+                        enabled = call.argument<Boolean>("enabled") ?: false,
+                        role = call.argument<String>("role") ?: current.role,
+                        paired = call.argument<Boolean>("paired") ?: current.paired,
+                    )
+                    val serviceResult = MirroringServiceController.stop(appContext, synced)
+                    reconcileNetworkMonitoring(appContext)
+                    result.success(serviceResult.toMap())
+                }
+                "syncMirroringEligibility" -> {
+                    val state = MirroringLifecycleStore(appContext).sync(
+                        enabled = call.argument<Boolean>("enabled") ?: false,
+                        role = call.argument<String>("role") ?: "",
+                        paired = call.argument<Boolean>("paired") ?: false,
+                    )
+                    val eligible = MirroringLifecyclePolicy.isEligible(
+                        state,
+                        hasAllPermissions(appContext),
+                    )
+                    val networkEligible = MirroringLifecyclePolicy.shouldMonitorNetwork(state)
+                    reconcileNetworkMonitoring(appContext)
+                    if (!eligible) {
+                        MirroringServiceController.stop(
+                            appContext,
+                            clearNativeEvents = !networkEligible,
+                        )
+                    }
+                    result.success(state.toMap(hasAllPermissions(appContext), eligible))
+                }
+                "getMirroringLifecycle" -> {
+                    val (state, permissions) = MirroringServiceController.lifecycle(appContext)
+                    result.success(
+                        state.toMap(
+                            permissions,
+                            MirroringLifecyclePolicy.isEligible(state, permissions),
+                        ),
+                    )
+                }
+                "nativeEventsReady" -> {
+                    NativeEventRouter.ready()
+                    result.success(null)
+                }
+                "nativeEventsNotReady", "notReady" -> {
+                    NativeEventRouter.notReady()
+                    MirrorLineNotificationListener.clearPendingNotifications()
                     result.success(null)
                 }
                 "rejectCall" -> result.success(rejectCall(appContext))
@@ -108,7 +156,7 @@ object MirrorLineChannel {
                         result.error("SMS_SEND_FAILED", e.message, null)
                     }
                 }
-                "getLocalIp" -> result.success(getLocalIp(appContext))
+                "getLocalIp" -> runResolver(result) { getLocalIp(appContext) }
                 "isNotificationListenerEnabled" -> result.success(isNotificationListenerEnabled(appContext))
                 "openNotificationListenerSettings" -> {
                     openNotificationListenerSettings(appContext)
@@ -126,18 +174,18 @@ object MirrorLineChannel {
                 }
                 "resolveContactName" -> {
                     val number = call.argument<String>("number") ?: ""
-                    result.success(ContactResolver.resolveName(appContext, number))
+                    runResolver(result) { ContactResolver.resolveName(appContext, number) }
                 }
-                "getInstalledApps" -> result.success(InstalledAppsResolver.list(appContext))
+                "getInstalledApps" -> runResolver(result) { InstalledAppsResolver.list(appContext) }
                 "getAppIcon" -> {
                     val packageName = call.argument<String>("packageName") ?: ""
-                    result.success(InstalledAppsResolver.iconBytes(appContext, packageName))
+                    runResolver(result) { InstalledAppsResolver.iconBytes(appContext, packageName) }
                 }
                 else -> result.notImplemented()
             }
         }
 
-        registerNetworkCallback(appContext)
+        reconcileNetworkMonitoring(appContext)
     }
 
     /**
@@ -155,11 +203,21 @@ object MirrorLineChannel {
      * channel itself -- is never torn down for the life of the process, so
      * the callback's lifetime matches.
      */
+    fun reconcileNetworkMonitoring(context: Context) {
+        val state = MirroringLifecycleStore(context).read()
+        if (MirroringLifecyclePolicy.shouldMonitorNetwork(state)) {
+            registerNetworkCallback(context.applicationContext)
+        } else {
+            unregisterNetworkCallback()
+        }
+    }
+
     private fun registerNetworkCallback(context: Context) {
         if (networkCallback != null) return
+        val state = MirroringLifecycleStore(context).read()
+        if (!MirroringLifecyclePolicy.shouldMonitorNetwork(state)) return
         try {
             val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-            connectivityManager = cm
             val callback = object : ConnectivityManager.NetworkCallback() {
                 override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) {
                     scheduleNetworkChangeCheck(context)
@@ -174,11 +232,41 @@ object MirrorLineChannel {
                     scheduleNetworkChangeCheck(context)
                 }
             }
-            networkCallback = callback
             cm.registerDefaultNetworkCallback(callback)
+            connectivityManager = cm
+            networkCallback = callback
+            networkRegistrationAttempts = 0
+            pendingNetworkRetry?.let { networkHandler.removeCallbacks(it) }
+            pendingNetworkRetry = null
         } catch (_: Exception) {
-            // Best-effort: if this fails, the app falls back to the
-            // slower connectivity-type-change + heartbeat-timeout path.
+            val current = MirroringLifecycleStore(context).read()
+            if (MirroringLifecyclePolicy.shouldMonitorNetwork(current) &&
+                networkRegistrationAttempts++ < 3
+            ) {
+                val retry = Runnable { registerNetworkCallback(context) }
+                pendingNetworkRetry = retry
+                networkHandler.postDelayed(retry, 1_000L)
+            }
+        }
+    }
+
+    private fun unregisterNetworkCallback() {
+        pendingNetworkRetry?.let { networkHandler.removeCallbacks(it) }
+        pendingNetworkRetry = null
+        pendingNetworkChange?.let { networkHandler.removeCallbacks(it) }
+        pendingNetworkChange = null
+        networkRegistrationAttempts = 0
+        val callback = networkCallback
+        val manager = connectivityManager
+        networkCallback = null
+        connectivityManager = null
+        lastReportedIp = null
+        wasOffline = false
+        if (callback != null && manager != null) {
+            try {
+                manager.unregisterNetworkCallback(callback)
+            } catch (_: Exception) {
+            }
         }
     }
 
@@ -188,21 +276,48 @@ object MirrorLineChannel {
     // through a Handler(Looper.getMainLooper()) before touching the
     // MethodChannel.
     private fun scheduleNetworkChangeCheck(context: Context) {
+        if (!MirroringLifecyclePolicy.shouldMonitorNetwork(
+                MirroringLifecycleStore(context).read(),
+            )
+        ) {
+            unregisterNetworkCallback()
+            return
+        }
         pendingNetworkChange?.let { networkHandler.removeCallbacks(it) }
+        val routerGeneration = NativeEventRouter.generation()
         val check = Runnable {
-            val ip = getLocalIp(context)
+            try {
+                resolverExecutor.execute {
+                    val ip = getLocalIp(context)
             // Native-side dedup: only notify Dart when the IP actually
             // changed, so a flapping link doesn't spam the channel. The one
             // exception is recovering from a full link loss (wasOffline):
             // the Dart side must re-discover the peer even when the address
             // came back identical, or it would sit silent until the 90s
             // heartbeat timeout fires.
-            if (ip != null && (ip != lastReportedIp || wasOffline)) {
-                lastReportedIp = ip
-                wasOffline = false
-                try {
-                    channel?.invokeMethod("onNetworkChanged", mapOf("localIp" to ip))
-                } catch (_: Exception) {
+                    val current = MirroringLifecycleStore(context).read()
+                    if (ip != null &&
+                        MirroringLifecyclePolicy.shouldMonitorNetwork(current) &&
+                        (ip != lastReportedIp || wasOffline)
+                    ) {
+                        lastReportedIp = ip
+                        wasOffline = false
+                        NativeEventRouter.routeIfCurrent(
+                            routerGeneration,
+                            "onNetworkChanged",
+                            mapOf("localIp" to ip),
+                        )
+                    }
+                }
+            } catch (_: RejectedExecutionException) {
+                if (MirroringLifecyclePolicy.shouldMonitorNetwork(
+                        MirroringLifecycleStore(context).read(),
+                    )
+                ) {
+                    networkHandler.postDelayed(
+                        { scheduleNetworkChangeCheck(context) },
+                        NETWORK_CHANGE_DEBOUNCE_MS,
+                    )
                 }
             }
         }
@@ -212,35 +327,26 @@ object MirrorLineChannel {
 
     /** Called by MainActivity.onRequestPermissionsResult once granted. */
     fun onPermissionsGranted() {
-        activityRef?.get()?.let { startMirrorService(it) }
+        activityRef?.get()?.let { MirroringServiceController.start(it) }
     }
 
     fun hasAllPermissions(context: Context): Boolean = requiredPermissions.all {
         ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
     }
 
-    private fun ensureAndStart(context: Context) {
+    private fun ensureAndStart(context: Context): ServiceResult {
         if (hasAllPermissions(context)) {
-            startMirrorService(context)
-            return
+            val serviceResult = MirroringServiceController.start(context)
+            if (serviceResult.outcome == ServiceOutcome.START_REQUESTED) {
+                reconcileNetworkMonitoring(context)
+            }
+            return serviceResult
         }
         // Requesting runtime permissions requires a live Activity. If none
         // is currently resumed (e.g. this is a headless restart with no
         // UI), there's nothing to do until the user opens the app once.
         activityRef?.get()?.let { requestTelephonyPermissions(it) }
-    }
-
-    private fun startMirrorService(context: Context) {
-        val intent = Intent(context, MirrorLineService::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            context.startForegroundService(intent)
-        } else {
-            context.startService(intent)
-        }
-    }
-
-    private fun stopMirrorService(context: Context) {
-        context.stopService(Intent(context, MirrorLineService::class.java))
+        return ServiceResult(ServiceOutcome.PERMISSIONS_REQUIRED)
     }
 
     private fun requestTelephonyPermissions(activity: MainActivity) {
@@ -294,7 +400,6 @@ object MirrorLineChannel {
             } else {
                 rejectCallViaReflection(context)
             }
-            true
         } catch (e: Exception) {
             false
         }
@@ -306,8 +411,9 @@ object MirrorLineChannel {
             val getITelephony = telephonyService.javaClass.getMethod("getITelephony")
             getITelephony.isAccessible = true
             val telephony = getITelephony.invoke(telephonyService)
-            telephony.javaClass.getMethod("endCall").invoke(telephony)
-            true
+            CallRejectionResult.actualBoolean(
+                telephony.javaClass.getMethod("endCall").invoke(telephony),
+            )
         } catch (e: Exception) {
             false
         }
@@ -366,4 +472,25 @@ object MirrorLineChannel {
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         context.startActivity(intent)
     }
+
+    private fun runResolver(result: MethodChannel.Result, block: () -> Any?) {
+        try {
+            resolverExecutor.execute {
+                try {
+                    val value = block()
+                    networkHandler.post { result.success(value) }
+                } catch (exception: Exception) {
+                    networkHandler.post {
+                        result.error("NATIVE_RESOLUTION_FAILED", exception.message, null)
+                    }
+                }
+            }
+        } catch (_: RejectedExecutionException) {
+            result.error("NATIVE_EXECUTOR_BUSY", "Native resolver queue is full", null)
+        }
+    }
+}
+
+object CallRejectionResult {
+    fun actualBoolean(value: Any?): Boolean = value as? Boolean ?: false
 }

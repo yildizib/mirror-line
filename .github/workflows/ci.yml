@@ -35,6 +35,9 @@ jobs:
           channel: stable
       - run: flutter pub get
       - run: flutter test --test-randomize-ordering-seed random
+      - name: Native Android unit tests
+        working-directory: android
+        run: ./gradlew :app:testDebugUnitTest
 
   build:
     name: Build

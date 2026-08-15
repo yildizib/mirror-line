@@ -76,21 +76,29 @@ void main() {
     return container;
   }
 
+  test('watched apps initialized is the constructor load future', () async {
+    SharedPreferences.setMockInitialValues({
+      'watched_packages_migrated': true,
+      'watched_packages': ['com.example.chat'],
+    });
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    final notifier = container.read(watchedAppsProvider.notifier);
+    final initialized = notifier.initialized;
+
+    expect(identical(initialized, notifier.initialized), isTrue);
+    await initialized;
+
+    expect(notifier.state, {'com.example.chat'});
+  });
+
   test('handleNativeEvent is a no-op when the package is unwatched', () async {
     final sent = <MapEntry<String, Map<String, dynamic>>>[];
     final container = buildContainer(sent);
     final facade = container.read(notificationFacadeProvider.notifier);
     final watchedApps = container.read(watchedAppsProvider.notifier);
 
-    // Both classes' constructors kick off a fire-and-forget initial
-    // load; awaiting the same (idempotent) method explicitly here makes
-    // the test deterministic instead of racing the container's disposal
-    // in tearDown against whichever finishes last. In tests the
-    // watched-apps migration seeds nothing (native getInstalledApps()
-    // throws MissingPluginException, caught, returns []) -- every
-    // package starts unwatched by default.
-    await facade.load();
-    await watchedApps.load();
+    await Future.wait([facade.initialized, watchedApps.initialized]);
 
     await facade.handleNativeEvent(
       {
@@ -114,8 +122,7 @@ void main() {
       final sent = <MapEntry<String, Map<String, dynamic>>>[];
       final container = buildContainer(sent);
       final facade = container.read(notificationFacadeProvider.notifier);
-      // See the explicit-load comment in the test above -- same reasoning.
-      await facade.load();
+      await facade.initialized;
 
       // Seed directly via add() (bypasses the watched-package gate, which
       // is already covered by the test above) so this test only exercises
@@ -157,8 +164,7 @@ void main() {
       final container = buildContainer(sent);
       final facade = container.read(notificationFacadeProvider.notifier);
       final watchedApps = container.read(watchedAppsProvider.notifier);
-      await facade.load();
-      await watchedApps.load();
+      await Future.wait([facade.initialized, watchedApps.initialized]);
 
       // No packages watched (default in tests) -- sendTestNotification
       // must not be gated by this, unlike handleNativeEvent.

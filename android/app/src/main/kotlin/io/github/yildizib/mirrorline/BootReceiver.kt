@@ -3,7 +3,6 @@ package io.github.yildizib.mirrorline
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.os.Build
 import android.util.Log
 
 /**
@@ -23,19 +22,9 @@ class BootReceiver : BroadcastReceiver() {
         if (intent.action != Intent.ACTION_BOOT_COMPLETED) return
 
         val appContext = context.applicationContext
-        MirrorLineEngine.getOrCreate(appContext)
-
-        if (!MirrorLineChannel.hasAllPermissions(appContext)) return
-
-        val serviceIntent = Intent(appContext, MirrorLineService::class.java)
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                appContext.startForegroundService(serviceIntent)
-            } else {
-                appContext.startService(serviceIntent)
-            }
-        } catch (e: Exception) {
-            Log.e("MirrorLine", "Boot receiver failed to start service: ${e.message}", e)
+        val result = MirroringServiceController.start(appContext)
+        if (result.outcome == ServiceOutcome.FAILED) {
+            Log.e("MirrorLine", "Boot receiver failed to start service: ${result.error}")
         }
     }
 }

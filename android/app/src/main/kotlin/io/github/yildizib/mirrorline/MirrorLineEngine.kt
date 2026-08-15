@@ -26,13 +26,13 @@ object MirrorLineEngine {
         FlutterEngineCache.getInstance().get(ENGINE_ID)?.let { return it }
 
         val engine = FlutterEngine(context.applicationContext)
-        engine.dartExecutor.executeDartEntrypoint(DartExecutor.DartEntrypoint.createDefault())
-        FlutterEngineCache.getInstance().put(ENGINE_ID, engine)
         // Wire the telephony channel to this engine directly (not to any
         // one Activity) so it works whether the engine was created by
         // MainActivity or, as with a headless service restart, by
         // MirrorLineService alone.
         MirrorLineChannel.attach(context, engine)
+        FlutterEngineCache.getInstance().put(ENGINE_ID, engine)
+        engine.dartExecutor.executeDartEntrypoint(DartExecutor.DartEntrypoint.createDefault())
         return engine
     }
 }

@@ -14,14 +14,15 @@ final watchedAppsProvider =
     });
 
 class WatchedAppsNotifier extends StateNotifier<Set<String>> {
+  late final Future<void> _initialized;
+
   WatchedAppsNotifier() : super(const {}) {
-    load();
+    _initialized = _load();
   }
 
-  // Public (unlike LocaleNotifier._load, which this otherwise copies) so
-  // tests can explicitly await the constructor's fire-and-forget initial
-  // load instead of guessing at a settle delay.
-  Future<void> load() async {
+  Future<void> get initialized => _initialized;
+
+  Future<void> _load() async {
     final prefs = await SharedPreferences.getInstance();
     final migrated = prefs.getBool(_kMigratedKey) ?? false;
     if (!migrated) {
