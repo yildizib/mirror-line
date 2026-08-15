@@ -94,7 +94,7 @@ gh pr create --title "Fix: Brief description" \
 
 ### 5. Testing & Merge
 - **Developer:** Create PR, request testing
-- **User (Ibrahim):** Test on device
+- **Developer:** Test on device
 - **After verification:** Close issue, merge PR
 ```bash
 gh issue close #ID
@@ -393,5 +393,26 @@ v0.3.0+3
 - If you add a new feature you should add that ones tests.
 - Tests should always updated and cover changes that you change, fix or add a new feature.
 - DO NOT reach, change any folders or files that they are located outside the project folder.
+
+---
+
+## Branch / PR Strategy for Multi-Task Features
+
+When a single feature spans multiple tasks (e.g. T1–T7), use the **single issue + single branch + multi-commit + single PR** flow:
+
+```
+1 issue → #ID
+1 branch  → feature/short-slug-#ID (from develop)
+N commits → one per task, format: `#ID: imperative subject`
+1 PR      → --base develop
+Device test by developer → gh issue close #ID && gh pr merge #PR --squash --delete-branch
+```
+
+**Rules:**
+- All task commits live on the same feature branch (no sub-branches per task)
+- Commit subject starts with `#ID:` and uses imperative mood
+- The branch is deleted automatically by `--delete-branch` on merge
+- Do NOT open multiple PRs for one feature; keep it as one reviewable PR
+- If tasks are independent enough to parallelize, commit them separately but still on the same branch and in the same PR
 
 ---
