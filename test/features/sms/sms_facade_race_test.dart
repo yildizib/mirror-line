@@ -348,4 +348,50 @@ void main() {
       expect(operations.operations['native-accepted']?.state, 'submitted');
     },
   );
+
+  test(
+    'crash recovery retries only ready SMS without native acceptance',
+    () async {
+      final operations = _FakePlatformOperationDao();
+      final submissions = <String>[];
+      final container = buildContainer(
+        dao: _FakeSmsMessageDao(),
+        isSource: () => true,
+        operations: operations,
+        sendOrQueue: (_, _) async => true,
+        hasSmsSubmission: (operationId) async =>
+            operationId == 'submitted-before-crash',
+        sendSms: (_, _, {required operationId}) async {
+          submissions.add(operationId);
+        },
+      );
+      final facade = container.read(smsFacadeProvider.notifier);
+      const payload =
+          '{"messageId":"sms-1","address":"+15555550100","body":"reply"}';
+      for (final operationId in [
+        'ready-before-crash',
+        'submitted-before-crash',
+      ]) {
+        await operations.claim(
+          operationId: operationId,
+          kind: 'sms_send',
+          payload: payload,
+        );
+        await operations.transition(
+          operationId,
+          from: ['received'],
+          to: 'ready',
+        );
+      }
+
+      await facade.recoverOutgoingSms();
+
+      expect(submissions, ['ready-before-crash']);
+      expect(operations.operations['ready-before-crash']?.state, 'submitted');
+      expect(
+        operations.operations['submitted-before-crash']?.state,
+        'submitted',
+      );
+    },
+  );
 }
