@@ -316,8 +316,9 @@ class SmsFacade extends StateNotifier<List<SmsMessage>> {
           final address = payload['address'] as String? ?? '';
           final body = payload['body'] as String? ?? '';
           final id = payload['id'] as String? ?? message.id;
-          var status = 'sent';
+          var status = 'pending';
           final operationPayload = jsonEncode({
+            'messageId': id,
             'address': address,
             'body': body,
           });
@@ -348,30 +349,7 @@ class SmsFacade extends StateNotifier<List<SmsMessage>> {
             } else {
               await _operations.updateState(message.id, 'executing');
             }
-            try {
-              await TelephonyChannel.sendSms(address, body);
-              if (transaction != null) {
-                await _operations.updateStateOn(
-                  transaction,
-                  message.id,
-                  'succeeded',
-                );
-              } else {
-                await _operations.updateState(message.id, 'succeeded');
-              }
-            } catch (e) {
-              _logger.e('SMS send failed: $e');
-              status = 'failed';
-              if (transaction != null) {
-                await _operations.updateStateOn(
-                  transaction,
-                  message.id,
-                  'failed',
-                );
-              } else {
-                await _operations.updateState(message.id, 'failed');
-              }
-            }
+            // Submit to Android only after the Inbox transaction commits.
           }
           await _persistMessage(
             SmsMessage(
@@ -413,6 +391,54 @@ class SmsFacade extends StateNotifier<List<SmsMessage>> {
 
       default:
         _logger.i('SmsFacade: unhandled message type $type');
+    }
+  }
+
+  /// Submits a durably claimed operation after its Inbox transaction commits.
+  /// Android reports the final sent result through the operation-ID callback.
+  Future<void> executeOutgoingSms(
+    Map<String, dynamic> payload,
+    MirrorMessage message,
+  ) async {
+    if (!_isSource() || await _operations.state(message.id) != 'executing') {
+      return;
+    }
+    try {
+      await TelephonyChannel.sendSms(
+        payload['address'] as String? ?? '',
+        payload['body'] as String? ?? '',
+        operationId: message.id,
+      );
+    } catch (error) {
+      _logger.e('SMS submission failed: $error');
+      await _operations.updateState(message.id, 'failed');
+      await updateStatus(payload['id'] as String? ?? message.id, 'failed');
+    }
+  }
+
+  Future<void> handleSmsResult(
+    String operationId, {
+    required bool sent,
+    required bool success,
+  }) async {
+    final payload = await _operations.payload(operationId);
+    if (payload == null) return;
+    final messageId =
+        (jsonDecode(payload) as Map<String, dynamic>)['messageId'] as String? ??
+        operationId;
+    if (sent) {
+      final status = success ? 'sent' : 'failed';
+      await _operations.updateState(
+        operationId,
+        success ? 'succeeded' : 'failed',
+      );
+      await updateStatus(messageId, status);
+      await _sendOrQueue(MessageTypes.smsStatus, {
+        'id': messageId,
+        'status': status,
+      });
+    } else {
+      await updateDeliveryStatus(messageId, success ? 'delivered' : 'failed');
     }
   }
 

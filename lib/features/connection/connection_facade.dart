@@ -1230,6 +1230,17 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
         await _ref
             .read(smsFacadeProvider.notifier)
             .handleNativeEvent(data, id: id, now: now);
+      } else if (type == 'onSmsSent' || type == 'onSmsDelivered') {
+        final operationId = data['operationId'] as String?;
+        if (operationId != null) {
+          await _ref
+              .read(smsFacadeProvider.notifier)
+              .handleSmsResult(
+                operationId,
+                sent: type == 'onSmsSent',
+                success: data['success'] == true,
+              );
+        }
       } else if (type == 'onNotification') {
         await _ref
             .read(notificationFacadeProvider.notifier)
@@ -1323,6 +1334,10 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
       });
       if (!isNewMessage) {
         _logger.i('Skipping duplicate Inbox message: ${message.id}');
+      } else if (message.type == MessageTypes.smsOutgoing) {
+        await _ref
+            .read(smsFacadeProvider.notifier)
+            .executeOutgoingSms(payload, message);
       }
       await _sendDeliveryAck(socketManager, message.id);
       return;

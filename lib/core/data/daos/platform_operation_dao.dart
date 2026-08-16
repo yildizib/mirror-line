@@ -65,6 +65,18 @@ class PlatformOperationDao {
     return rows.isEmpty ? null : rows.single['state'] as String;
   }
 
+  Future<String?> payload(String operationId) async {
+    final db = await _database;
+    final rows = await db.query(
+      'platform_operation',
+      columns: ['payload'],
+      where: 'operation_id = ?',
+      whereArgs: [operationId],
+      limit: 1,
+    );
+    return rows.isEmpty ? null : rows.single['payload'] as String;
+  }
+
   Future<void> updateState(String operationId, String state) async {
     final db = await _database;
     await db.update(

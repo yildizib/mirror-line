@@ -3,6 +3,9 @@ package io.github.yildizib.mirrorline
 import android.Manifest
 import android.content.Context
 import android.content.Intent
+import android.content.BroadcastReceiver
+import android.content.IntentFilter
+import android.app.PendingIntent
 import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.LinkProperties
@@ -149,8 +152,9 @@ object MirrorLineChannel {
                 "sendSms" -> {
                     val address = call.argument<String>("address") ?: ""
                     val body = call.argument<String>("body") ?: ""
+                    val operationId = call.argument<String>("operationId") ?: ""
                     try {
-                        sendSms(appContext, address, body)
+                        sendSms(appContext, address, body, operationId)
                         result.success(null)
                     } catch (e: Exception) {
                         result.error("SMS_SEND_FAILED", e.message, null)
@@ -362,7 +366,7 @@ object MirrorLineChannel {
         }
     }
 
-    private fun sendSms(context: Context, address: String, body: String) {
+    private fun sendSms(context: Context, address: String, body: String, operationId: String) {
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.SEND_SMS)
             != PackageManager.PERMISSION_GRANTED
         ) {
@@ -370,6 +374,9 @@ object MirrorLineChannel {
         }
         if (address.isEmpty()) {
             throw IllegalArgumentException("Recipient address is empty")
+        }
+        if (operationId.isEmpty()) {
+            throw IllegalArgumentException("Operation ID is empty")
         }
 
         val smsManager = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -379,11 +386,79 @@ object MirrorLineChannel {
             SmsManager.getDefault()
         }
 
+        val sentAction = "$CHANNEL_NAME.SMS_SENT.$operationId"
+        val deliveredAction = "$CHANNEL_NAME.SMS_DELIVERED.$operationId"
         val parts = smsManager.divideMessage(body)
-        if (parts != null && parts.size > 1) {
-            smsManager.sendMultipartTextMessage(address, null, parts, null, null)
+        val multipartParts = parts?.takeIf { it.size > 1 }
+        val partCount = multipartParts?.size ?: 1
+        registerSmsResultReceiver(context, sentAction, "onSmsSent", operationId, partCount)
+        registerSmsResultReceiver(
+            context,
+            deliveredAction,
+            "onSmsDelivered",
+            operationId,
+            partCount,
+        )
+        fun pendingIntent(action: String, requestCode: Int): PendingIntent =
+            PendingIntent.getBroadcast(
+                context,
+                requestCode,
+                Intent(action).setPackage(context.packageName),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+        if (multipartParts != null) {
+            smsManager.sendMultipartTextMessage(
+                address,
+                null,
+                multipartParts,
+                ArrayList(List(partCount) { index ->
+                    pendingIntent(sentAction, operationId.hashCode() + index)
+                }),
+                ArrayList(List(partCount) { index ->
+                    pendingIntent(
+                        deliveredAction,
+                        (operationId.hashCode() xor 0x40000000) + index,
+                    )
+                }),
+            )
         } else {
-            smsManager.sendTextMessage(address, null, body, null, null)
+            smsManager.sendTextMessage(
+                address,
+                null,
+                body,
+                pendingIntent(sentAction, operationId.hashCode()),
+                pendingIntent(deliveredAction, operationId.hashCode() xor 0x40000000),
+            )
+        }
+    }
+
+    private fun registerSmsResultReceiver(
+        context: Context,
+        action: String,
+        event: String,
+        operationId: String,
+        expectedResults: Int,
+    ) {
+        var receivedResults = 0
+        var successful = true
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(receiverContext: Context, intent: Intent) {
+                successful = successful && resultCode == android.app.Activity.RESULT_OK
+                receivedResults++
+                if (receivedResults == expectedResults) {
+                    NativeEventRouter.route(
+                        event,
+                        mapOf("operationId" to operationId, "success" to successful),
+                    )
+                    receiverContext.unregisterReceiver(this)
+                }
+            }
+        }
+        val filter = IntentFilter(action)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            context.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            context.registerReceiver(receiver, filter)
         }
     }
 

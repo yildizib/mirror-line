@@ -223,11 +223,16 @@ class TelephonyChannel {
     }
   }
 
-  static Future<void> sendSms(String address, String body) async {
+  static Future<void> sendSms(
+    String address,
+    String body, {
+    required String operationId,
+  }) async {
     try {
       await _channel.invokeMethod('sendSms', {
         'address': address,
         'body': body,
+        'operationId': operationId,
       });
     } on MissingPluginException {
       // ignore
@@ -361,6 +366,8 @@ class TelephonyChannel {
       switch (call.method) {
         case 'onCall':
         case 'onSms':
+        case 'onSmsSent':
+        case 'onSmsDelivered':
         case 'onNotification':
         case 'onNotificationRemoved':
         case 'onNetworkChanged':

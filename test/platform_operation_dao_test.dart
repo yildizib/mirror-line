@@ -28,15 +28,24 @@ void main() {
 
   test('operation ID claim and state are durable and idempotent', () async {
     expect(
-      await dao.claim(operationId: 'm1', kind: 'sms_send', payload: '{}'),
+      await dao.claim(
+        operationId: 'm1',
+        kind: 'sms_send',
+        payload: '{"messageId":"sms-1"}',
+      ),
       isTrue,
     );
     expect(
-      await dao.claim(operationId: 'm1', kind: 'sms_send', payload: '{}'),
+      await dao.claim(
+        operationId: 'm1',
+        kind: 'sms_send',
+        payload: '{"messageId":"sms-1"}',
+      ),
       isFalse,
     );
     await dao.updateState('m1', 'succeeded');
     expect(await dao.state('m1'), 'succeeded');
+    expect(await dao.payload('m1'), '{"messageId":"sms-1"}');
   });
 
   test('executing operations are recovered after process restart', () async {

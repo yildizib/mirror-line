@@ -113,6 +113,54 @@ void main() {
     expect(methods, ['nativeEventsReady', 'nativeEventsNotReady']);
   });
 
+  test('sends the stable operation ID with an SMS submission', () async {
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      expect(call.method, 'sendSms');
+      expect(call.arguments, {
+        'address': '+905551112233',
+        'body': 'hello',
+        'operationId': 'message-123',
+      });
+      return null;
+    });
+
+    await TelephonyChannel.sendSms(
+      '+905551112233',
+      'hello',
+      operationId: 'message-123',
+    );
+  });
+
+  testWidgets('forwards SMS operation result events', (tester) async {
+    final events = <(String, Map<dynamic, dynamic>)>[];
+    TelephonyChannel.setEventHandler((type, data) => events.add((type, data)));
+
+    await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+      channel.name,
+      const StandardMethodCodec().encodeMethodCall(
+        const MethodCall('onSmsSent', {
+          'operationId': 'message-123',
+          'success': true,
+        }),
+      ),
+      (_) {},
+    );
+    await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+      channel.name,
+      const StandardMethodCodec().encodeMethodCall(
+        const MethodCall('onSmsDelivered', {
+          'operationId': 'message-123',
+          'success': false,
+        }),
+      ),
+      (_) {},
+    );
+
+    expect(events.map((event) => event.$1), ['onSmsSent', 'onSmsDelivered']);
+    expect(events[0].$2, {'operationId': 'message-123', 'success': true});
+    expect(events[1].$2, {'operationId': 'message-123', 'success': false});
+  });
+
   testWidgets('native response waits for async Dart event handling', (
     tester,
   ) async {
