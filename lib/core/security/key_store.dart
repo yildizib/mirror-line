@@ -12,6 +12,8 @@ class KeyStore {
   // Ed25519 device identity keypair
   static const _devicePrivateKeyKey = 'device_ed25519_private';
   static const _devicePublicKeyKey = 'device_ed25519_public';
+  static const _deviceKeyPairPendingKey = 'device_ed25519_pending';
+  static Future<String>? _ensureDeviceKeyPairInFlight;
 
   // This device's own identity (id + display name), set once at role
   // selection time and never overwritten by pairing. The `peer` table row
@@ -66,8 +68,32 @@ class KeyStore {
   /// as a base64 string. If a keypair already exists, it is returned without
   /// regeneration.
   static Future<String> ensureDeviceKeyPair() async {
-    final existing = await getDevicePublicKey();
-    if (existing != null) return existing;
+    final running = _ensureDeviceKeyPairInFlight;
+    if (running != null) return running;
+
+    final future = _ensureDeviceKeyPair();
+    _ensureDeviceKeyPairInFlight = future;
+    try {
+      return await future;
+    } finally {
+      if (identical(_ensureDeviceKeyPairInFlight, future)) {
+        _ensureDeviceKeyPairInFlight = null;
+      }
+    }
+  }
+
+  static Future<String> _ensureDeviceKeyPair() async {
+    final publicB64 = await _storage.read(key: _devicePublicKeyKey);
+    final privateB64 = await _storage.read(key: _devicePrivateKeyKey);
+    final pending = await _storage.read(key: _deviceKeyPairPendingKey);
+    if (pending != null ||
+        publicB64 == null ||
+        privateB64 == null ||
+        !await _matchesPublicKey(privateB64, publicB64)) {
+      await clearDeviceKeyPair();
+    } else {
+      return publicB64;
+    }
 
     final algorithm = Ed25519();
     final keyPair = await algorithm.newKeyPair();
@@ -75,6 +101,9 @@ class KeyStore {
     final privBytes = await keyPair.extractPrivateKeyBytes();
     final pubBytes = pubKey.bytes;
 
+    // Secure storage has no transaction primitive. The marker makes a
+    // partially written pair observable and therefore never usable.
+    await _storage.write(key: _deviceKeyPairPendingKey, value: '1');
     await _storage.write(
       key: _devicePrivateKeyKey,
       value: base64Encode(privBytes),
@@ -83,26 +112,56 @@ class KeyStore {
       key: _devicePublicKeyKey,
       value: base64Encode(pubBytes),
     );
+    await _storage.delete(key: _deviceKeyPairPendingKey);
 
     return base64Encode(pubBytes);
   }
 
   static Future<String?> getDevicePublicKey() async {
-    return _storage.read(key: _devicePublicKeyKey);
+    if (await _storage.read(key: _deviceKeyPairPendingKey) != null) {
+      return null;
+    }
+    final publicB64 = await _storage.read(key: _devicePublicKeyKey);
+    final privateB64 = await _storage.read(key: _devicePrivateKeyKey);
+    if (publicB64 == null || privateB64 == null) return null;
+    return await _matchesPublicKey(privateB64, publicB64) ? publicB64 : null;
   }
 
   static Future<SimpleKeyPair?> getDeviceKeyPair() async {
+    if (await _storage.read(key: _deviceKeyPairPendingKey) != null) {
+      return null;
+    }
     final privB64 = await _storage.read(key: _devicePrivateKeyKey);
-    if (privB64 == null) return null;
-    final privBytes = base64Decode(privB64);
-    // Reconstruct a SimpleKeyPair from the private key bytes.
-    final algorithm = Ed25519();
-    return algorithm.newKeyPairFromSeed(privBytes);
+    final pubB64 = await _storage.read(key: _devicePublicKeyKey);
+    if (privB64 == null || pubB64 == null) return null;
+    if (!await _matchesPublicKey(privB64, pubB64)) return null;
+    try {
+      final privBytes = base64Decode(privB64);
+      return Ed25519().newKeyPairFromSeed(privBytes);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<bool> _matchesPublicKey(
+    String privateB64,
+    String publicB64,
+  ) async {
+    try {
+      final keyPair = await Ed25519().newKeyPairFromSeed(
+        base64Decode(privateB64),
+      );
+      final derived = await keyPair.extractPublicKey();
+      return base64Encode(derived.bytes) == publicB64;
+    } catch (_) {
+      return false;
+    }
   }
 
   static Future<void> clearDeviceKeyPair() async {
     await _storage.delete(key: _devicePrivateKeyKey);
     await _storage.delete(key: _devicePublicKeyKey);
+    await _storage.delete(key: _deviceKeyPairPendingKey);
   }
 
   static Future<void> clearAll() async {
