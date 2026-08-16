@@ -1,11 +1,18 @@
 import 'package:mirrorline/core/data/database.dart';
 import 'package:mirrorline/core/data/models/queue_item.dart';
+import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 
 class QueueDao {
   final AppDatabase _db = AppDatabase.instance;
+  Database? _testDb;
 
-  Future<Database> get _database => _db.database;
+  @visibleForTesting
+  QueueDao.forDatabase(Database db) : _testDb = db;
+
+  QueueDao();
+
+  Future<Database> get _database async => _testDb ?? await _db.database;
 
   Future<QueueItem> insert(QueueItem item) async {
     final db = await _database;

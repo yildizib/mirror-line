@@ -3,7 +3,9 @@ import 'package:mirrorline/core/data/models/queue_item.dart';
 import 'package:uuid/uuid.dart';
 
 class QueueService {
-  final QueueDao _dao = QueueDao();
+  final QueueDao _dao;
+
+  QueueService({QueueDao? dao}) : _dao = dao ?? QueueDao();
 
   Future<QueueItem> enqueue(
     String type,
