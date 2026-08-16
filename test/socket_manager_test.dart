@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mirrorline/core/network/message_protocol.dart';
 import 'package:mirrorline/core/network/socket_manager.dart';
 import 'package:mirrorline/core/security/crypto_manager.dart';
+import 'package:uuid/uuid.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -510,4 +511,127 @@ void main() {
     await subscription.cancel();
     await server.close();
   });
+
+  test(
+    'server closes the session when an authenticated frame is replayed',
+    () async {
+      final key = CryptoManager.generateKey();
+      final ed25519 = Ed25519();
+      final serverKeyPair = await ed25519.newKeyPair();
+      final clientKeyPair = await ed25519.newKeyPair();
+      final serverPub = base64Encode(
+        (await serverKeyPair.extractPublicKey()).bytes,
+      );
+      final clientPub = base64Encode(
+        (await clientKeyPair.extractPublicKey()).bytes,
+      );
+      final received = <MirrorMessage>[];
+      final normalDelivered = Completer<void>();
+      final server = SocketManager(
+        onMessage: (message) {
+          received.add(message);
+          if (!normalDelivered.isCompleted) normalDelivered.complete();
+        },
+        onConnected: () {},
+        onDisconnected: () {},
+      );
+      server.setAuthIdentity(
+        peerPublicKeyBase64: clientPub,
+        localKeyPair: serverKeyPair,
+      );
+      await server.startServer(45913, key);
+
+      final socket = await Socket.connect('127.0.0.1', 45913);
+      final sessionId = Completer<String>();
+      var nextSequence = 0;
+      var normalFrame = '';
+
+      Future<void> sendEnvelope({
+        required String type,
+        required Map<String, dynamic> payload,
+        required String session,
+        required int sequence,
+      }) async {
+        final envelope = MirrorMessage(
+          type: type,
+          id: const Uuid().v4(),
+          timestamp: DateTime.now().millisecondsSinceEpoch,
+          payload: '',
+          sourcePeerId: clientPub,
+          destinationPeerId: serverPub,
+          sessionId: session,
+          sequence: sequence,
+        );
+        final encrypted = await CryptoManager.encrypt(
+          key,
+          jsonEncode(payload),
+          aad: utf8.encode(envelope.authenticatedData()),
+        );
+        final message = MirrorMessage(
+          type: envelope.type,
+          id: envelope.id,
+          timestamp: envelope.timestamp,
+          payload: encrypted,
+          sourcePeerId: envelope.sourcePeerId,
+          destinationPeerId: envelope.destinationPeerId,
+          sessionId: envelope.sessionId,
+          sequence: envelope.sequence,
+        );
+        final encoded = '${message.encode()}\n';
+        socket.write(encoded);
+        await socket.flush();
+        if (type == MessageTypes.smsIncoming) normalFrame = encoded;
+      }
+
+      socket
+          .cast<List<int>>()
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .listen((line) async {
+            final message = MirrorMessage.decode(line);
+            final decrypted = await CryptoManager.decrypt(
+              key,
+              message.payload,
+              aad: utf8.encode(message.authenticatedData()),
+            );
+            final payload = jsonDecode(decrypted!) as Map<String, dynamic>;
+            if (message.type == MessageTypes.authChallenge) {
+              sessionId.complete(message.sessionId!);
+              final signature = await CryptoManager.sign(
+                clientKeyPair,
+                payload['nonce'] as String,
+              );
+              await sendEnvelope(
+                type: MessageTypes.authResponse,
+                payload: {'nonce': payload['nonce'], 'signature': signature},
+                session: message.sessionId!,
+                sequence: nextSequence++,
+              );
+            } else if (message.type == MessageTypes.authOk) {
+              await sendEnvelope(
+                type: MessageTypes.authAck,
+                payload: {},
+                session: await sessionId.future,
+                sequence: nextSequence++,
+              );
+              await sendEnvelope(
+                type: MessageTypes.smsIncoming,
+                payload: {'body': 'one delivery'},
+                session: await sessionId.future,
+                sequence: nextSequence++,
+              );
+              await normalDelivered.future;
+              socket.write(normalFrame);
+              await socket.flush();
+            }
+          }, onDone: () {});
+
+      await normalDelivered.future.timeout(const Duration(seconds: 5));
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect(received, hasLength(1));
+      expect(server.isConnected, isFalse);
+      await socket.close();
+      await server.disconnect();
+    },
+  );
 }
