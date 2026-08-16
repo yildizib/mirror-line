@@ -48,7 +48,11 @@ class QueueService {
       _dao.getAll(destinationPeerId);
 
   Future<void> markSent(int id) async {
-    await _dao.updateStatus(id, 'transported');
+    await _dao.updateStatus(id, 'sent');
+  }
+
+  Future<void> markAcknowledged(String messageId) async {
+    await _dao.updateStatusByMessageId(messageId, 'completed');
   }
 
   /// Returns true if this was the final attempt and the item was dropped

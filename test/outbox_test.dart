@@ -43,7 +43,7 @@ void main() {
     expect(pending.single.destinationPeerId, 'peer-a');
   });
 
-  test('transport success keeps the row with transported status', () async {
+  test('transport success keeps the row until committed ACK', () async {
     final item = await service.enqueue(
       'sms',
       '{}',
@@ -52,13 +52,20 @@ void main() {
 
     await service.markSent(item.id!);
 
-    expect(await service.pendingItems('peer-a'), isEmpty);
+    expect(await service.pendingItems('peer-a'), hasLength(1));
     final rows = await db.query(
       'outbox',
       where: 'id = ?',
       whereArgs: [item.id],
     );
-    expect(rows.single['status'], 'transported');
+    expect(rows.single['status'], 'sent');
+    await service.markAcknowledged(item.messageId);
+    final acknowledged = await db.query(
+      'outbox',
+      where: 'id = ?',
+      whereArgs: [item.id],
+    );
+    expect(acknowledged.single['status'], 'completed');
   });
 
   test('exhausted retries become diagnosable dead letters', () async {

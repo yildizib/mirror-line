@@ -29,13 +29,9 @@ class QueueDao {
     final maps = await db.query(
       'outbox',
       where:
-          'destination_peer_id = ? AND status = ? AND '
+          "destination_peer_id = ? AND status IN ('pending', 'sent') AND "
           '(next_attempt_at IS NULL OR next_attempt_at <= ?)',
-      whereArgs: [
-        destinationPeerId,
-        'pending',
-        DateTime.now().millisecondsSinceEpoch,
-      ],
+      whereArgs: [destinationPeerId, DateTime.now().millisecondsSinceEpoch],
       orderBy: 'created_at ASC',
     );
     return maps.map(QueueItem.fromJson).toList();
@@ -58,6 +54,16 @@ class QueueDao {
       {'status': status},
       where: 'id = ?',
       whereArgs: [id],
+    );
+  }
+
+  Future<void> updateStatusByMessageId(String messageId, String status) async {
+    final db = await _database;
+    await db.update(
+      'outbox',
+      {'status': status},
+      where: 'message_id = ?',
+      whereArgs: [messageId],
     );
   }
 

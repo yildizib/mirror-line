@@ -1381,7 +1381,12 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
         break;
 
       case MessageTypes.ack:
-        _logger.i('ACK received: ${message.id}');
+        final acknowledgedId = payload['message_id'] as String?;
+        final result = payload['result'] as String?;
+        if (acknowledgedId != null && result == 'committed') {
+          await _queue.markAcknowledged(acknowledgedId);
+          _logger.i('Committed ACK received: $acknowledgedId');
+        }
         break;
 
       case MessageTypes.notificationMirrored:
@@ -1472,7 +1477,13 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
       jsonEncode(payload),
       destinationPeerId: destinationPeerId,
     );
-    final sent = await _socketManager?.sendMessage(type, payload) ?? false;
+    final sent =
+        await _socketManager?.sendMessage(
+          type,
+          payload,
+          messageId: item.messageId,
+        ) ??
+        false;
     if (sent && item.id != null) await _queue.markSent(item.id!);
     if (!sent) _logger.w('$type queued for later delivery.');
     return sent;
@@ -1504,7 +1515,13 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
         destinationPeerId: destinationPeerId,
       );
     });
-    final sent = await _socketManager?.sendMessage(type, payload) ?? false;
+    final sent =
+        await _socketManager?.sendMessage(
+          type,
+          payload,
+          messageId: item.messageId,
+        ) ??
+        false;
     if (sent && item.id != null) await _queue.markSent(item.id!);
     return sent;
   }
@@ -1542,7 +1559,12 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
       try {
         final payload = jsonDecode(item.payload) as Map<String, dynamic>;
         final sent =
-            await _socketManager?.sendMessage(item.type, payload) ?? false;
+            await _socketManager?.sendMessage(
+              item.type,
+              payload,
+              messageId: item.messageId,
+            ) ??
+            false;
         if (sent) {
           if (item.id != null) await _queue.markSent(item.id!);
         } else {
