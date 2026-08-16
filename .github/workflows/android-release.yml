@@ -7,11 +7,11 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Sürüm (örn: 0.1.1) - v0.1.1 veya 0.1.1"
+        description: "Version (for example: 0.1.1) - v0.1.1 or 0.1.1"
         required: true
         type: string
       prerelease:
-        description: "Pre-release olarak işaretle"
+        description: "Mark as pre-release"
         required: false
         default: true
         type: boolean
@@ -38,7 +38,7 @@ jobs:
           fi
           V="${RAW#v}"
           if ! echo "$V" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo "::error::Geçersiz sürüm: $RAW (beklenen: x.y.z)"
+            echo "::error::Invalid version: $RAW (expected: x.y.z)"
             exit 1
           fi
           echo "version=$V" >> $GITHUB_OUTPUT
@@ -48,7 +48,7 @@ jobs:
         id: pre
         run: |
           if [ "${{ github.event_name }}" = "push" ]; then
-            # Tag push: pre-release yok, sabit release
+            # Tag pushes always create a stable release.
             echo "flag=false" >> $GITHUB_OUTPUT
           else
             echo "flag=${{ inputs.prerelease }}" >> $GITHUB_OUTPUT

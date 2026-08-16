@@ -1,5 +1,5 @@
 name: mirrorline
-description: "Sunucusuz, uçtan uca şifreli iki telefon arası arama ve SMS senkronizasyonu."
+description: "Serverless, end-to-end encrypted call and SMS synchronization between two phones."
 
 publish_to: 'none'
 
