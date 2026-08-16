@@ -9,6 +9,41 @@ import 'package:mirrorline/core/network/socket_manager.dart';
 import 'package:mirrorline/core/security/crypto_manager.dart';
 import 'package:uuid/uuid.dart';
 
+Future<MirrorMessage> _encryptedFrame({
+  required String type,
+  required Map<String, dynamic> payload,
+  required SecretKey key,
+  required String sourcePeerId,
+  required String destinationPeerId,
+  required String sessionId,
+  required int sequence,
+}) async {
+  final envelope = MirrorMessage(
+    type: type,
+    id: const Uuid().v4(),
+    timestamp: DateTime.now().millisecondsSinceEpoch,
+    payload: '',
+    sourcePeerId: sourcePeerId,
+    destinationPeerId: destinationPeerId,
+    sessionId: sessionId,
+    sequence: sequence,
+  );
+  return MirrorMessage(
+    type: envelope.type,
+    id: envelope.id,
+    timestamp: envelope.timestamp,
+    payload: await CryptoManager.encrypt(
+      key,
+      jsonEncode(payload),
+      aad: utf8.encode(envelope.authenticatedData()),
+    ),
+    sourcePeerId: envelope.sourcePeerId,
+    destinationPeerId: envelope.destinationPeerId,
+    sessionId: envelope.sessionId,
+    sequence: envelope.sequence,
+  );
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -389,7 +424,7 @@ void main() {
   );
 
   test(
-    'server rejects an authentication response with the wrong nonce',
+    'server rejects a complete authentication response with the wrong nonce',
     () async {
       final key = CryptoManager.generateKey();
       final ed25519 = Ed25519();
@@ -412,6 +447,8 @@ void main() {
 
       final closed = Completer<void>();
       final socket = await Socket.connect('127.0.0.1', 45910);
+      final sessionId = const Uuid().v4();
+      final clientNonce = CryptoManager.generateNonce();
       socket
           .cast<List<int>>()
           .transform(utf8.decoder)
@@ -420,24 +457,70 @@ void main() {
             (line) async {
               final message = MirrorMessage.decode(line);
               if (message.type != MessageTypes.authChallenge) return;
+              final challenge =
+                  jsonDecode(
+                        (await CryptoManager.decrypt(
+                          key,
+                          message.payload,
+                          aad: utf8.encode(message.authenticatedData()),
+                        ))!,
+                      )
+                      as Map<String, dynamic>;
+              final transcript = MirrorMessage.authTranscript(
+                sessionId: sessionId,
+                serverPeerId: base64Encode(
+                  (await serverKeyPair.extractPublicKey()).bytes,
+                ),
+                clientPeerId: clientPub,
+                serverNonce: challenge['serverNonce'] as String,
+                clientNonce: clientNonce,
+              );
               final wrongNonce = CryptoManager.generateNonce();
-              final signature = await CryptoManager.sign(
-                clientKeyPair,
-                wrongNonce,
+              final response = await _encryptedFrame(
+                type: MessageTypes.authResponse,
+                payload: {
+                  'serverNonce': wrongNonce,
+                  'signature': await CryptoManager.sign(
+                    clientKeyPair,
+                    CryptoManager.authenticationSignatureData(
+                      'response',
+                      transcript,
+                    ),
+                  ),
+                },
+                key: await CryptoManager.deriveSessionKey(
+                  key,
+                  sessionId,
+                  transcript: transcript,
+                ),
+                sourcePeerId: clientPub,
+                destinationPeerId: base64Encode(
+                  (await serverKeyPair.extractPublicKey()).bytes,
+                ),
+                sessionId: sessionId,
+                sequence: 1,
               );
-              final encrypted = await CryptoManager.encrypt(
-                key,
-                jsonEncode({'nonce': wrongNonce, 'signature': signature}),
-              );
-              socket.write(
-                '${MirrorMessage(type: MessageTypes.authResponse, id: 'wrong-nonce', timestamp: DateTime.now().millisecondsSinceEpoch, payload: encrypted).encode()}\n',
-              );
+              socket.write('${response.encode()}\n');
               await socket.flush();
             },
             onDone: () {
               if (!closed.isCompleted) closed.complete();
             },
           );
+
+      final hello = await _encryptedFrame(
+        type: MessageTypes.authHello,
+        payload: {'clientNonce': clientNonce},
+        key: key,
+        sourcePeerId: clientPub,
+        destinationPeerId: base64Encode(
+          (await serverKeyPair.extractPublicKey()).bytes,
+        ),
+        sessionId: sessionId,
+        sequence: 0,
+      );
+      socket.write('${hello.encode()}\n');
+      await socket.flush();
 
       await closed.future.timeout(const Duration(seconds: 3));
       expect(server.isAuthed, isFalse);
@@ -446,45 +529,106 @@ void main() {
     },
   );
 
-  test('server rejects an auth ACK before the expected response', () async {
-    final key = CryptoManager.generateKey();
-    final ed25519 = Ed25519();
-    final serverKeyPair = await ed25519.newKeyPair();
-    final clientKeyPair = await ed25519.newKeyPair();
-    final clientPub = base64Encode(
-      (await clientKeyPair.extractPublicKey()).bytes,
-    );
-    final server = SocketManager(
-      onMessage: (_) {},
-      onConnected: () {},
-      onDisconnected: () {},
-      authTimeout: const Duration(seconds: 2),
-    );
-    server.setAuthIdentity(
-      peerPublicKeyBase64: clientPub,
-      localKeyPair: serverKeyPair,
-    );
-    await server.startServer(45911, key);
+  test(
+    'server rejects a complete auth ACK before the expected response',
+    () async {
+      final key = CryptoManager.generateKey();
+      final ed25519 = Ed25519();
+      final serverKeyPair = await ed25519.newKeyPair();
+      final clientKeyPair = await ed25519.newKeyPair();
+      final serverPub = base64Encode(
+        (await serverKeyPair.extractPublicKey()).bytes,
+      );
+      final clientPub = base64Encode(
+        (await clientKeyPair.extractPublicKey()).bytes,
+      );
+      final server = SocketManager(
+        onMessage: (_) {},
+        onConnected: () {},
+        onDisconnected: () {},
+        authTimeout: const Duration(seconds: 2),
+      );
+      server.setAuthIdentity(
+        peerPublicKeyBase64: clientPub,
+        localKeyPair: serverKeyPair,
+      );
+      await server.startServer(45911, key);
 
-    final closed = Completer<void>();
-    final socket = await Socket.connect('127.0.0.1', 45911);
-    final encrypted = await CryptoManager.encrypt(key, '{}');
-    socket.write(
-      '${MirrorMessage(type: MessageTypes.authAck, id: 'early-ack', timestamp: DateTime.now().millisecondsSinceEpoch, payload: encrypted).encode()}\n',
-    );
-    await socket.flush();
-    socket.listen(
-      null,
-      onDone: () {
-        if (!closed.isCompleted) closed.complete();
-      },
-    );
+      final closed = Completer<void>();
+      final socket = await Socket.connect('127.0.0.1', 45911);
+      final sessionId = const Uuid().v4();
+      final clientNonce = CryptoManager.generateNonce();
+      socket
+          .cast<List<int>>()
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .listen(
+            (line) async {
+              final message = MirrorMessage.decode(line);
+              if (message.type != MessageTypes.authChallenge) return;
+              final challenge =
+                  jsonDecode(
+                        (await CryptoManager.decrypt(
+                          key,
+                          message.payload,
+                          aad: utf8.encode(message.authenticatedData()),
+                        ))!,
+                      )
+                      as Map<String, dynamic>;
+              final transcript = MirrorMessage.authTranscript(
+                sessionId: sessionId,
+                serverPeerId: serverPub,
+                clientPeerId: clientPub,
+                serverNonce: challenge['serverNonce'] as String,
+                clientNonce: clientNonce,
+              );
+              final ack = await _encryptedFrame(
+                type: MessageTypes.authAck,
+                payload: {
+                  'signature': await CryptoManager.sign(
+                    clientKeyPair,
+                    CryptoManager.authenticationSignatureData(
+                      'ack',
+                      transcript,
+                    ),
+                  ),
+                },
+                key: await CryptoManager.deriveSessionKey(
+                  key,
+                  sessionId,
+                  transcript: transcript,
+                ),
+                sourcePeerId: clientPub,
+                destinationPeerId: serverPub,
+                sessionId: sessionId,
+                sequence: 1,
+              );
+              socket.write('${ack.encode()}\n');
+              await socket.flush();
+            },
+            onDone: () {
+              if (!closed.isCompleted) closed.complete();
+            },
+          );
 
-    await closed.future.timeout(const Duration(seconds: 3));
-    expect(server.isAuthed, isFalse);
-    await socket.close();
-    await server.disconnect();
-  });
+      final hello = await _encryptedFrame(
+        type: MessageTypes.authHello,
+        payload: {'clientNonce': clientNonce},
+        key: key,
+        sourcePeerId: clientPub,
+        destinationPeerId: serverPub,
+        sessionId: sessionId,
+        sequence: 0,
+      );
+      socket.write('${hello.encode()}\n');
+      await socket.flush();
+
+      await closed.future.timeout(const Duration(seconds: 3));
+      expect(server.isAuthed, isFalse);
+      await socket.close();
+      await server.disconnect();
+    },
+  );
 
   test('client rejects a server challenge signed by the wrong key', () async {
     final key = CryptoManager.generateKey();
@@ -500,17 +644,48 @@ void main() {
     final subscription = server.listen((socket) {
       sockets.add(socket);
       unawaited(() async {
-        final nonce = CryptoManager.generateNonce();
-        final signature = await CryptoManager.sign(wrongServerKeyPair, nonce);
-        final encrypted = await CryptoManager.encrypt(
-          key,
-          jsonEncode({'nonce': nonce, 'signature': signature}),
+        final hello = MirrorMessage.decode(
+          utf8.decode(await socket.first).trim(),
         );
-        final challenge = MirrorMessage(
+        final helloPayload =
+            jsonDecode(
+                  (await CryptoManager.decrypt(
+                    key,
+                    hello.payload,
+                    aad: utf8.encode(hello.authenticatedData()),
+                  ))!,
+                )
+                as Map<String, dynamic>;
+        final serverNonce = CryptoManager.generateNonce();
+        final transcript = MirrorMessage.authTranscript(
+          sessionId: hello.sessionId!,
+          serverPeerId: trustedServerPub,
+          clientPeerId: base64Encode(
+            (await clientKeyPair.extractPublicKey()).bytes,
+          ),
+          serverNonce: serverNonce,
+          clientNonce: helloPayload['clientNonce'] as String,
+        );
+        final challenge = await _encryptedFrame(
           type: MessageTypes.authChallenge,
-          id: 'wrong-server-signature',
-          timestamp: DateTime.now().millisecondsSinceEpoch,
-          payload: encrypted,
+          payload: {
+            'serverNonce': serverNonce,
+            'clientNonce': helloPayload['clientNonce'],
+            'signature': await CryptoManager.sign(
+              wrongServerKeyPair,
+              CryptoManager.authenticationSignatureData(
+                'challenge',
+                transcript,
+              ),
+            ),
+          },
+          key: key,
+          sourcePeerId: trustedServerPub,
+          destinationPeerId: base64Encode(
+            (await clientKeyPair.extractPublicKey()).bytes,
+          ),
+          sessionId: hello.sessionId!,
+          sequence: 0,
         );
         socket.write('${challenge.encode()}\n');
         await socket.flush();
@@ -531,6 +706,59 @@ void main() {
     await subscription.cancel();
     await server.close();
   });
+
+  test(
+    'client rejects a complete challenge with the wrong client nonce',
+    () async {
+      final key = CryptoManager.generateKey();
+      final ed25519 = Ed25519();
+      final serverKeyPair = await ed25519.newKeyPair();
+      final clientKeyPair = await ed25519.newKeyPair();
+      final serverPub = base64Encode(
+        (await serverKeyPair.extractPublicKey()).bytes,
+      );
+      final clientPub = base64Encode(
+        (await clientKeyPair.extractPublicKey()).bytes,
+      );
+      final fakeServer = await ServerSocket.bind(
+        InternetAddress.loopbackIPv4,
+        0,
+      );
+      final subscription = fakeServer.listen((socket) async {
+        await for (final data in socket) {
+          final hello = MirrorMessage.decode(utf8.decode(data).trim());
+          if (hello.type != MessageTypes.authHello) continue;
+          final challenge = await _encryptedFrame(
+            type: MessageTypes.authChallenge,
+            payload: {
+              'serverNonce': CryptoManager.generateNonce(),
+              'clientNonce': CryptoManager.generateNonce(),
+              'signature': '',
+            },
+            key: key,
+            sourcePeerId: serverPub,
+            destinationPeerId: clientPub,
+            sessionId: hello.sessionId!,
+            sequence: 0,
+          );
+          socket.write('${challenge.encode()}\n');
+          await socket.flush();
+          return;
+        }
+      });
+      final client = SocketManager(onMessage: (_) {});
+      client.setAuthIdentity(
+        peerPublicKeyBase64: serverPub,
+        localKeyPair: clientKeyPair,
+      );
+
+      expect(await client.connect('127.0.0.1', fakeServer.port, key), isFalse);
+      expect(client.isAuthed, isFalse);
+      await client.disconnect();
+      await subscription.cancel();
+      await fakeServer.close();
+    },
+  );
 
   test(
     'server closes the session when an authenticated frame is replayed',
