@@ -23,6 +23,7 @@ class _SocketSession {
   Timer? authTimer;
   _AuthPhase authPhase = _AuthPhase.none;
   String? challengeNonce;
+  SecretKey? sessionKey;
   int nextSequence = 0;
   int lastReceivedSequence = -1;
   Future<void> messagePipeline = Future<void>.value();
@@ -438,9 +439,13 @@ class SocketManager {
   }
 
   /// Encrypts and sends a message. Returns true if the message was written.
-  Future<bool> sendMessage(String type, Map<String, dynamic> payload) async {
+  Future<bool> sendMessage(
+    String type,
+    Map<String, dynamic> payload, {
+    bool useSessionKey = true,
+  }) async {
     final session = _session;
-    final key = _key;
+    final key = useSessionKey ? (session?.sessionKey ?? _key) : _key;
     if (session == null || key == null || !_isConnected) {
       return false;
     }
@@ -533,13 +538,18 @@ class SocketManager {
     }
     session.authPhase = _AuthPhase.awaitResponse;
     session.challengeNonce = nonce;
+    session.sessionKey = await CryptoManager.deriveSessionKey(
+      _key!,
+      session.sessionId,
+    );
     final signature = await CryptoManager.sign(localKeyPair, nonce);
     if (!_isCurrent(session)) return;
     _logger.i('Server sending auth challenge.');
     await sendMessage(MessageTypes.authChallenge, {
       'nonce': nonce,
       'signature': signature,
-    });
+    }, useSessionKey: false);
+    if (!_isCurrent(session)) return;
 
     // If the client never responds (e.g. it silently died), don't hold this
     // connection slot forever — close it so a real reconnect can get through.
@@ -597,7 +607,15 @@ class SocketManager {
       return;
     }
 
-    final decrypted = await _decryptMessage(key, message);
+    // The challenge is encrypted with the pairing key so the client can
+    // learn the server-selected session ID before deriving its session key.
+    final decrypted = await CryptoManager.decrypt(
+      key,
+      message.payload,
+      aad: message.hasAuthenticatedEnvelope
+          ? utf8.encode(message.authenticatedData())
+          : const [],
+    );
     if (!_isCurrent(session)) return;
     if (decrypted == null) {
       _logger.e('Could not decrypt auth challenge.');
@@ -627,6 +645,10 @@ class SocketManager {
       _closeSession(session);
       return;
     }
+    session.sessionKey = await CryptoManager.deriveSessionKey(
+      key,
+      session.sessionId,
+    );
 
     final signature = await CryptoManager.sign(localKeyPair, nonce);
     if (!_isCurrent(session)) return;
@@ -656,7 +678,7 @@ class SocketManager {
       return;
     }
 
-    final decrypted = await _decryptMessage(key, message);
+    final decrypted = await _decryptMessage(session.sessionKey ?? key, message);
     if (!_isCurrent(session)) return;
     if (decrypted == null) {
       _logger.e('Could not decrypt auth response.');

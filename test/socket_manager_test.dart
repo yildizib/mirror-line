@@ -543,6 +543,7 @@ void main() {
 
       final socket = await Socket.connect('127.0.0.1', 45913);
       final sessionId = Completer<String>();
+      SecretKey? sessionKey;
       var nextSequence = 0;
       var normalFrame = '';
 
@@ -563,7 +564,7 @@ void main() {
           sequence: sequence,
         );
         final encrypted = await CryptoManager.encrypt(
-          key,
+          sessionKey ?? key,
           jsonEncode(payload),
           aad: utf8.encode(envelope.authenticatedData()),
         );
@@ -590,13 +591,17 @@ void main() {
           .listen((line) async {
             final message = MirrorMessage.decode(line);
             final decrypted = await CryptoManager.decrypt(
-              key,
+              sessionKey ?? key,
               message.payload,
               aad: utf8.encode(message.authenticatedData()),
             );
             final payload = jsonDecode(decrypted!) as Map<String, dynamic>;
             if (message.type == MessageTypes.authChallenge) {
               sessionId.complete(message.sessionId!);
+              sessionKey = await CryptoManager.deriveSessionKey(
+                key,
+                message.sessionId!,
+              );
               final signature = await CryptoManager.sign(
                 clientKeyPair,
                 payload['nonce'] as String,

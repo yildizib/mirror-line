@@ -21,6 +21,20 @@ class CryptoManager {
     return SecretKey(_randomBytes(32));
   }
 
+  /// Derives a key scoped to one authenticated connection. The pairing key
+  /// remains a bootstrap secret; application frames use this derived key.
+  static Future<SecretKey> deriveSessionKey(
+    SecretKey sharedKey,
+    String sessionId,
+  ) async {
+    final sharedBytes = await sharedKey.extractBytes();
+    final digest = crypto.Hmac(
+      crypto.sha256,
+      sharedBytes,
+    ).convert(utf8.encode('mirrorline/session/$sessionId'));
+    return SecretKey(digest.bytes);
+  }
+
   static Future<String> encrypt(
     SecretKey key,
     String plainText, {

@@ -154,6 +154,28 @@ void main() {
     expect(tampered, isNull);
   });
 
+  test(
+    'session keys are deterministic per session and differ across sessions',
+    () async {
+      final sharedKey = CryptoManager.generateKey();
+      final first = await CryptoManager.deriveSessionKey(
+        sharedKey,
+        'session-a',
+      );
+      final firstAgain = await CryptoManager.deriveSessionKey(
+        sharedKey,
+        'session-a',
+      );
+      final second = await CryptoManager.deriveSessionKey(
+        sharedKey,
+        'session-b',
+      );
+
+      expect(await first.extractBytes(), await firstAgain.extractBytes());
+      expect(await first.extractBytes(), isNot(await second.extractBytes()));
+    },
+  );
+
   test('each encrypted message uses a fresh nonce (no nonce reuse)', () async {
     final key = CryptoManager.generateKey();
     const plaintext = 'aynı mesaj iki kere şifrelenirse';
