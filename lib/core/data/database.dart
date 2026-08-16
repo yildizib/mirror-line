@@ -6,7 +6,7 @@ import 'package:sqflite/sqflite.dart';
 class AppDatabase {
   static final AppDatabase instance = AppDatabase._internal();
   static Database? _database;
-  static const int schemaVersion = 8;
+  static const int schemaVersion = 9;
 
   AppDatabase._internal();
 
@@ -149,6 +149,19 @@ class AppDatabase {
         await db.execute('DROP TABLE offline_queue');
       }
     }
+    if (oldVersion < 9) {
+      await db.execute('''
+        CREATE TABLE inbox (
+          source_peer_id TEXT NOT NULL,
+          message_id TEXT NOT NULL,
+          type TEXT NOT NULL,
+          processing_state TEXT NOT NULL DEFAULT "received",
+          received_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          PRIMARY KEY (source_peer_id, message_id)
+        )
+      ''');
+    }
   }
 
   /// Exposed (not private) so tests can create a fresh-install schema
@@ -240,6 +253,18 @@ class AppDatabase {
       'CREATE UNIQUE INDEX notification_event_source_key '
       'ON notification_event(package_name, native_id)',
     );
+
+    await db.execute('''
+      CREATE TABLE inbox (
+        source_peer_id TEXT NOT NULL,
+        message_id TEXT NOT NULL,
+        type TEXT NOT NULL,
+        processing_state TEXT NOT NULL DEFAULT "received",
+        received_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (source_peer_id, message_id)
+      )
+    ''');
   }
 
   Future<void> close() async {
@@ -255,5 +280,6 @@ class AppDatabase {
     await db.delete('outbox');
     await db.delete('known_network');
     await db.delete('notification_event');
+    await db.delete('inbox');
   }
 }

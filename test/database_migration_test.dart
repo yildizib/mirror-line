@@ -99,6 +99,19 @@ void main() {
       ]),
     );
 
+    final inboxColumns = await _columnNames(db, 'inbox');
+    expect(
+      inboxColumns,
+      containsAll([
+        'source_peer_id',
+        'message_id',
+        'type',
+        'processing_state',
+        'received_at',
+        'updated_at',
+      ]),
+    );
+
     await db.close();
   });
 
