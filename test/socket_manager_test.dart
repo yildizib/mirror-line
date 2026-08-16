@@ -7,6 +7,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mirrorline/core/network/message_protocol.dart';
 import 'package:mirrorline/core/network/socket_manager.dart';
 import 'package:mirrorline/core/security/crypto_manager.dart';
+import 'package:mirrorline/core/data/daos/queue_dao.dart';
+import 'package:mirrorline/core/data/database.dart';
+import 'package:mirrorline/core/services/queue_service.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:uuid/uuid.dart';
 
 Future<MirrorMessage> _encryptedFrame({
@@ -1065,24 +1069,187 @@ void main() {
   );
 
   test(
-    'server closes connections that exceed the receive buffer limit',
+    'authenticated metadata tampering is rejected before delivery',
     () async {
       final key = CryptoManager.generateKey();
+      final ed25519 = Ed25519();
+      final serverKeyPair = await ed25519.newKeyPair();
+      final clientKeyPair = await ed25519.newKeyPair();
+      final serverPub = base64Encode(
+        (await serverKeyPair.extractPublicKey()).bytes,
+      );
+      final clientPub = base64Encode(
+        (await clientKeyPair.extractPublicKey()).bytes,
+      );
+      final delivered = <MirrorMessage>[];
+      final server = SocketManager(onMessage: delivered.add);
+      server.setAuthIdentity(
+        peerPublicKeyBase64: clientPub,
+        localKeyPair: serverKeyPair,
+      );
+      await server.startServer(45917, key);
+
+      final proxy = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+      final proxySockets = <Socket>[];
+      final proxySubscription = proxy.listen((clientSocket) async {
+        proxySockets.add(clientSocket);
+        final serverSocket = await Socket.connect('127.0.0.1', 45917);
+        proxySockets.add(serverSocket);
+        clientSocket
+            .cast<List<int>>()
+            .transform(utf8.decoder)
+            .transform(const LineSplitter())
+            .listen((line) {
+              final message = MirrorMessage.decode(line);
+              if (message.type == MessageTypes.smsIncoming) {
+                final tampered = MirrorMessage(
+                  type: MessageTypes.smsOutgoing,
+                  id: message.id,
+                  timestamp: message.timestamp,
+                  payload: message.payload,
+                  protocolVersion: message.protocolVersion,
+                  sourcePeerId: message.sourcePeerId,
+                  destinationPeerId: message.destinationPeerId,
+                  sessionId: message.sessionId,
+                  sequence: message.sequence,
+                );
+                serverSocket.write('${tampered.encode()}\n');
+              } else {
+                serverSocket.write('$line\n');
+              }
+            });
+        serverSocket
+            .cast<List<int>>()
+            .transform(utf8.decoder)
+            .transform(const LineSplitter())
+            .listen((line) => clientSocket.write('$line\n'));
+      });
+
+      final client = SocketManager(onMessage: (_) {});
+      client.setAuthIdentity(
+        peerPublicKeyBase64: serverPub,
+        localKeyPair: clientKeyPair,
+      );
+      expect(await client.connect('127.0.0.1', proxy.port, key), isTrue);
+      expect(
+        await client.sendMessage(MessageTypes.smsIncoming, {'body': 'x'}),
+        isTrue,
+      );
+
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect(delivered, isEmpty);
+      expect(server.isConnected, isTrue);
+
+      await client.disconnect();
+      for (final socket in proxySockets) {
+        socket.destroy();
+      }
+      await proxySubscription.cancel();
+      await proxy.close();
+      await server.disconnect();
+    },
+  );
+
+  test(
+    'receive buffering is bounded across fragmented oversized frames',
+    () async {
+      final key = CryptoManager.generateKey();
+      final disconnected = Completer<void>();
       final server = SocketManager(
         onMessage: (_) {},
-        onConnected: () {},
-        onDisconnected: () {},
+        onDisconnected: () {
+          if (!disconnected.isCompleted) disconnected.complete();
+        },
       );
       await server.startServer(45914, key);
-
       final socket = await Socket.connect('127.0.0.1', 45914);
-      socket.add(List<int>.filled(256 * 1024 + 1, 65));
-      await socket.flush();
-      await Future<void>.delayed(const Duration(milliseconds: 100));
 
+      // A fragmented, unterminated frame may fill the buffer but not exceed it.
+      socket.add(List<int>.filled(256 * 1024, 65));
+      await socket.flush();
+      await Future<void>.delayed(Duration.zero);
+      expect(server.isConnected, isTrue);
+
+      // One further byte must close the offending session instead of retaining
+      // unbounded data. The listener remains usable for the next peer.
+      socket.add([65]);
+      await socket.flush();
+      await disconnected.future.timeout(const Duration(seconds: 3));
       expect(server.isConnected, isFalse);
+
+      final replacement = SocketManager(onMessage: (_) {});
+      expect(await replacement.connect('127.0.0.1', 45914, key), isTrue);
+      await replacement.disconnect();
       await socket.close();
       await server.disconnect();
+    },
+  );
+
+  test(
+    'write before peer commit remains pending without a committed ACK',
+    () async {
+      sqfliteFfiInit();
+      databaseFactory = databaseFactoryFfi;
+      final db = await databaseFactory.openDatabase(
+        inMemoryDatabasePath,
+        options: OpenDatabaseOptions(
+          version: AppDatabase.schemaVersion,
+          onCreate: AppDatabase.instance.createTables,
+        ),
+      );
+      final queue = QueueService(dao: QueueDao.forDatabase(db));
+      final item = await queue.enqueue(
+        MessageTypes.smsIncoming,
+        jsonEncode({'body': 'durable after ACK only'}),
+        destinationPeerId: 'peer-a',
+        messageId: 'write-before-commit',
+      );
+      final key = CryptoManager.generateKey();
+      final delivered = Completer<void>();
+      late final SocketManager server;
+      server = SocketManager(
+        onMessage: (message) async {
+          delivered.complete();
+          // Simulate a peer process dying after TCP accepted the write but before
+          // its persistence transaction and committed ACK can happen.
+          await server.disconnect();
+        },
+      );
+      await server.startServer(45918, key);
+      final clientDisconnected = Completer<void>();
+      final client = SocketManager(
+        onMessage: (_) {},
+        onDisconnected: () {
+          if (!clientDisconnected.isCompleted) clientDisconnected.complete();
+        },
+      );
+      expect(await client.connect('127.0.0.1', 45918, key), isTrue);
+
+      expect(
+        await client.sendMessage(
+          item.type,
+          jsonDecode(item.payload) as Map<String, dynamic>,
+          messageId: item.messageId,
+        ),
+        isTrue,
+      );
+      await delivered.future.timeout(const Duration(seconds: 3));
+      await clientDisconnected.future.timeout(const Duration(seconds: 3));
+
+      // This is the same state transition the outbox performs after a successful
+      // socket write. It must not complete without the peer's committed ACK.
+      await queue.markSent(item.id!);
+      final rows = await db.query(
+        'outbox',
+        where: 'id = ?',
+        whereArgs: [item.id],
+      );
+      expect(rows.single['status'], 'sent');
+      expect(rows.single['message_id'], 'write-before-commit');
+
+      await client.disconnect();
+      await server.disconnect();
+      await db.close();
     },
   );
 
