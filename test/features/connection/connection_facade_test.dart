@@ -9,8 +9,10 @@
 // seam, so these tests exercise the same invariants at the algorithm level
 // or through the real, already-testable ReconnectScheduler/
 // PeerDiscoveryCoordinator classes it delegates to.
+import 'package:cryptography/cryptography.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logger/logger.dart';
+import 'package:mirrorline/core/data/models/peer.dart';
 import 'package:mirrorline/features/connection/peer_discovery_coordinator.dart';
 import 'package:mirrorline/features/connection/reconnect_scheduler.dart';
 import 'package:mirrorline/features/connection/connection_facade.dart';
@@ -22,6 +24,43 @@ bool _isReplay(int? lastAccepted, int messageTimestamp) {
 }
 
 void main() {
+  group('Paired identity validation', () {
+    final peer = Peer(
+      id: 'peer-id',
+      deviceName: 'Peer',
+      role: 'main',
+      ip: '192.0.2.10',
+      port: 45678,
+      key: 'unused',
+      publicKey: 'AQID',
+      createdAt: DateTime(2026),
+    );
+
+    test('rejects a paired peer when the local identity is missing', () {
+      expect(
+        ConnectionFacade.hasValidPairedIdentity(
+          peer: peer,
+          sharedKey: SecretKey(const [1]),
+          localKeyPair: null,
+        ),
+        isFalse,
+      );
+    });
+
+    test('rejects a paired peer with a corrupt public identity', () async {
+      final localKeyPair = await Ed25519().newKeyPair();
+
+      expect(
+        ConnectionFacade.hasValidPairedIdentity(
+          peer: peer,
+          sharedKey: SecretKey(const [1]),
+          localKeyPair: localKeyPair,
+        ),
+        isFalse,
+      );
+    });
+  });
+
   group('Replay-timestamp guard', () {
     test('accepts the first message with no prior baseline', () {
       expect(_isReplay(null, 1000), false);

@@ -119,6 +119,7 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
   _SocketPairingTransport? _pairingTransport;
   Peer? _peer;
   SecretKey? _key;
+  SimpleKeyPair? _localKeyPair;
   Timer? _healthTimer;
   bool _connecting = false;
   bool _refreshing = false;
@@ -325,6 +326,7 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
       try {
         _peer = await _peerDao.getPeer();
         _key = await KeyStore.getPeerKey();
+        _localKeyPair = await KeyStore.getDeviceKeyPair();
         if (!_isLifecycleCurrent(lifecycleGeneration)) return;
       } catch (e) {
         _logger.e('Failed to load peer info: $e');
@@ -332,8 +334,12 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
       }
 
       final peer = _peer;
-      final pairingValid =
-          peer != null && peer.publicKey.isNotEmpty && _key != null;
+      final hasPairedPeer = peer != null && peer.publicKey.isNotEmpty;
+      final pairingValid = hasValidPairedIdentity(
+        peer: peer,
+        sharedKey: _key,
+        localKeyPair: _localKeyPair,
+      );
       final nativeRole = _mirroringRole(peer?.role);
       try {
         await TelephonyChannel.syncMirroringEligibility(
@@ -375,6 +381,12 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
       _allLocalIps = allIps.map((e) => e.ip).toList();
       statusNotifier.setLocalIp(allIps.isNotEmpty ? allIps.first.ip : null);
       statusNotifier.setPeerIp(_peer?.ip);
+
+      if (hasPairedPeer && !pairingValid) {
+        _reportInvalidPairedIdentity();
+        await _stopMachinery();
+        return;
+      }
 
       if (!pairingValid) {
         _logger.w('No valid paired peer or key found. Waiting for pairing.');
@@ -439,7 +451,10 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
     _reconnectScheduler.stop();
 
     _socketManager ??= _createSocketManager();
-    await _configureAuth(_socketManager!);
+    if (!await _configureAuth(_socketManager!)) {
+      _reportInvalidPairedIdentity();
+      return;
+    }
     if (!_isLifecycleCurrent(lifecycleGeneration)) return;
     if (_socketManager!.isConnected == false) {
       try {
@@ -535,7 +550,10 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
       // (only 'source' keeps a permanent server afterwards -- see
       // _startAsSource).
       _socketManager ??= _createSocketManager();
-      await _configureAuth(_socketManager!);
+      if (!await _configureAuth(_socketManager!)) {
+        _reportInvalidPairedIdentity();
+        return;
+      }
       if (!_isLifecycleCurrent(lifecycleGeneration)) return;
       if (_socketManager!.isConnected == false) {
         try {
@@ -646,7 +664,6 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
         _maybeScheduleReconnect();
       },
     );
-    _configureAuth(sm);
     return sm;
   }
 
@@ -679,17 +696,58 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
         remoteAddress == expectedPeerAddress;
   }
 
+  /// Whether a persisted paired record has all validated authentication
+  /// material required to start networking.
+  static bool hasValidPairedIdentity({
+    required Peer? peer,
+    required SecretKey? sharedKey,
+    required SimpleKeyPair? localKeyPair,
+  }) {
+    if (peer == null ||
+        sharedKey == null ||
+        localKeyPair == null ||
+        peer.publicKey.isEmpty) {
+      return false;
+    }
+    try {
+      return base64Decode(peer.publicKey).length == 32;
+    } on FormatException {
+      return false;
+    }
+  }
+
   /// Sets the auth identity (peer's public key + our Ed25519 keypair) on
-  /// the socket so challenge-response authentication can run.
-  Future<void> _configureAuth(SocketManager sm) async {
+  /// the socket so challenge-response authentication can run. Unpaired
+  /// pairing-mode sockets deliberately have no auth identity.
+  Future<bool> _configureAuth(SocketManager sm) async {
     final peer = _peer;
-    if (peer == null) return;
-    final localKeyPair = await KeyStore.getDeviceKeyPair();
-    if (localKeyPair == null) return;
+    if (peer == null || peer.publicKey.isEmpty) return true;
+    final localKeyPair = _localKeyPair;
+    if (!hasValidPairedIdentity(
+      peer: peer,
+      sharedKey: _key,
+      localKeyPair: localKeyPair,
+    )) {
+      return false;
+    }
     sm.setAuthIdentity(
       peerPublicKeyBase64: peer.publicKey,
-      localKeyPair: localKeyPair,
+      localKeyPair: localKeyPair!,
     );
+    return true;
+  }
+
+  void _reportInvalidPairedIdentity() {
+    _logger.e(
+      'Paired identity is missing or corrupt. Networking is disabled until '
+      'the device is paired again.',
+    );
+    _ref
+        .read(connectionStatusProvider.notifier)
+        .recordConnectAttempt(
+          ConnectionErrorCode.connectFailed,
+          errorDetail: 'Paired identity is missing or corrupt.',
+        );
   }
 
   /// Arms [_reconnectScheduler] for a backoff-timed retry, preserving the
@@ -743,7 +801,10 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
     var result = false;
     try {
       _socketManager ??= _createSocketManager();
-      await _configureAuth(_socketManager!);
+      if (!await _configureAuth(_socketManager!)) {
+        _reportInvalidPairedIdentity();
+        return false;
+      }
       final ok = await _socketManager!.connect(
         ip,
         port,
