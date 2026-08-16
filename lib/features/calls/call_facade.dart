@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logger/logger.dart';
 import 'package:mirrorline/core/data/daos/call_event_dao.dart';
+import 'package:mirrorline/core/data/daos/platform_operation_dao.dart';
 import 'package:mirrorline/core/data/models/call_event.dart';
 import 'package:mirrorline/core/network/message_protocol.dart';
 import 'package:mirrorline/core/services/locale_service.dart';
@@ -39,6 +40,7 @@ final callEventMapProvider = Provider<Map<String, CallEvent>>((ref) {
 /// callbacks as before.
 class CallFacade extends StateNotifier<List<CallEvent>> {
   final CallEventDao _dao;
+  final PlatformOperationDao _operations = PlatformOperationDao();
   final Ref _ref;
   final Logger _logger;
   final bool Function() _isSource;
@@ -427,8 +429,32 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
         // already answered/missed/ended, which would otherwise hang up
         // an unrelated live call instead of rejecting a ringing one.
         if (!_isSource() || id == null || id != _activeCallId) return false;
-        final rejected = await _rejectCall();
+        final claimed = transaction == null
+            ? await _operations.claim(
+                operationId: id,
+                kind: 'call_reject',
+                payload: '{}',
+              )
+            : await _operations.claimOn(
+                transaction,
+                operationId: id,
+                kind: 'call_reject',
+                payload: '{}',
+              );
+        final existingState = claimed
+            ? null
+            : transaction == null
+            ? await _operations.state(id)
+            : await _operations.stateOn(transaction, id);
+        final rejected = existingState == 'succeeded'
+            ? true
+            : await _rejectCall();
         if (!rejected) return false;
+        if (transaction != null) {
+          await _operations.updateStateOn(transaction, id, 'succeeded');
+        } else {
+          await _operations.updateState(id, 'succeeded');
+        }
         _removeNativeSession(_activeNativeCallSessionId, id);
         await updateStatus(id, 'rejected');
         await _sendOrQueue(MessageTypes.callStatus, {

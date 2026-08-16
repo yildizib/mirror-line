@@ -1,6 +1,9 @@
+import 'dart:convert';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logger/logger.dart';
 import 'package:mirrorline/core/data/daos/sms_message_dao.dart';
+import 'package:mirrorline/core/data/daos/platform_operation_dao.dart';
 import 'package:mirrorline/core/data/models/sms_message.dart';
 import 'package:mirrorline/core/network/message_protocol.dart';
 import 'package:mirrorline/core/services/locale_service.dart';
@@ -29,6 +32,7 @@ final smsFacadeProvider = StateNotifierProvider<SmsFacade, List<SmsMessage>>((
 /// same reasoning as CallFacade. Pure delegation, no behavior change.
 class SmsFacade extends StateNotifier<List<SmsMessage>> {
   final SmsMessageDao _dao;
+  final PlatformOperationDao _operations = PlatformOperationDao();
   final Ref _ref;
   final Logger _logger;
   final bool Function() _isSource;
@@ -313,11 +317,61 @@ class SmsFacade extends StateNotifier<List<SmsMessage>> {
           final body = payload['body'] as String? ?? '';
           final id = payload['id'] as String? ?? message.id;
           var status = 'sent';
-          try {
-            await TelephonyChannel.sendSms(address, body);
-          } catch (e) {
-            _logger.e('SMS send failed: $e');
-            status = 'failed';
+          final operationPayload = jsonEncode({
+            'address': address,
+            'body': body,
+          });
+          final claimed = transaction == null
+              ? await _operations.claim(
+                  operationId: message.id,
+                  kind: 'sms_send',
+                  payload: operationPayload,
+                )
+              : await _operations.claimOn(
+                  transaction,
+                  operationId: message.id,
+                  kind: 'sms_send',
+                  payload: operationPayload,
+                );
+          final existingState = claimed
+              ? null
+              : transaction == null
+              ? await _operations.state(message.id)
+              : await _operations.stateOn(transaction, message.id);
+          if (existingState != 'succeeded') {
+            if (transaction != null) {
+              await _operations.updateStateOn(
+                transaction,
+                message.id,
+                'executing',
+              );
+            } else {
+              await _operations.updateState(message.id, 'executing');
+            }
+            try {
+              await TelephonyChannel.sendSms(address, body);
+              if (transaction != null) {
+                await _operations.updateStateOn(
+                  transaction,
+                  message.id,
+                  'succeeded',
+                );
+              } else {
+                await _operations.updateState(message.id, 'succeeded');
+              }
+            } catch (e) {
+              _logger.e('SMS send failed: $e');
+              status = 'failed';
+              if (transaction != null) {
+                await _operations.updateStateOn(
+                  transaction,
+                  message.id,
+                  'failed',
+                );
+              } else {
+                await _operations.updateState(message.id, 'failed');
+              }
+            }
           }
           await _persistMessage(
             SmsMessage(
