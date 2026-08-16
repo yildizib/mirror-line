@@ -85,6 +85,7 @@ class SocketManager {
   bool get isConnected => _isConnected;
   bool get isAuthed => _authed;
   int? get sessionGeneration => _session?.generation;
+  String? get sessionId => _session?.sessionId;
 
   bool isSessionCurrent(int generation) {
     final session = _session;

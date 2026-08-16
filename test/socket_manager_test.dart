@@ -15,13 +15,16 @@ void main() {
     final key = CryptoManager.generateKey();
     final received = <MirrorMessage>[];
     final completer = Completer<void>();
+    final serverConnected = Completer<void>();
 
     final server = SocketManager(
       onMessage: (m) {
         received.add(m);
         completer.complete();
       },
-      onConnected: () {},
+      onConnected: () {
+        if (!serverConnected.isCompleted) serverConnected.complete();
+      },
       onDisconnected: () {},
     );
 
@@ -35,6 +38,9 @@ void main() {
 
     final ok = await client.connect('127.0.0.1', 45901, key);
     expect(ok, isTrue);
+    await serverConnected.future.timeout(const Duration(seconds: 2));
+    final firstSessionId = server.sessionId;
+    expect(firstSessionId, isNotNull);
 
     await client.sendMessage('sms_incoming', {
       'id': 'msg-1',
@@ -52,6 +58,11 @@ void main() {
     expect(decrypted, contains('"body":"Merhaba"'));
 
     await client.disconnect();
+    final secondClient = SocketManager(onMessage: (_) {});
+    expect(await secondClient.connect('127.0.0.1', 45901, key), isTrue);
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    expect(server.sessionId, isNot(firstSessionId));
+    await secondClient.disconnect();
     await server.disconnect();
   });
 
