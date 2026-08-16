@@ -96,6 +96,37 @@ void main() {
     expect(rows.single['status'], 'dead_letter');
   });
 
+  test('lost ACK retries with the original ID until dead-lettered', () async {
+    final item = await service.enqueue(
+      'sms',
+      '{}',
+      destinationPeerId: 'peer-a',
+      messageId: 'lost-ack-id',
+    );
+
+    for (var attempt = 0; attempt < 5; attempt++) {
+      final due = await service.pendingItems('peer-a');
+      expect(due.single.messageId, 'lost-ack-id');
+      await service.markSent(item.id!);
+      await service.markFailed(item.id!, attempt);
+      await db.update(
+        'outbox',
+        {'next_attempt_at': DateTime.now().millisecondsSinceEpoch - 1},
+        where: 'id = ?',
+        whereArgs: [item.id],
+      );
+    }
+    expect(await service.markFailed(item.id!, 5), isTrue);
+
+    final rows = await db.query(
+      'outbox',
+      where: 'id = ?',
+      whereArgs: [item.id],
+    );
+    expect(rows.single['status'], 'dead_letter');
+    expect(rows.single['next_attempt_at'], isNull);
+  });
+
   test('domain mutation and Outbox insertion roll back together', () async {
     final dao = QueueDao.forDatabase(db);
     expect(

@@ -4,7 +4,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logger/logger.dart';
 import 'package:mirrorline/core/data/database.dart';
+import 'package:mirrorline/core/data/daos/inbox_dao.dart';
 import 'package:mirrorline/core/data/daos/platform_operation_dao.dart';
+import 'package:mirrorline/core/data/models/inbox_record.dart';
 import 'package:mirrorline/core/data/models/call_event.dart';
 import 'package:mirrorline/core/network/message_protocol.dart';
 import 'package:mirrorline/core/services/notification_service.dart';
@@ -356,6 +358,87 @@ void main() {
 
     expect(facade.state.single.status, 'missed');
   });
+
+  test(
+    'call Inbox transaction persists before post-commit state publication',
+    () async {
+      final container = buildContainer();
+      final facade = container.read(callFacadeProvider.notifier);
+      final db = await AppDatabase.instance.database;
+      final inbox = InboxDao();
+      final now = DateTime(2026, 8, 16, 12);
+      final message = MirrorMessage(
+        type: MessageTypes.callIncoming,
+        id: 'call-transport-id',
+        timestamp: now.millisecondsSinceEpoch,
+        payload: 'ciphertext',
+        sourcePeerId: 'peer-a',
+      );
+      final payload = {
+        'id': 'call-domain-id',
+        'number': '+15555550100',
+        'contact_name': 'Test',
+        'timestamp': now.millisecondsSinceEpoch,
+      };
+
+      expect(
+        () => db.transaction((transaction) async {
+          await inbox.insertIfAbsentOn(
+            transaction,
+            InboxRecord(
+              sourcePeerId: 'peer-a',
+              messageId: message.id,
+              type: message.type,
+              receivedAt: now,
+              updatedAt: now,
+            ),
+          );
+          await facade.persistIncomingMessageOn(
+            message.type,
+            payload,
+            message,
+            now,
+            transaction,
+          );
+          throw StateError('rollback');
+        }),
+        throwsStateError,
+      );
+      expect(await db.query('inbox'), isEmpty);
+      expect(await db.query('call_event'), isEmpty);
+      expect(facade.state, isEmpty);
+
+      await db.transaction((transaction) async {
+        await inbox.insertIfAbsentOn(
+          transaction,
+          InboxRecord(
+            sourcePeerId: 'peer-a',
+            messageId: message.id,
+            type: message.type,
+            receivedAt: now,
+            updatedAt: now,
+          ),
+        );
+        await facade.persistIncomingMessageOn(
+          message.type,
+          payload,
+          message,
+          now,
+          transaction,
+        );
+      });
+      await facade.handleIncomingMessage(
+        message.type,
+        payload,
+        message,
+        now,
+        alreadyPersisted: true,
+      );
+
+      expect(await db.query('call_event'), hasLength(1));
+      expect(facade.state.single.id, 'call-domain-id');
+    },
+  );
 
   test('loadRecent filters by since', () async {
     final container = buildContainer();

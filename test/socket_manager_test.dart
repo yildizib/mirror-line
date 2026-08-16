@@ -316,6 +316,79 @@ void main() {
   );
 
   test(
+    'authenticated application delivery returns an ACK in the same session',
+    () async {
+      final key = CryptoManager.generateKey();
+      final ed25519 = Ed25519();
+      final serverKeyPair = await ed25519.newKeyPair();
+      final clientKeyPair = await ed25519.newKeyPair();
+      final serverPub = base64Encode(
+        (await serverKeyPair.extractPublicKey()).bytes,
+      );
+      final clientPub = base64Encode(
+        (await clientKeyPair.extractPublicKey()).bytes,
+      );
+      final acknowledged = Completer<MirrorMessage>();
+      final delivered = Completer<MirrorMessage>();
+      late final SocketManager server;
+      server = SocketManager(
+        onMessage: (message) async {
+          delivered.complete(message);
+          await server.sendMessage(MessageTypes.ack, {
+            'message_id': message.id,
+            'result': 'committed',
+          });
+        },
+      );
+      server.setAuthIdentity(
+        peerPublicKeyBase64: clientPub,
+        localKeyPair: serverKeyPair,
+      );
+      await server.startServer(45916, key);
+
+      final client = SocketManager(
+        onMessage: (message) {
+          if (message.type == MessageTypes.ack && !acknowledged.isCompleted) {
+            acknowledged.complete(message);
+          }
+        },
+      );
+      client.setAuthIdentity(
+        peerPublicKeyBase64: serverPub,
+        localKeyPair: clientKeyPair,
+      );
+      expect(await client.connect('127.0.0.1', 45916, key), isTrue);
+
+      expect(
+        await client.sendMessage(MessageTypes.notificationMirrored, {
+          'nativeId': 'native-1',
+          'packageName': 'com.example.chat',
+        }, messageId: 'stable-application-id'),
+        isTrue,
+      );
+      final deliveredMessage = await delivered.future.timeout(
+        const Duration(seconds: 5),
+      );
+      final ack = await acknowledged.future.timeout(const Duration(seconds: 5));
+
+      expect(deliveredMessage.id, 'stable-application-id');
+      expect(deliveredMessage.sourcePeerId, clientPub);
+      expect(deliveredMessage.destinationPeerId, serverPub);
+      expect(deliveredMessage.sessionId, isNotNull);
+      expect(ack.sourcePeerId, serverPub);
+      expect(ack.destinationPeerId, clientPub);
+      expect(ack.sessionId, deliveredMessage.sessionId);
+      expect(
+        await client.decryptMessage(ack),
+        contains('stable-application-id'),
+      );
+
+      await client.disconnect();
+      await server.disconnect();
+    },
+  );
+
+  test(
     'server rejects an authentication response with the wrong nonce',
     () async {
       final key = CryptoManager.generateKey();

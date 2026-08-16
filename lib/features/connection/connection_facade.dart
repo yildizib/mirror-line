@@ -1311,6 +1311,9 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
       });
       if (!isNewMessage) {
         _logger.i('Skipping duplicate Inbox message: ${message.id}');
+        // A lost ACK causes the sender to retry the same committed message.
+        // Re-ACK it without repeating domain or platform work.
+        await _sendDeliveryAck(socketManager, message.id);
         return;
       }
       // Facade handlers perform UI and platform work only after the durable

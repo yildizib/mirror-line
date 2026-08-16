@@ -1,7 +1,12 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mirrorline/core/data/daos/inbox_dao.dart';
+import 'package:mirrorline/core/data/daos/platform_operation_dao.dart';
+import 'package:mirrorline/core/data/daos/sms_message_dao.dart';
+import 'package:mirrorline/core/data/daos/notification_event_dao.dart';
 import 'package:mirrorline/core/data/database.dart';
 import 'package:mirrorline/core/data/models/inbox_record.dart';
+import 'package:mirrorline/core/data/models/notification_event.dart';
+import 'package:mirrorline/core/data/models/sms_message.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 void main() {
@@ -109,4 +114,107 @@ void main() {
     expect(await db.query('call_event'), isEmpty);
     expect(await db.query('inbox'), isEmpty);
   });
+
+  test(
+    'duplicate SMS delivery skips domain work and post-commit dispatch',
+    () async {
+      final smsDao = SmsMessageDao();
+      final operationDao = PlatformOperationDao.forDatabase(db);
+      final receivedAt = DateTime(2026, 8, 16);
+      var postCommitDispatches = 0;
+
+      Future<void> receive() async {
+        var isNew = false;
+        await db.transaction((transaction) async {
+          isNew = await dao.insertIfAbsentOn(
+            transaction,
+            InboxRecord(
+              sourcePeerId: 'peer-a',
+              messageId: 'transport-sms-id',
+              type: 'sms_outgoing',
+              receivedAt: receivedAt,
+              updatedAt: receivedAt,
+            ),
+          );
+          if (!isNew) return;
+
+          await smsDao.insertOn(
+            transaction,
+            SmsMessage(
+              id: 'domain-sms-id',
+              threadId: '',
+              address: '+15555550100',
+              contactName: '',
+              body: 'reply',
+              encrypted: '',
+              direction: 'outgoing',
+              status: 'pending',
+              timestamp: receivedAt,
+              createdAt: receivedAt,
+            ),
+          );
+          await operationDao.claimOn(
+            transaction,
+            operationId: 'transport-sms-id',
+            kind: 'sms_send',
+            payload: '{}',
+          );
+        });
+        if (isNew) postCommitDispatches++;
+      }
+
+      await receive();
+      await receive();
+
+      expect(postCommitDispatches, 1);
+      expect(await db.query('inbox'), hasLength(1));
+      expect(await db.query('sms_message'), hasLength(1));
+      expect(await db.query('platform_operation'), hasLength(1));
+    },
+  );
+
+  test(
+    'notification Inbox and domain writes commit or roll back together',
+    () async {
+      final notificationDao = NotificationEventDao();
+      final receivedAt = DateTime(2026, 8, 16);
+      final inboxRecord = InboxRecord(
+        sourcePeerId: 'peer-a',
+        messageId: 'notification-transaction',
+        type: 'notification_mirrored',
+        receivedAt: receivedAt,
+        updatedAt: receivedAt,
+      );
+      final notification = NotificationEvent(
+        id: 'notification-domain-id',
+        nativeId: 'native-id',
+        sourcePeerId: 'peer-a',
+        packageName: 'com.example.chat',
+        appName: 'Chat',
+        title: 'New message',
+        text: 'hello',
+        encrypted: '',
+        timestamp: receivedAt,
+        createdAt: receivedAt,
+      );
+
+      expect(
+        () => db.transaction((transaction) async {
+          await dao.insertIfAbsentOn(transaction, inboxRecord);
+          await notificationDao.insertOn(transaction, notification);
+          throw StateError('rollback');
+        }),
+        throwsStateError,
+      );
+      expect(await db.query('inbox'), isEmpty);
+      expect(await db.query('notification_event'), isEmpty);
+
+      await db.transaction((transaction) async {
+        expect(await dao.insertIfAbsentOn(transaction, inboxRecord), isTrue);
+        await notificationDao.insertOn(transaction, notification);
+      });
+      expect(await db.query('inbox'), hasLength(1));
+      expect(await db.query('notification_event'), hasLength(1));
+    },
+  );
 }

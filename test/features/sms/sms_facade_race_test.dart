@@ -281,4 +281,34 @@ void main() {
       expect(operations.operations['transport-message-id']?.state, 'submitted');
     },
   );
+
+  test(
+    'recovery never blindly retries an SMS already submitted to Android',
+    () async {
+      final operations = _FakePlatformOperationDao();
+      final submissions = <String>[];
+      final container = buildContainer(
+        dao: _FakeSmsMessageDao(),
+        isSource: () => true,
+        operations: operations,
+        sendOrQueue: (_, _) async => true,
+        sendSms: (_, _, {required operationId}) async {
+          submissions.add(operationId);
+        },
+      );
+      final facade = container.read(smsFacadeProvider.notifier);
+      await operations.claim(
+        operationId: 'submitted-operation',
+        kind: 'sms_send',
+        payload:
+            '{"messageId":"sms-1","address":"+15555550100","body":"reply"}',
+      );
+
+      await facade.executeOutgoingSms('submitted-operation');
+      await facade.recoverOutgoingSms();
+
+      expect(submissions, ['submitted-operation']);
+      expect(operations.operations['submitted-operation']?.state, 'submitted');
+    },
+  );
 }

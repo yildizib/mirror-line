@@ -315,4 +315,58 @@ void main() {
     expect(rows[2]['status'], 'dead_letter');
     await db.close();
   });
+
+  test(
+    'replacing a peer quarantines only the replaced peer outbox rows',
+    () async {
+      final db = await databaseFactory.openDatabase(
+        inMemoryDatabasePath,
+        options: OpenDatabaseOptions(
+          version: AppDatabase.schemaVersion,
+          onCreate: AppDatabase.instance.createTables,
+        ),
+      );
+      final dao = PeerDao.forDatabase(db);
+      final oldPeer = Peer(
+        id: 'peer-a',
+        deviceName: 'Peer A',
+        role: 'main',
+        ip: '192.168.1.2',
+        port: 45678,
+        key: 'key-a',
+        publicKey: 'public-key-a',
+        createdAt: DateTime.now(),
+      );
+      final replacement = oldPeer.copyWith(
+        id: 'peer-b',
+        deviceName: 'Peer B',
+        publicKey: 'public-key-b',
+      );
+      await dao.insert(oldPeer);
+      for (final status in ['pending', 'sent', 'completed']) {
+        await db.insert('outbox', {
+          'message_id': 'a-$status',
+          'destination_peer_id': oldPeer.id,
+          'type': 'sms',
+          'payload': '{}',
+          'status': status,
+          'attempt_count': 0,
+          'created_at': 1,
+        });
+      }
+
+      await dao.replaceId(oldPeer.id, replacement);
+
+      final rows = await db.query('outbox', orderBy: 'message_id');
+      expect(
+        rows.map((row) => row['destination_peer_id']),
+        everyElement('peer-a'),
+      );
+      expect(rows[0]['status'], 'completed');
+      expect(rows[1]['status'], 'dead_letter');
+      expect(rows[2]['status'], 'dead_letter');
+      expect((await dao.getPeer())!.id, 'peer-b');
+      await db.close();
+    },
+  );
 }
