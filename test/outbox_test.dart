@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mirrorline/core/data/daos/queue_dao.dart';
 import 'package:mirrorline/core/data/database.dart';
@@ -127,6 +129,47 @@ void main() {
     expect(rows.single['next_attempt_at'], isNull);
   });
 
+  test('each live ACK deadline expiry progresses to dead letter', () async {
+    final item = await service.enqueue(
+      'sms',
+      '{}',
+      destinationPeerId: 'peer-a',
+      messageId: 'live-lost-ack-id',
+    );
+    await service.markSent(item.id!);
+
+    for (
+      var expectedAttemptCount = 0;
+      expectedAttemptCount <= 5;
+      expectedAttemptCount++
+    ) {
+      await db.update(
+        'outbox',
+        {'next_attempt_at': DateTime.now().millisecondsSinceEpoch - 1},
+        where: 'id = ?',
+        whereArgs: [item.id],
+      );
+      final expired = (await service.pendingItems('peer-a')).single;
+      expect(expired.status, 'sent');
+      expect(expired.messageId, 'live-lost-ack-id');
+      expect(expired.retryCount, expectedAttemptCount);
+
+      final deadLettered = await service.markFailed(
+        expired.id!,
+        expired.retryCount,
+      );
+      expect(deadLettered, expectedAttemptCount == 5);
+    }
+
+    final row = (await db.query(
+      'outbox',
+      where: 'id = ?',
+      whereArgs: [item.id],
+    )).single;
+    expect(row['status'], 'dead_letter');
+    expect(row['next_attempt_at'], isNull);
+  });
+
   test('domain mutation and Outbox insertion roll back together', () async {
     final dao = QueueDao.forDatabase(db);
     expect(
@@ -245,4 +288,49 @@ void main() {
       expect(executions, 2);
     },
   );
+
+  test('retry scheduler ignores stale session workers', () async {
+    final callbacks = <void Function()>[];
+    final timers = <Timer>[];
+    final scheduler = OutboxRetryScheduler(
+      timerFactory: (_, callback) {
+        callbacks.add(callback);
+        final timer = Timer(const Duration(days: 1), () {});
+        timers.add(timer);
+        return timer;
+      },
+    );
+    addTearDown(() {
+      scheduler.cancel();
+      for (final timer in timers) {
+        timer.cancel();
+      }
+    });
+    var flushed = 0;
+    final oldSession = Object();
+    final currentSession = Object();
+
+    scheduler.schedule(
+      session: oldSession,
+      deadline: DateTime(2026),
+      now: DateTime(2026),
+      isSessionCurrent: () => true,
+      onDue: () async => flushed++,
+    );
+    scheduler.schedule(
+      session: currentSession,
+      deadline: DateTime(2026),
+      now: DateTime(2026),
+      isSessionCurrent: () => true,
+      onDue: () async => flushed++,
+    );
+
+    callbacks.first();
+    await Future<void>.delayed(Duration.zero);
+    expect(flushed, 0, reason: 'replacement cancels the old session worker');
+
+    callbacks.last();
+    await Future<void>.delayed(Duration.zero);
+    expect(flushed, 1);
+  });
 }

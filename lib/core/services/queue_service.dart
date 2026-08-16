@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:mirrorline/core/data/daos/queue_dao.dart';
 import 'package:mirrorline/core/data/models/queue_item.dart';
 import 'package:uuid/uuid.dart';
@@ -28,6 +29,43 @@ class OutboxFlushGate {
       _rerunRequested = false;
       await worker();
     } while (_rerunRequested);
+  }
+}
+
+typedef OutboxRetryTimerFactory =
+    Timer Function(Duration duration, void Function() callback);
+
+/// Owns one in-process Outbox wake-up and discards callbacks from replaced
+/// socket sessions. The callback enters the caller's normal flush gate.
+class OutboxRetryScheduler {
+  OutboxRetryScheduler({OutboxRetryTimerFactory? timerFactory})
+    : _timerFactory = timerFactory ?? Timer.new;
+
+  final OutboxRetryTimerFactory _timerFactory;
+  Timer? _timer;
+  Object? _session;
+
+  void schedule({
+    required Object session,
+    required DateTime deadline,
+    required DateTime now,
+    required bool Function() isSessionCurrent,
+    required Future<void> Function() onDue,
+  }) {
+    _timer?.cancel();
+    _session = session;
+    final delay = deadline.difference(now);
+    _timer = _timerFactory(delay.isNegative ? Duration.zero : delay, () async {
+      if (!identical(_session, session) || !isSessionCurrent()) return;
+      _timer = null;
+      await onDue();
+    });
+  }
+
+  void cancel() {
+    _timer?.cancel();
+    _timer = null;
+    _session = null;
   }
 }
 
@@ -75,6 +113,9 @@ class QueueService {
 
   Future<List<QueueItem>> pendingItems(String destinationPeerId) =>
       _dao.getAll(destinationPeerId);
+
+  Future<DateTime?> nextAttemptAt(String destinationPeerId) =>
+      _dao.nextAttemptAt(destinationPeerId);
 
   /// Keeps a successfully written item eligible if its ACK is lost.
   Future<void> markSent(int id) async {

@@ -146,6 +146,7 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
   // reconnects, so the two must not be conflated.
   int _connectGeneration = 0;
   final OutboxFlushGate _flushGate = OutboxFlushGate();
+  final OutboxRetryScheduler _outboxRetryScheduler = OutboxRetryScheduler();
   bool _disposed = false;
   int _lifecycleGeneration = 0;
 
@@ -625,6 +626,7 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
         _peerDiscoveryCoordinator.setThrottle(true);
       },
       onDisconnected: () {
+        _outboxRetryScheduler.cancel();
         final pairingTransport = _pairingTransport;
         if (pairingTransport != null) {
           _ref
@@ -1406,6 +1408,7 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
             acknowledgedId,
             destinationPeerId: _peer?.id,
           );
+          unawaited(_scheduleOutboxRetry());
           _logger.i('Committed ACK received: $acknowledgedId');
         }
         break;
@@ -1506,7 +1509,10 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
           messageId: item.messageId,
         ) ??
         false;
-    if (sent && item.id != null) await _queue.markSent(item.id!);
+    if (sent && item.id != null) {
+      await _queue.markSent(item.id!);
+      unawaited(_scheduleOutboxRetry());
+    }
     if (!sent) _logger.w('$type queued for later delivery.');
     return sent;
   }
@@ -1544,7 +1550,10 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
           messageId: item.messageId,
         ) ??
         false;
-    if (sent && item.id != null) await _queue.markSent(item.id!);
+    if (sent && item.id != null) {
+      await _queue.markSent(item.id!);
+      unawaited(_scheduleOutboxRetry());
+    }
     return sent;
   }
 
@@ -1584,33 +1593,77 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
         destinationPeerId == null) {
       return;
     }
-    final items = await _queue.pendingItems(destinationPeerId);
-    if (items.isEmpty) return;
-    _logger.i('Flushing ${items.length} queued message(s).');
-    for (final item in items) {
-      if (_socketManager != socketManager ||
-          socketManager.sessionGeneration != sessionGeneration) {
-        _logger.i('Stopping stale Outbox worker after session change.');
-        return;
-      }
-      try {
-        final payload = jsonDecode(item.payload) as Map<String, dynamic>;
-        final sent = await socketManager.sendMessage(
-          item.type,
-          payload,
-          messageId: item.messageId,
-        );
-        if (sent) {
-          if (item.id != null) await _queue.markSent(item.id!);
-        } else {
-          if (item.id != null) await _onQueueItemFailed(item);
-          break;
+    try {
+      final items = await _queue.pendingItems(destinationPeerId);
+      if (items.isEmpty) return;
+      _logger.i('Flushing ${items.length} queued message(s).');
+      for (final item in items) {
+        if (_socketManager != socketManager ||
+            socketManager.sessionGeneration != sessionGeneration) {
+          _logger.i('Stopping stale Outbox worker after session change.');
+          return;
         }
-      } catch (e) {
-        _logger.e('Failed to flush queue item ${item.id}: $e');
-        if (item.id != null) await _onQueueItemFailed(item);
+        // A sent row becoming due means its committed ACK was lost. Count
+        // that delivery attempt before scheduling its backoff-timed resend.
+        if (item.status == 'sent') {
+          if (item.id != null) await _onQueueItemFailed(item);
+          continue;
+        }
+        try {
+          final payload = jsonDecode(item.payload) as Map<String, dynamic>;
+          final sent = await socketManager.sendMessage(
+            item.type,
+            payload,
+            messageId: item.messageId,
+          );
+          if (sent) {
+            if (item.id != null) await _queue.markSent(item.id!);
+          } else {
+            if (item.id != null) await _onQueueItemFailed(item);
+            break;
+          }
+        } catch (e) {
+          _logger.e('Failed to flush queue item ${item.id}: $e');
+          if (item.id != null) await _onQueueItemFailed(item);
+        }
+      }
+    } finally {
+      if (_socketManager == socketManager &&
+          socketManager.sessionGeneration == sessionGeneration) {
+        unawaited(_scheduleOutboxRetry());
       }
     }
+  }
+
+  Future<void> _scheduleOutboxRetry() async {
+    final socketManager = _socketManager;
+    final sessionGeneration = socketManager?.sessionGeneration;
+    final destinationPeerId = _peer?.id;
+    if (socketManager == null ||
+        sessionGeneration == null ||
+        destinationPeerId == null) {
+      _outboxRetryScheduler.cancel();
+      return;
+    }
+    final deadline = await _queue.nextAttemptAt(destinationPeerId);
+    if (_socketManager != socketManager ||
+        socketManager.sessionGeneration != sessionGeneration) {
+      return;
+    }
+    if (deadline == null) {
+      _outboxRetryScheduler.cancel();
+      return;
+    }
+    final session = Object();
+    _outboxRetryScheduler.schedule(
+      session: session,
+      deadline: deadline,
+      now: DateTime.now(),
+      isSessionCurrent: () =>
+          _socketManager == socketManager &&
+          socketManager.sessionGeneration == sessionGeneration,
+      onDue: _flushQueue,
+    );
   }
 
   /// Records a failed transport attempt without changing domain state.
@@ -1633,6 +1686,7 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
     // for the rest of the app session (it's only ever created once, in
     // _init()).
     _networkingStopped = true;
+    _outboxRetryScheduler.cancel();
     _lifecycleGeneration++;
     _reconnectScheduler.stop();
     _cancelActiveScan();
@@ -1693,11 +1747,13 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
   /// layer stays decoupled from the queue's implementation.
   Future<void> clearQueue() async {
     await _queue.clear();
+    _outboxRetryScheduler.cancel();
     _logger.i('Offline queue cleared.');
   }
 
   Future<void> disconnect() async {
     _networkingStopped = true;
+    _outboxRetryScheduler.cancel();
     _lifecycleGeneration++;
     _reconnectScheduler.stop();
     _cancelActiveScan();
@@ -1711,6 +1767,7 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
   @override
   void dispose() {
     _disposed = true;
+    _outboxRetryScheduler.cancel();
     _lifecycleGeneration++;
     _clearTelephonyHandler?.call();
     _clearTelephonyHandler = null;
