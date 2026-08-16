@@ -21,6 +21,28 @@ void main() {
     test('decode throws on invalid json', () {
       expect(() => MirrorMessage.decode('not json'), throwsA(anything));
     });
+
+    test('authenticated envelope round trips all immutable metadata', () {
+      final message = MirrorMessage(
+        type: MessageTypes.smsIncoming,
+        id: 'message-1',
+        timestamp: 1700000000000,
+        payload: 'ciphertext',
+        sourcePeerId: 'source-peer',
+        destinationPeerId: 'destination-peer',
+        sessionId: 'session-1',
+        sequence: 7,
+      );
+
+      final decoded = MirrorMessage.decode(message.encode());
+      expect(decoded.hasAuthenticatedEnvelope, isTrue);
+      expect(decoded.protocolVersion, MirrorMessage.currentProtocolVersion);
+      expect(decoded.sourcePeerId, 'source-peer');
+      expect(decoded.destinationPeerId, 'destination-peer');
+      expect(decoded.sessionId, 'session-1');
+      expect(decoded.sequence, 7);
+      expect(decoded.authenticatedData(), message.authenticatedData());
+    });
   });
 
   group('MessageTypes', () {

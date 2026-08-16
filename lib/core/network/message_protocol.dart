@@ -1,16 +1,28 @@
 import 'dart:convert';
 
 class MirrorMessage {
+  static const int currentProtocolVersion = 1;
+
   final String type;
   final String id;
   final int timestamp;
   final String payload; // base64 encrypted json
+  final int protocolVersion;
+  final String? sourcePeerId;
+  final String? destinationPeerId;
+  final String? sessionId;
+  final int? sequence;
 
   MirrorMessage({
     required this.type,
     required this.id,
     required this.timestamp,
     required this.payload,
+    this.protocolVersion = currentProtocolVersion,
+    this.sourcePeerId,
+    this.destinationPeerId,
+    this.sessionId,
+    this.sequence,
   });
 
   Map<String, dynamic> toJson() => {
@@ -18,6 +30,11 @@ class MirrorMessage {
     'id': id,
     'timestamp': timestamp,
     'payload': payload,
+    'protocolVersion': protocolVersion,
+    if (sourcePeerId != null) 'sourcePeerId': sourcePeerId,
+    if (destinationPeerId != null) 'destinationPeerId': destinationPeerId,
+    if (sessionId != null) 'sessionId': sessionId,
+    if (sequence != null) 'sequence': sequence,
   };
 
   factory MirrorMessage.fromJson(Map<String, dynamic> json) => MirrorMessage(
@@ -25,7 +42,30 @@ class MirrorMessage {
     id: json['id'] as String,
     timestamp: json['timestamp'] as int,
     payload: json['payload'] as String,
+    protocolVersion:
+        (json['protocolVersion'] as int?) ?? currentProtocolVersion,
+    sourcePeerId: json['sourcePeerId'] as String?,
+    destinationPeerId: json['destinationPeerId'] as String?,
+    sessionId: json['sessionId'] as String?,
+    sequence: json['sequence'] as int?,
   );
+
+  bool get hasAuthenticatedEnvelope =>
+      sourcePeerId != null &&
+      destinationPeerId != null &&
+      sessionId != null &&
+      sequence != null;
+
+  String authenticatedData() => jsonEncode({
+    'protocolVersion': protocolVersion,
+    'sourcePeerId': sourcePeerId,
+    'destinationPeerId': destinationPeerId,
+    'sessionId': sessionId,
+    'sequence': sequence,
+    'type': type,
+    'id': id,
+    'timestamp': timestamp,
+  });
 
   String encode() => jsonEncode(toJson());
 

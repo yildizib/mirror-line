@@ -1239,7 +1239,13 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
     final sessionGeneration = socketManager.sessionGeneration;
     if (key == null || sessionGeneration == null) return;
 
-    final decrypted = await CryptoManager.decrypt(key, message.payload);
+    final decrypted = await CryptoManager.decrypt(
+      key,
+      message.payload,
+      aad: message.hasAuthenticatedEnvelope
+          ? utf8.encode(message.authenticatedData())
+          : const [],
+    );
     if (!socketManager.isSessionCurrent(sessionGeneration)) return;
     if (decrypted == null) {
       _logger.e('Decryption failed for message: ${message.id}');

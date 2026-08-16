@@ -11,20 +11,25 @@ import 'package:uuid/uuid.dart';
 enum _AuthPhase { none, awaitChallenge, awaitResponse, awaitOk, awaitAck }
 
 class _SocketSession {
-  _SocketSession({required this.socket, required this.generation});
+  _SocketSession({required this.socket, required this.generation})
+    : sessionId = const Uuid().v4();
 
   final Socket socket;
   final int generation;
+  String sessionId;
   final List<int> buffer = [];
   StreamSubscription<List<int>>? subscription;
   Completer<void>? authCompleter;
   Timer? authTimer;
   _AuthPhase authPhase = _AuthPhase.none;
   String? challengeNonce;
+  int nextSequence = 0;
+  int lastReceivedSequence = -1;
   Future<void> messagePipeline = Future<void>.value();
 }
 
 class SocketManager {
+  static const int _maxFrameBytes = 256 * 1024;
   static const Duration _heartbeatInterval = Duration(seconds: 30);
   static const Duration _heartbeatIntervalBackground = Duration(seconds: 60);
   static const Duration _receiveTimeout = Duration(seconds: 90);
@@ -44,6 +49,8 @@ class SocketManager {
   /// Public key (base64) of the paired peer — used for challenge-response
   /// authentication after the TCP connection is established.
   String? _peerPublicKeyBase64;
+  String? _localPeerId;
+  Future<void>? _localPeerIdReady;
 
   /// This device's Ed25519 keypair, used to sign challenges when acting as
   /// the *client*.  Set via [setAuthIdentity].
@@ -116,6 +123,12 @@ class SocketManager {
   }) {
     _peerPublicKeyBase64 = peerPublicKeyBase64;
     _localKeyPair = localKeyPair;
+    _localPeerIdReady = _loadLocalPeerId(localKeyPair);
+  }
+
+  Future<void> _loadLocalPeerId(SimpleKeyPair keyPair) async {
+    final publicKey = await keyPair.extractPublicKey();
+    _localPeerId = base64Encode(publicKey.bytes);
   }
 
   Future<void> startServer(int port, SecretKey key) async {
@@ -263,6 +276,11 @@ class SocketManager {
         if (!_isCurrent(session)) return;
         _lastDataAt = DateTime.now();
         session.buffer.addAll(data);
+        if (session.buffer.length > _maxFrameBytes) {
+          _logger.w('Receive buffer exceeded the maximum frame size.');
+          _closeSession(session);
+          return;
+        }
         _processBuffer(session);
       },
       onDone: () {
@@ -338,6 +356,21 @@ class SocketManager {
         final raw = utf8.decode(rawMessage);
         final message = MirrorMessage.decode(raw);
 
+        // The server chooses the session identifier and the client adopts it
+        // from the first authenticated envelope it receives.
+        if (!_isServer &&
+            message.type == MessageTypes.authChallenge &&
+            session.authPhase == _AuthPhase.awaitChallenge &&
+            message.sessionId != null) {
+          session.sessionId = message.sessionId!;
+        }
+        if (message.hasAuthenticatedEnvelope &&
+            !_acceptEnvelope(session, message)) {
+          _logger.w('Rejected invalid or replayed message envelope.');
+          _closeSession(session);
+          continue;
+        }
+
         // ---- Intercept auth messages before heartbeat / onMessage ----
         if (message.type == MessageTypes.ping) {
           sendMessage(MessageTypes.pong, {});
@@ -412,13 +445,37 @@ class SocketManager {
     }
 
     try {
-      final encrypted = await CryptoManager.encrypt(key, jsonEncode(payload));
+      await _localPeerIdReady;
+      final id = const Uuid().v4();
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final sequence = session.nextSequence++;
+      final envelope = MirrorMessage(
+        type: type,
+        id: id,
+        timestamp: timestamp,
+        payload: '',
+        sourcePeerId: _localPeerId,
+        destinationPeerId: _peerPublicKeyBase64 ?? '',
+        sessionId: session.sessionId,
+        sequence: sequence,
+      );
+      final encrypted = await CryptoManager.encrypt(
+        key,
+        jsonEncode(payload),
+        aad: envelope.hasAuthenticatedEnvelope
+            ? utf8.encode(envelope.authenticatedData())
+            : const [],
+      );
       if (!_isCurrent(session)) return false;
       final message = MirrorMessage(
-        type: type,
-        id: const Uuid().v4(),
-        timestamp: DateTime.now().millisecondsSinceEpoch,
+        type: envelope.type,
+        id: envelope.id,
+        timestamp: envelope.timestamp,
         payload: encrypted,
+        sourcePeerId: envelope.sourcePeerId,
+        destinationPeerId: envelope.destinationPeerId,
+        sessionId: envelope.sessionId,
+        sequence: envelope.sequence,
       );
       session.socket.write('${message.encode()}\n');
       await session.socket.flush();
@@ -439,6 +496,27 @@ class SocketManager {
       return false;
     }
   }
+
+  bool _acceptEnvelope(_SocketSession session, MirrorMessage message) {
+    if (message.protocolVersion != MirrorMessage.currentProtocolVersion ||
+        message.sessionId != session.sessionId ||
+        message.sequence == null ||
+        message.sequence! <= session.lastReceivedSequence) {
+      return false;
+    }
+    if (message.destinationPeerId != (_localPeerId ?? '')) return false;
+    session.lastReceivedSequence = message.sequence!;
+    return true;
+  }
+
+  Future<String?> _decryptMessage(SecretKey key, MirrorMessage message) =>
+      CryptoManager.decrypt(
+        key,
+        message.payload,
+        aad: message.hasAuthenticatedEnvelope
+            ? utf8.encode(message.authenticatedData())
+            : const [],
+      );
 
   // --------------------------------------------------------------------
   // Challenge-response authentication
@@ -518,7 +596,7 @@ class SocketManager {
       return;
     }
 
-    final decrypted = await CryptoManager.decrypt(key, message.payload);
+    final decrypted = await _decryptMessage(key, message);
     if (!_isCurrent(session)) return;
     if (decrypted == null) {
       _logger.e('Could not decrypt auth challenge.');
@@ -577,7 +655,7 @@ class SocketManager {
       return;
     }
 
-    final decrypted = await CryptoManager.decrypt(key, message.payload);
+    final decrypted = await _decryptMessage(key, message);
     if (!_isCurrent(session)) return;
     if (decrypted == null) {
       _logger.e('Could not decrypt auth response.');
