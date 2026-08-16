@@ -10,6 +10,8 @@ import 'package:uuid/uuid.dart';
 
 enum _AuthPhase { none, awaitChallenge, awaitResponse, awaitOk, awaitAck }
 
+enum _EnvelopeResult { accepted, rejected, unauthenticated }
+
 class _SocketSession {
   _SocketSession({required this.socket, required this.generation})
     : sessionId = const Uuid().v4();
@@ -22,7 +24,8 @@ class _SocketSession {
   Completer<void>? authCompleter;
   Timer? authTimer;
   _AuthPhase authPhase = _AuthPhase.none;
-  String? challengeNonce;
+  String? serverNonce;
+  String? clientNonce;
   SecretKey? sessionKey;
   int nextSequence = 0;
   int lastReceivedSequence = -1;
@@ -387,18 +390,17 @@ class SocketManager {
           _closeSession(session);
           continue;
         }
-        final adoptsSession =
-            !_isServer &&
-            message.type == MessageTypes.authChallenge &&
-            session.authPhase == _AuthPhase.awaitChallenge;
-        if (message.hasAuthenticatedEnvelope &&
-            !_acceptEnvelope(session, message, adoptSession: adoptsSession)) {
-          _logger.w('Rejected invalid or replayed message envelope.');
-          _closeSession(session);
-          continue;
-        }
         session.inboundPipeline = session.inboundPipeline.then((_) async {
           if (!_isCurrent(session)) return;
+          final envelopeResult = message.hasAuthenticatedEnvelope
+              ? await _authenticateEnvelope(session, message)
+              : _EnvelopeResult.accepted;
+          if (envelopeResult == _EnvelopeResult.rejected) {
+            _logger.w('Rejected invalid or replayed message envelope.');
+            _closeSession(session);
+            return;
+          }
+          if (envelopeResult == _EnvelopeResult.unauthenticated) return;
           await _handleIncomingFrame(session, message);
         });
       } catch (e) {
@@ -418,6 +420,10 @@ class SocketManager {
       return;
     }
     if (message.type == MessageTypes.pong) return;
+    if (message.type == MessageTypes.authHello) {
+      await _handleAuthHello(session, message);
+      return;
+    }
     if (message.type == MessageTypes.authChallenge) {
       await _handleAuthChallenge(session, message);
       return;
@@ -529,27 +535,39 @@ class SocketManager {
     return result;
   }
 
-  bool _acceptEnvelope(
+  Future<_EnvelopeResult> _authenticateEnvelope(
     _SocketSession session,
-    MirrorMessage message, {
-    bool adoptSession = false,
-  }) {
+    MirrorMessage message,
+  ) async {
     if (message.protocolVersion != MirrorMessage.currentProtocolVersion ||
         message.sourcePeerId != _peerPublicKeyBase64 ||
         message.destinationPeerId != _localPeerId ||
         message.sessionId == null ||
         message.sequence == null ||
         message.sequence! <= session.lastReceivedSequence) {
-      return false;
+      return _EnvelopeResult.rejected;
     }
-    if (adoptSession) {
-      if (message.sessionId!.isEmpty) return false;
-      session.sessionId = message.sessionId!;
-    } else if (message.sessionId != session.sessionId) {
-      return false;
+    final adoptsClientSession =
+        _isServer &&
+        session.authPhase == _AuthPhase.awaitChallenge &&
+        message.type == MessageTypes.authHello;
+    if (!adoptsClientSession && message.sessionId != session.sessionId) {
+      return _EnvelopeResult.rejected;
     }
+    final key =
+        message.type == MessageTypes.authHello ||
+            message.type == MessageTypes.authChallenge
+        ? _key
+        : session.sessionKey;
+    if (key == null ||
+        await _decryptMessage(key, message) == null ||
+        !_isCurrent(session)) {
+      return _EnvelopeResult.unauthenticated;
+    }
+    // Commit replay state only after AES-GCM authenticates the envelope.
+    if (adoptsClientSession) session.sessionId = message.sessionId!;
     session.lastReceivedSequence = message.sequence!;
-    return true;
+    return _EnvelopeResult.accepted;
   }
 
   /// Decrypts a received application frame with this connection's session key.
@@ -580,42 +598,53 @@ class SocketManager {
   void _startServerAuth(_SocketSession session) async {
     await _localPeerIdReady;
     if (!_isCurrent(session)) return;
-    final nonce = CryptoManager.generateNonce();
-    final localKeyPair = _localKeyPair;
-    if (localKeyPair == null) {
-      _closeSession(session);
-      return;
-    }
-    session.authPhase = _AuthPhase.awaitResponse;
-    session.challengeNonce = nonce;
-    session.sessionKey = await CryptoManager.deriveSessionKey(
-      _key!,
-      session.sessionId,
-    );
-    final transcript = _authTranscript(session, nonce);
-    final signature = await CryptoManager.sign(
-      localKeyPair,
-      CryptoManager.authenticationSignatureData('challenge', transcript),
-    );
-    if (!_isCurrent(session)) return;
-    _logger.i('Server sending auth challenge.');
-    await sendMessage(MessageTypes.authChallenge, {
-      'nonce': nonce,
-      'signature': signature,
-    }, useSessionKey: false);
-    if (!_isCurrent(session)) return;
-
-    // If the client never responds (e.g. it silently died), don't hold this
-    // connection slot forever — close it so a real reconnect can get through.
+    session.authPhase = _AuthPhase.awaitChallenge;
     _stopAuthTimer(session);
     session.authTimer = Timer(authTimeout, () {
       if (_isCurrent(session) && !_authed) {
-        _logger.w(
-          'Server auth timeout: client never completed authentication.',
-        );
         _closeSession(session);
       }
     });
+  }
+
+  Future<void> _handleAuthHello(
+    _SocketSession session,
+    MirrorMessage message,
+  ) async {
+    if (!_isCurrent(session) ||
+        session.authPhase != _AuthPhase.awaitChallenge) {
+      _closeSession(session);
+      return;
+    }
+    final decrypted = await _decryptMessage(_key!, message);
+    final payload = decrypted == null ? null : _decodeAuthPayload(decrypted);
+    final clientNonce = payload?['clientNonce'] as String? ?? '';
+    final localKeyPair = _localKeyPair;
+    if (clientNonce.isEmpty || localKeyPair == null || !_isCurrent(session)) {
+      _closeSession(session);
+      return;
+    }
+    session.clientNonce = clientNonce;
+    session.serverNonce = CryptoManager.generateNonce();
+    session.sessionKey = await CryptoManager.deriveSessionKey(
+      _key!,
+      session.sessionId,
+      transcript: _authTranscript(session),
+    );
+    final signature = await CryptoManager.sign(
+      localKeyPair,
+      CryptoManager.authenticationSignatureData(
+        'challenge',
+        _authTranscript(session),
+      ),
+    );
+    if (!_isCurrent(session)) return;
+    session.authPhase = _AuthPhase.awaitResponse;
+    await sendMessage(MessageTypes.authChallenge, {
+      'serverNonce': session.serverNonce,
+      'clientNonce': session.clientNonce,
+      'signature': signature,
+    }, useSessionKey: false);
   }
 
   void _stopAuthTimer(_SocketSession session) {
@@ -630,6 +659,11 @@ class SocketManager {
     session.authCompleter = Completer<void>();
     session.authPhase = _AuthPhase.awaitChallenge;
     await _localPeerIdReady;
+    if (!_isCurrent(session)) return;
+    session.clientNonce = CryptoManager.generateNonce();
+    await sendMessage(MessageTypes.authHello, {
+      'clientNonce': session.clientNonce,
+    }, useSessionKey: false);
     if (!_isCurrent(session)) return;
     // Start heartbeat only after auth completes (in _onAuthSuccess).
     // Timeout: if server never challenges us, drop the connection.
@@ -665,8 +699,8 @@ class SocketManager {
       return;
     }
 
-    // The challenge is encrypted with the pairing key so the client can
-    // learn the server-selected session ID before deriving its session key.
+    // The client selected this session ID before sending its fresh hello, so
+    // an old challenge cannot replace connection state.
     final decrypted = await CryptoManager.decrypt(
       key,
       message.payload,
@@ -685,10 +719,11 @@ class SocketManager {
       _closeSession(session);
       return;
     }
-    final nonce = payload['nonce'] as String? ?? '';
+    final serverNonce = payload['serverNonce'] as String? ?? '';
+    final clientNonce = payload['clientNonce'] as String? ?? '';
     final serverSignature = payload['signature'] as String? ?? '';
-    if (nonce.isEmpty) {
-      _logger.e('Empty nonce in auth challenge.');
+    if (serverNonce.isEmpty || clientNonce != session.clientNonce) {
+      _logger.e('Invalid nonce in auth challenge.');
       _closeSession(session);
       return;
     }
@@ -700,7 +735,7 @@ class SocketManager {
           signatureBase64: serverSignature,
           message: CryptoManager.authenticationSignatureData(
             'challenge',
-            _authTranscript(session, nonce),
+            _authTranscript(session, serverNonce: serverNonce),
           ),
           publicKeyBase64: peerPublicKey,
         );
@@ -710,24 +745,25 @@ class SocketManager {
       _closeSession(session);
       return;
     }
-    session.challengeNonce = nonce;
+    session.serverNonce = serverNonce;
     session.sessionKey = await CryptoManager.deriveSessionKey(
       key,
       session.sessionId,
+      transcript: _authTranscript(session),
     );
 
     final signature = await CryptoManager.sign(
       localKeyPair,
       CryptoManager.authenticationSignatureData(
         'response',
-        _authTranscript(session, nonce),
+        _authTranscript(session),
       ),
     );
     if (!_isCurrent(session)) return;
     session.authPhase = _AuthPhase.awaitOk;
     _logger.i('Client sending auth response (signed nonce).');
     await sendMessage(MessageTypes.authResponse, {
-      'nonce': nonce,
+      'serverNonce': serverNonce,
       'signature': signature,
     });
   }
@@ -762,10 +798,10 @@ class SocketManager {
       _onAuthFail(session);
       return;
     }
-    final nonce = payload['nonce'] as String? ?? '';
+    final serverNonce = payload['serverNonce'] as String? ?? '';
     final signature = payload['signature'] as String? ?? '';
-    final expectedNonce = session.challengeNonce;
-    if (nonce.isEmpty || nonce != expectedNonce) {
+    final expectedNonce = session.serverNonce;
+    if (serverNonce.isEmpty || serverNonce != expectedNonce) {
       _logger.w('Client authentication failed (invalid nonce).');
       _closeSession(session);
       return;
@@ -776,7 +812,7 @@ class SocketManager {
       signatureBase64: signature,
       message: CryptoManager.authenticationSignatureData(
         'response',
-        _authTranscript(session, nonce),
+        _authTranscript(session),
       ),
       publicKeyBase64: peerPubKey,
     );
@@ -797,7 +833,7 @@ class SocketManager {
           localKeyPair,
           CryptoManager.authenticationSignatureData(
             'ok',
-            _authTranscript(session, nonce),
+            _authTranscript(session),
           ),
         ),
       });
@@ -831,7 +867,7 @@ class SocketManager {
     }
     final decrypted = await decryptMessage(message);
     final payload = decrypted == null ? null : _decodeAuthPayload(decrypted);
-    final nonce = session.challengeNonce;
+    final nonce = session.serverNonce;
     final peerPublicKey = _peerPublicKeyBase64;
     final verified =
         payload != null &&
@@ -841,7 +877,7 @@ class SocketManager {
           signatureBase64: payload['signature'] as String? ?? '',
           message: CryptoManager.authenticationSignatureData(
             'ok',
-            _authTranscript(session, nonce),
+            _authTranscript(session),
           ),
           publicKeyBase64: peerPublicKey,
         );
@@ -860,7 +896,7 @@ class SocketManager {
         localKeyPair,
         CryptoManager.authenticationSignatureData(
           'ack',
-          _authTranscript(session, nonce),
+          _authTranscript(session),
         ),
       ),
     });
@@ -879,7 +915,7 @@ class SocketManager {
     }
     final decrypted = await decryptMessage(message);
     final payload = decrypted == null ? null : _decodeAuthPayload(decrypted);
-    final nonce = session.challengeNonce;
+    final nonce = session.serverNonce;
     final peerPublicKey = _peerPublicKeyBase64;
     final verified =
         payload != null &&
@@ -889,7 +925,7 @@ class SocketManager {
           signatureBase64: payload['signature'] as String? ?? '',
           message: CryptoManager.authenticationSignatureData(
             'ack',
-            _authTranscript(session, nonce),
+            _authTranscript(session),
           ),
           publicKeyBase64: peerPublicKey,
         );
@@ -923,19 +959,21 @@ class SocketManager {
     }
   }
 
-  String _authTranscript(_SocketSession session, String nonce) =>
+  String _authTranscript(_SocketSession session, {String? serverNonce}) =>
       MirrorMessage.authTranscript(
         sessionId: session.sessionId,
         serverPeerId: _isServer ? _localPeerId! : _peerPublicKeyBase64!,
         clientPeerId: _isServer ? _peerPublicKeyBase64! : _localPeerId!,
-        nonce: nonce,
+        serverNonce: serverNonce ?? session.serverNonce!,
+        clientNonce: session.clientNonce!,
       );
 
   void _onAuthSuccess(_SocketSession session) {
     if (!_isCurrent(session) || _authed) return;
     _authed = true;
     session.authPhase = _AuthPhase.none;
-    session.challengeNonce = null;
+    session.serverNonce = null;
+    session.clientNonce = null;
     _stopAuthTimer(session);
     _logger.i('Auth complete. Connection fully established.');
     final authCompleter = session.authCompleter;

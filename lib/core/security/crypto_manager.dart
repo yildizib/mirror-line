@@ -25,13 +25,14 @@ class CryptoManager {
   /// remains a bootstrap secret; application frames use this derived key.
   static Future<SecretKey> deriveSessionKey(
     SecretKey sharedKey,
-    String sessionId,
-  ) async {
+    String sessionId, {
+    String? transcript,
+  }) async {
     final sharedBytes = await sharedKey.extractBytes();
     final digest = crypto.Hmac(
       crypto.sha256,
       sharedBytes,
-    ).convert(utf8.encode('mirrorline/session/$sessionId'));
+    ).convert(utf8.encode('mirrorline/session/$sessionId/${transcript ?? ''}'));
     return SecretKey(digest.bytes);
   }
 

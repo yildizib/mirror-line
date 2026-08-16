@@ -73,13 +73,15 @@ class MirrorMessage {
     required String sessionId,
     required String serverPeerId,
     required String clientPeerId,
-    required String nonce,
+    required String serverNonce,
+    required String clientNonce,
   }) => jsonEncode({
     'protocolVersion': currentProtocolVersion,
     'sessionId': sessionId,
     'serverPeerId': serverPeerId,
     'clientPeerId': clientPeerId,
-    'nonce': nonce,
+    'serverNonce': serverNonce,
+    'clientNonce': clientNonce,
   });
 
   String encode() => jsonEncode(toJson());
@@ -129,6 +131,8 @@ abstract class MessageTypes {
   static const String pairingAbort = 'pairing_abort';
 
   // ---- Connection authentication (challenge-response) -----------------
+  // Client -> Server: starts a fresh authenticated connection attempt.
+  static const String authHello = 'auth_hello';
   // Server -> Client:  "Bana kim olduğunu kanıtla" (nonce içerir)
   static const String authChallenge = 'auth_challenge';
   // Client -> Server:  "İşte imzalı nonce'um"

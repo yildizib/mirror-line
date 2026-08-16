@@ -562,7 +562,8 @@ void main() {
       await server.startServer(45913, key);
 
       final socket = await Socket.connect('127.0.0.1', 45913);
-      final sessionId = Completer<String>();
+      final clientSessionId = const Uuid().v4();
+      final clientNonce = CryptoManager.generateNonce();
       SecretKey? sessionKey;
       String? challengeNonce;
       var nextSequence = 0;
@@ -618,17 +619,24 @@ void main() {
             );
             final payload = jsonDecode(decrypted!) as Map<String, dynamic>;
             if (message.type == MessageTypes.authChallenge) {
-              sessionId.complete(message.sessionId!);
-              challengeNonce = payload['nonce'] as String;
+              challengeNonce = payload['serverNonce'] as String;
               sessionKey = await CryptoManager.deriveSessionKey(
                 key,
                 message.sessionId!,
+                transcript: MirrorMessage.authTranscript(
+                  sessionId: clientSessionId,
+                  serverPeerId: serverPub,
+                  clientPeerId: clientPub,
+                  serverNonce: challengeNonce!,
+                  clientNonce: clientNonce,
+                ),
               );
               final transcript = MirrorMessage.authTranscript(
-                sessionId: message.sessionId!,
+                sessionId: clientSessionId,
                 serverPeerId: serverPub,
                 clientPeerId: clientPub,
-                nonce: challengeNonce!,
+                serverNonce: challengeNonce!,
+                clientNonce: clientNonce,
               );
               final signature = await CryptoManager.sign(
                 clientKeyPair,
@@ -639,8 +647,11 @@ void main() {
               );
               await sendEnvelope(
                 type: MessageTypes.authResponse,
-                payload: {'nonce': payload['nonce'], 'signature': signature},
-                session: message.sessionId!,
+                payload: {
+                  'serverNonce': payload['serverNonce'],
+                  'signature': signature,
+                },
+                session: clientSessionId,
                 sequence: nextSequence++,
               );
             } else if (message.type == MessageTypes.authOk) {
@@ -652,21 +663,48 @@ void main() {
                     CryptoManager.authenticationSignatureData(
                       'ack',
                       MirrorMessage.authTranscript(
-                        sessionId: await sessionId.future,
+                        sessionId: clientSessionId,
                         serverPeerId: serverPub,
                         clientPeerId: clientPub,
-                        nonce: challengeNonce!,
+                        serverNonce: challengeNonce!,
+                        clientNonce: clientNonce,
                       ),
                     ),
                   ),
                 },
-                session: await sessionId.future,
+                session: clientSessionId,
                 sequence: nextSequence++,
               );
+              final forgedEnvelope = MirrorMessage(
+                type: MessageTypes.smsIncoming,
+                id: 'forged-high-sequence',
+                timestamp: DateTime.now().millisecondsSinceEpoch,
+                payload: '',
+                sourcePeerId: clientPub,
+                destinationPeerId: serverPub,
+                sessionId: clientSessionId,
+                sequence: 99,
+              );
+              final forged = MirrorMessage(
+                type: forgedEnvelope.type,
+                id: forgedEnvelope.id,
+                timestamp: forgedEnvelope.timestamp,
+                payload: await CryptoManager.encrypt(
+                  CryptoManager.generateKey(),
+                  jsonEncode({'body': 'forged'}),
+                  aad: utf8.encode(forgedEnvelope.authenticatedData()),
+                ),
+                sourcePeerId: forgedEnvelope.sourcePeerId,
+                destinationPeerId: forgedEnvelope.destinationPeerId,
+                sessionId: forgedEnvelope.sessionId,
+                sequence: forgedEnvelope.sequence,
+              );
+              socket.write('${forged.encode()}\n');
+              await socket.flush();
               await sendEnvelope(
                 type: MessageTypes.smsIncoming,
                 payload: {'body': 'one delivery'},
-                session: await sessionId.future,
+                session: clientSessionId,
                 sequence: nextSequence++,
               );
               await normalDelivered.future;
@@ -675,12 +713,126 @@ void main() {
             }
           }, onDone: () {});
 
+      await sendEnvelope(
+        type: MessageTypes.authHello,
+        payload: {'clientNonce': clientNonce},
+        session: clientSessionId,
+        sequence: nextSequence++,
+      );
+
       await normalDelivered.future.timeout(const Duration(seconds: 5));
       await Future<void>.delayed(const Duration(milliseconds: 100));
       expect(received, hasLength(1));
       expect(server.isConnected, isFalse);
       await socket.close();
       await server.disconnect();
+    },
+  );
+
+  test(
+    'client rejects a complete authenticated handshake from an old session',
+    () async {
+      final key = CryptoManager.generateKey();
+      final ed25519 = Ed25519();
+      final serverKeyPair = await ed25519.newKeyPair();
+      final clientKeyPair = await ed25519.newKeyPair();
+      final serverPub = base64Encode(
+        (await serverKeyPair.extractPublicKey()).bytes,
+      );
+      final clientPub = base64Encode(
+        (await clientKeyPair.extractPublicKey()).bytes,
+      );
+      const oldSessionId = 'old-authenticated-session';
+      final oldClientNonce = CryptoManager.generateNonce();
+      final oldServerNonce = CryptoManager.generateNonce();
+      final transcript = MirrorMessage.authTranscript(
+        sessionId: oldSessionId,
+        serverPeerId: serverPub,
+        clientPeerId: clientPub,
+        serverNonce: oldServerNonce,
+        clientNonce: oldClientNonce,
+      );
+      final oldSessionKey = await CryptoManager.deriveSessionKey(
+        key,
+        oldSessionId,
+        transcript: transcript,
+      );
+
+      Future<MirrorMessage> frame(
+        String type,
+        Map<String, dynamic> payload,
+        SecretKey frameKey,
+        int sequence,
+      ) async {
+        final envelope = MirrorMessage(
+          type: type,
+          id: const Uuid().v4(),
+          timestamp: DateTime.now().millisecondsSinceEpoch,
+          payload: '',
+          sourcePeerId: serverPub,
+          destinationPeerId: clientPub,
+          sessionId: oldSessionId,
+          sequence: sequence,
+        );
+        return MirrorMessage(
+          type: type,
+          id: envelope.id,
+          timestamp: envelope.timestamp,
+          payload: await CryptoManager.encrypt(
+            frameKey,
+            jsonEncode(payload),
+            aad: utf8.encode(envelope.authenticatedData()),
+          ),
+          sourcePeerId: serverPub,
+          destinationPeerId: clientPub,
+          sessionId: oldSessionId,
+          sequence: sequence,
+        );
+      }
+
+      final oldChallenge = await frame(
+        MessageTypes.authChallenge,
+        {
+          'serverNonce': oldServerNonce,
+          'clientNonce': oldClientNonce,
+          'signature': await CryptoManager.sign(
+            serverKeyPair,
+            CryptoManager.authenticationSignatureData('challenge', transcript),
+          ),
+        },
+        key,
+        1,
+      );
+      final oldAuthOk = await frame(
+        MessageTypes.authOk,
+        {
+          'signature': await CryptoManager.sign(
+            serverKeyPair,
+            CryptoManager.authenticationSignatureData('ok', transcript),
+          ),
+        },
+        oldSessionKey,
+        2,
+      );
+      final fakeServer = await ServerSocket.bind(
+        InternetAddress.loopbackIPv4,
+        0,
+      );
+      final subscription = fakeServer.listen((socket) async {
+        await socket.first;
+        socket.write('${oldChallenge.encode()}\n${oldAuthOk.encode()}\n');
+        await socket.flush();
+      });
+      final client = SocketManager(onMessage: (_) {});
+      client.setAuthIdentity(
+        peerPublicKeyBase64: serverPub,
+        localKeyPair: clientKeyPair,
+      );
+      expect(await client.connect('127.0.0.1', fakeServer.port, key), isFalse);
+      expect(client.isAuthed, isFalse);
+      await client.disconnect();
+      await subscription.cancel();
+      await fakeServer.close();
     },
   );
 
