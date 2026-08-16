@@ -6,7 +6,7 @@ import 'package:sqflite/sqflite.dart';
 class AppDatabase {
   static final AppDatabase instance = AppDatabase._internal();
   static Database? _database;
-  static const int schemaVersion = 9;
+  static const int schemaVersion = 10;
 
   AppDatabase._internal();
 
@@ -162,6 +162,18 @@ class AppDatabase {
         )
       ''');
     }
+    if (oldVersion < 10) {
+      await db.execute('''
+        CREATE TABLE platform_operation (
+          operation_id TEXT PRIMARY KEY,
+          kind TEXT NOT NULL,
+          state TEXT NOT NULL DEFAULT "received",
+          payload TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        )
+      ''');
+    }
   }
 
   /// Exposed (not private) so tests can create a fresh-install schema
@@ -265,6 +277,16 @@ class AppDatabase {
         PRIMARY KEY (source_peer_id, message_id)
       )
     ''');
+    await db.execute('''
+      CREATE TABLE platform_operation (
+        operation_id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL,
+        state TEXT NOT NULL DEFAULT "received",
+        payload TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    ''');
   }
 
   Future<void> close() async {
@@ -281,5 +303,6 @@ class AppDatabase {
     await db.delete('known_network');
     await db.delete('notification_event');
     await db.delete('inbox');
+    await db.delete('platform_operation');
   }
 }
