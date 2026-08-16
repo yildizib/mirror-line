@@ -9,20 +9,35 @@ class QueueDao {
 
   Future<void> insert(QueueItem item) async {
     final db = await _database;
-    await db.insert('offline_queue', item.toJson());
+    await db.insert('outbox', item.toJson());
   }
 
   Future<List<QueueItem>> getAll() async {
     final db = await _database;
-    final maps = await db.query('offline_queue', orderBy: 'created_at ASC');
+    final maps = await db.query(
+      'outbox',
+      where: 'status = ? AND (next_attempt_at IS NULL OR next_attempt_at <= ?)',
+      whereArgs: ['pending', DateTime.now().millisecondsSinceEpoch],
+      orderBy: 'created_at ASC',
+    );
     return maps.map(QueueItem.fromJson).toList();
   }
 
   Future<void> updateRetryCount(int id, int retryCount) async {
     final db = await _database;
     await db.update(
-      'offline_queue',
-      {'retry_count': retryCount},
+      'outbox',
+      {'attempt_count': retryCount},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  Future<void> updateStatus(int id, String status) async {
+    final db = await _database;
+    await db.update(
+      'outbox',
+      {'status': status},
       where: 'id = ?',
       whereArgs: [id],
     );
@@ -30,11 +45,11 @@ class QueueDao {
 
   Future<void> delete(int id) async {
     final db = await _database;
-    await db.delete('offline_queue', where: 'id = ?', whereArgs: [id]);
+    await db.delete('outbox', where: 'id = ?', whereArgs: [id]);
   }
 
   Future<void> deleteAll() async {
     final db = await _database;
-    await db.delete('offline_queue');
+    await db.delete('outbox');
   }
 }

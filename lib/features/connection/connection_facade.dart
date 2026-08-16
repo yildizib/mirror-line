@@ -1368,7 +1368,16 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
   Future<bool> _sendOrQueue(String type, Map<String, dynamic> payload) async {
     final sent = await _socketManager?.sendMessage(type, payload) ?? false;
     if (!sent) {
-      await _queue.enqueue(type, jsonEncode(payload));
+      final destinationPeerId = _peer?.id;
+      if (destinationPeerId == null) {
+        _logger.w('$type could not be queued without a destination peer.');
+        return false;
+      }
+      await _queue.enqueue(
+        type,
+        jsonEncode(payload),
+        destinationPeerId: destinationPeerId,
+      );
       _logger.w('$type queued for later delivery.');
     }
     return sent;

@@ -84,6 +84,21 @@ void main() {
       ]),
     );
 
+    final outboxColumns = await _columnNames(db, 'outbox');
+    expect(
+      outboxColumns,
+      containsAll([
+        'message_id',
+        'destination_peer_id',
+        'type',
+        'payload',
+        'status',
+        'attempt_count',
+        'next_attempt_at',
+        'created_at',
+      ]),
+    );
+
     await db.close();
   });
 

@@ -6,7 +6,7 @@ import 'package:sqflite/sqflite.dart';
 class AppDatabase {
   static final AppDatabase instance = AppDatabase._internal();
   static Database? _database;
-  static const int schemaVersion = 7;
+  static const int schemaVersion = 8;
 
   AppDatabase._internal();
 
@@ -100,6 +100,55 @@ class AppDatabase {
         'ON notification_event(package_name, native_id);',
       );
     }
+    if (oldVersion < 8) {
+      await db.execute('''
+        CREATE TABLE outbox (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          message_id TEXT NOT NULL UNIQUE,
+          destination_peer_id TEXT NOT NULL,
+          type TEXT NOT NULL,
+          payload TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT "pending",
+          attempt_count INTEGER NOT NULL DEFAULT 0,
+          next_attempt_at INTEGER,
+          created_at INTEGER NOT NULL
+        )
+      ''');
+      await db.execute('''
+        CREATE TABLE offline_queue_quarantine (
+          id INTEGER PRIMARY KEY,
+          type TEXT NOT NULL,
+          payload TEXT NOT NULL,
+          retry_count INTEGER NOT NULL,
+          created_at INTEGER NOT NULL,
+          reason TEXT NOT NULL
+        )
+      ''');
+      final legacyQueue = await db.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type = 'table' "
+        "AND name = 'offline_queue'",
+      );
+      if (legacyQueue.isNotEmpty) {
+        await db.execute('''
+          INSERT INTO outbox
+            (message_id, destination_peer_id, type, payload, attempt_count,
+             created_at)
+          SELECT 'legacy-' || id, (SELECT id FROM peer LIMIT 1), type, payload,
+            retry_count, created_at
+          FROM offline_queue
+          WHERE EXISTS (SELECT 1 FROM peer)
+        ''');
+        await db.execute('''
+          INSERT INTO offline_queue_quarantine
+            (id, type, payload, retry_count, created_at, reason)
+          SELECT id, type, payload, retry_count, created_at,
+            'No destination peer was available during migration'
+          FROM offline_queue
+          WHERE NOT EXISTS (SELECT 1 FROM peer)
+        ''');
+        await db.execute('DROP TABLE offline_queue');
+      }
+    }
   }
 
   /// Exposed (not private) so tests can create a fresh-install schema
@@ -150,11 +199,15 @@ class AppDatabase {
     ''');
 
     await db.execute('''
-      CREATE TABLE offline_queue (
+      CREATE TABLE outbox (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        message_id TEXT NOT NULL UNIQUE,
+        destination_peer_id TEXT NOT NULL,
         type TEXT NOT NULL,
         payload TEXT NOT NULL,
-        retry_count INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT "pending",
+        attempt_count INTEGER NOT NULL DEFAULT 0,
+        next_attempt_at INTEGER,
         created_at INTEGER NOT NULL
       )
     ''');
@@ -199,7 +252,7 @@ class AppDatabase {
     await db.delete('peer');
     await db.delete('call_event');
     await db.delete('sms_message');
-    await db.delete('offline_queue');
+    await db.delete('outbox');
     await db.delete('known_network');
     await db.delete('notification_event');
   }
