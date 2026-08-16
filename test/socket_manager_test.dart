@@ -634,4 +634,26 @@ void main() {
       await server.disconnect();
     },
   );
+
+  test(
+    'server closes connections that exceed the receive buffer limit',
+    () async {
+      final key = CryptoManager.generateKey();
+      final server = SocketManager(
+        onMessage: (_) {},
+        onConnected: () {},
+        onDisconnected: () {},
+      );
+      await server.startServer(45914, key);
+
+      final socket = await Socket.connect('127.0.0.1', 45914);
+      socket.add(List<int>.filled(256 * 1024 + 1, 65));
+      await socket.flush();
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+
+      expect(server.isConnected, isFalse);
+      await socket.close();
+      await server.disconnect();
+    },
+  );
 }
