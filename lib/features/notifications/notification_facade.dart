@@ -79,8 +79,11 @@ class NotificationFacade extends StateNotifier<List<NotificationEvent>> {
   Future<void> _persistEvent(
     NotificationEvent event, {
     DatabaseExecutor? transaction,
+    bool write = true,
   }) async {
-    if (transaction == null) {
+    if (!write) {
+      // The database row was committed with its Inbox record already.
+    } else if (transaction == null) {
       await _dao.insert(event);
     } else {
       await _dao.insertOn(transaction, event);
@@ -248,7 +251,12 @@ class NotificationFacade extends StateNotifier<List<NotificationEvent>> {
     MirrorMessage message,
     DateTime now, {
     DatabaseExecutor? transaction,
+    bool alreadyPersisted = false,
   }) async {
+    if (transaction != null) {
+      await persistIncomingMessageOn(type, payload, message, now, transaction);
+      return;
+    }
     await initialized;
     switch (type) {
       case MessageTypes.notificationMirrored:
@@ -279,7 +287,11 @@ class NotificationFacade extends StateNotifier<List<NotificationEvent>> {
           ),
           createdAt: now,
         );
-        await _persistEvent(event, transaction: transaction);
+        await _persistEvent(
+          event,
+          transaction: transaction,
+          write: !alreadyPersisted,
+        );
         await _notify(
           id: stableNotificationId(
             'mirrored_notification',
@@ -304,5 +316,41 @@ class NotificationFacade extends StateNotifier<List<NotificationEvent>> {
       default:
         _logger.i('NotificationFacade: unhandled message type $type');
     }
+  }
+
+  /// Persists an Inbox message without publishing Riverpod state or notifying
+  /// the platform, both of which must occur after the Inbox commit.
+  Future<void> persistIncomingMessageOn(
+    String type,
+    Map<String, dynamic> payload,
+    MirrorMessage message,
+    DateTime now,
+    DatabaseExecutor transaction,
+  ) async {
+    if (type != MessageTypes.notificationMirrored) return;
+    final sourcePeerId = message.sourcePeerId;
+    if (sourcePeerId == null) return;
+    final packageName = payload['packageName'] as String? ?? 'unknown';
+    final nativeId = payload['nativeId'] as String? ?? message.id;
+    await _dao.insertOn(
+      transaction,
+      NotificationEvent(
+        id: stableNotificationId(
+          'mirrored_notification',
+          '$sourcePeerId:$packageName:$nativeId',
+        ).toString(),
+        nativeId: nativeId,
+        sourcePeerId: sourcePeerId,
+        packageName: packageName,
+        appName: payload['appName'] as String? ?? packageName,
+        title: payload['title'] as String? ?? '',
+        text: payload['text'] as String? ?? '',
+        encrypted: message.payload,
+        timestamp: DateTime.fromMillisecondsSinceEpoch(
+          payload['timestamp'] as int? ?? now.millisecondsSinceEpoch,
+        ),
+        createdAt: now,
+      ),
+    );
   }
 }

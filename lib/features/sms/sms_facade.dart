@@ -131,12 +131,15 @@ class SmsFacade extends StateNotifier<List<SmsMessage>> {
   Future<void> _persistMessage(
     SmsMessage message, {
     DatabaseExecutor? transaction,
+    bool write = true,
   }) async {
     final pendingStatus = _pendingStatuses.remove(message.id);
     final effectiveMessage = pendingStatus == null
         ? message
         : message.copyWith(status: pendingStatus);
-    if (transaction == null) {
+    if (!write) {
+      // The database row was committed with its Inbox record already.
+    } else if (transaction == null) {
       await _dao.insert(effectiveMessage);
     } else {
       await _dao.insertOn(transaction, effectiveMessage);
@@ -147,22 +150,38 @@ class SmsFacade extends StateNotifier<List<SmsMessage>> {
         : [effectiveMessage, ...state];
   }
 
-  Future<void> updateStatus(String id, String status) async {
+  Future<void> updateStatus(
+    String id,
+    String status, {
+    DatabaseExecutor? transaction,
+  }) async {
     await initialized;
     if (!state.any((message) => message.id == id)) {
       _pendingStatuses[id] = status;
       return;
     }
-    await _dao.updateStatus(id, status);
+    if (transaction == null) {
+      await _dao.updateStatus(id, status);
+    } else {
+      await _dao.updateStatusOn(transaction, id, status);
+    }
     state = state
         .map((m) => m.id == id ? m.copyWith(status: status) : m)
         .toList();
   }
 
-  Future<void> updateDeliveryStatus(String id, String status) async {
+  Future<void> updateDeliveryStatus(
+    String id,
+    String status, {
+    DatabaseExecutor? transaction,
+  }) async {
     await initialized;
     if (!state.any((message) => message.id == id)) return;
-    await _dao.updateDeliveryStatus(id, status);
+    if (transaction == null) {
+      await _dao.updateDeliveryStatus(id, status);
+    } else {
+      await _dao.updateDeliveryStatusOn(transaction, id, status);
+    }
     state = state
         .map((m) => m.id == id ? m.copyWith(deliveryStatus: status) : m)
         .toList();
@@ -276,7 +295,12 @@ class SmsFacade extends StateNotifier<List<SmsMessage>> {
     MirrorMessage message,
     DateTime now, {
     DatabaseExecutor? transaction,
+    bool alreadyPersisted = false,
   }) async {
+    if (transaction != null) {
+      await persistIncomingMessageOn(type, payload, message, now, transaction);
+      return;
+    }
     await initialized;
     switch (type) {
       case MessageTypes.smsIncoming:
@@ -302,13 +326,19 @@ class SmsFacade extends StateNotifier<List<SmsMessage>> {
           ),
           createdAt: now,
         );
-        await _persistMessage(smsEvent, transaction: transaction);
-        await _notify(
-          id: int.tryParse(id) ?? 2,
-          title: smsEvent.displayName(appL10n(_ref)),
-          body: body,
-          payload: NotificationPayload(type: 'sms', id: id, address: address),
+        await _persistMessage(
+          smsEvent,
+          transaction: transaction,
+          write: !alreadyPersisted,
         );
+        if (transaction == null) {
+          await _notify(
+            id: int.tryParse(id) ?? 2,
+            title: smsEvent.displayName(appL10n(_ref)),
+            body: body,
+            payload: NotificationPayload(type: 'sms', id: id, address: address),
+          );
+        }
         break;
 
       case MessageTypes.smsOutgoing:
@@ -322,32 +352,34 @@ class SmsFacade extends StateNotifier<List<SmsMessage>> {
             'address': address,
             'body': body,
           });
-          final claimed = transaction == null
-              ? await _operations.claim(
-                  operationId: message.id,
-                  kind: 'sms_send',
-                  payload: operationPayload,
-                )
-              : await _operations.claimOn(
+          if (!alreadyPersisted) {
+            final claimed = transaction == null
+                ? await _operations.claim(
+                    operationId: message.id,
+                    kind: 'sms_send',
+                    payload: operationPayload,
+                  )
+                : await _operations.claimOn(
+                    transaction,
+                    operationId: message.id,
+                    kind: 'sms_send',
+                    payload: operationPayload,
+                  );
+            final existingState = claimed
+                ? null
+                : transaction == null
+                ? await _operations.state(message.id)
+                : await _operations.stateOn(transaction, message.id);
+            if (existingState != 'succeeded' && existingState != 'executing') {
+              if (transaction != null) {
+                await _operations.updateStateOn(
                   transaction,
-                  operationId: message.id,
-                  kind: 'sms_send',
-                  payload: operationPayload,
+                  message.id,
+                  'executing',
                 );
-          final existingState = claimed
-              ? null
-              : transaction == null
-              ? await _operations.state(message.id)
-              : await _operations.stateOn(transaction, message.id);
-          if (existingState != 'succeeded' && existingState != 'executing') {
-            if (transaction != null) {
-              await _operations.updateStateOn(
-                transaction,
-                message.id,
-                'executing',
-              );
-            } else {
-              await _operations.updateState(message.id, 'executing');
+              } else {
+                await _operations.updateState(message.id, 'executing');
+              }
             }
             // Submit to Android only after the Inbox transaction commits.
           }
@@ -367,6 +399,7 @@ class SmsFacade extends StateNotifier<List<SmsMessage>> {
               createdAt: now,
             ),
             transaction: transaction,
+            write: !alreadyPersisted,
           );
           // Queue the final status only after the native result arrives,
           // outside the Inbox transaction.
@@ -377,12 +410,91 @@ class SmsFacade extends StateNotifier<List<SmsMessage>> {
         final id = payload['id'] as String?;
         final status = payload['status'] as String? ?? 'sent';
         if (id != null) {
-          await updateStatus(id, status);
+          await updateStatus(id, status, transaction: transaction);
         }
         break;
 
       default:
         _logger.i('SmsFacade: unhandled message type $type');
+    }
+  }
+
+  /// Persists an Inbox message without touching platform APIs or UI state.
+  Future<void> persistIncomingMessageOn(
+    String type,
+    Map<String, dynamic> payload,
+    MirrorMessage message,
+    DateTime now,
+    DatabaseExecutor transaction,
+  ) async {
+    switch (type) {
+      case MessageTypes.smsIncoming:
+        final id = payload['id'] as String? ?? message.id;
+        await _dao.insertOn(
+          transaction,
+          SmsMessage(
+            id: id,
+            threadId: payload['thread_id'] as String? ?? '',
+            address: payload['address'] as String? ?? '',
+            contactName: payload['contact_name'] as String? ?? '',
+            body: payload['body'] as String? ?? '',
+            encrypted: message.payload,
+            direction: 'incoming',
+            status: 'received',
+            timestamp: DateTime.fromMillisecondsSinceEpoch(
+              payload['timestamp'] as int? ?? now.millisecondsSinceEpoch,
+            ),
+            createdAt: now,
+          ),
+        );
+        break;
+      case MessageTypes.smsOutgoing:
+        if (!_isSource()) break;
+        final id = payload['id'] as String? ?? message.id;
+        final claimed = await _operations.claimOn(
+          transaction,
+          operationId: message.id,
+          kind: 'sms_send',
+          payload: jsonEncode({
+            'messageId': id,
+            'address': payload['address'] as String? ?? '',
+            'body': payload['body'] as String? ?? '',
+          }),
+        );
+        final existingState = claimed
+            ? null
+            : await _operations.stateOn(transaction, message.id);
+        if (existingState != 'succeeded' && existingState != 'executing') {
+          await _operations.updateStateOn(transaction, message.id, 'executing');
+        }
+        await _dao.insertOn(
+          transaction,
+          SmsMessage(
+            id: id,
+            threadId: payload['thread_id'] as String? ?? '',
+            address: payload['address'] as String? ?? '',
+            contactName: payload['contact_name'] as String? ?? '',
+            body: payload['body'] as String? ?? '',
+            encrypted: message.payload,
+            direction: 'outgoing',
+            status: 'pending',
+            timestamp: DateTime.fromMillisecondsSinceEpoch(
+              payload['timestamp'] as int? ?? now.millisecondsSinceEpoch,
+            ),
+            createdAt: now,
+          ),
+        );
+        break;
+      case MessageTypes.smsStatus:
+        final id = payload['id'] as String?;
+        if (id != null) {
+          await _dao.updateStatusOn(
+            transaction,
+            id,
+            payload['status'] as String? ?? 'sent',
+          );
+        }
+        break;
     }
   }
 

@@ -68,6 +68,14 @@ class CallEventDao {
 
   Future<void> updateStatus(String id, String status) async {
     final db = await _database;
+    await updateStatusOn(db, id, status);
+  }
+
+  Future<void> updateStatusOn(
+    DatabaseExecutor db,
+    String id,
+    String status,
+  ) async {
     await db.update(
       'call_event',
       {'status': status},
@@ -99,6 +107,21 @@ class CallEventDao {
     }
     if (values.isEmpty) return;
     final db = await _database;
+    await updateCallerInfoOn(db, id, number: number, contactName: contactName);
+  }
+
+  Future<void> updateCallerInfoOn(
+    DatabaseExecutor db,
+    String id, {
+    String? number,
+    String? contactName,
+  }) async {
+    final values = <String, Object?>{};
+    if (number != null && number.isNotEmpty) values['number'] = number;
+    if (contactName != null && contactName.isNotEmpty) {
+      values['contact_name'] = contactName;
+    }
+    if (values.isEmpty) return;
     await db.update('call_event', values, where: 'id = ?', whereArgs: [id]);
   }
 

@@ -137,8 +137,11 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
   Future<void> _persistEvent(
     CallEvent event, {
     DatabaseExecutor? transaction,
+    bool write = true,
   }) async {
-    if (transaction == null) {
+    if (!write) {
+      // The database row was committed with its Inbox record already.
+    } else if (transaction == null) {
       await _dao.insert(event);
     } else {
       await _dao.insertOn(transaction, event);
@@ -374,7 +377,12 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
     MirrorMessage message,
     DateTime now, {
     DatabaseExecutor? transaction,
+    bool alreadyPersisted = false,
   }) async {
+    if (transaction != null) {
+      await persistIncomingMessageOn(type, payload, message, now, transaction);
+      return true;
+    }
     await initialized;
     switch (type) {
       case MessageTypes.callIncoming:
@@ -399,7 +407,11 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
           status: 'ringing',
           createdAt: now,
         );
-        await _persistEvent(event, transaction: transaction);
+        await _persistEvent(
+          event,
+          transaction: transaction,
+          write: !alreadyPersisted,
+        );
         // A `call_status` peer message may have arrived before this
         // `call_incoming` (re-entrancy on the Source side, or queue
         // reorder). If so, it was buffered in `_pendingCallStatuses` --
@@ -446,11 +458,7 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
             : transaction == null
             ? await _operations.state(id)
             : await _operations.stateOn(transaction, id);
-        final rejected = existingState == 'succeeded'
-            ? true
-            : existingState == 'executing'
-            ? false
-            : await _rejectCall();
+        final rejected = existingState == 'succeeded' || await _rejectCall();
         if (!rejected) return false;
         if (transaction != null) {
           await _operations.updateStateOn(transaction, id, 'succeeded');
@@ -505,6 +513,73 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
         _logger.i('CallFacade: unhandled message type $type');
     }
     return true;
+  }
+
+  /// Persists an Inbox message without native calls, notifications, or state.
+  Future<void> persistIncomingMessageOn(
+    String type,
+    Map<String, dynamic> payload,
+    MirrorMessage message,
+    DateTime now,
+    DatabaseExecutor transaction,
+  ) async {
+    switch (type) {
+      case MessageTypes.callIncoming:
+        final id = payload['id'] as String? ?? message.id;
+        await _dao.insertOn(
+          transaction,
+          CallEvent(
+            id: id,
+            direction: 'incoming',
+            number: payload['number'] as String? ?? '',
+            contactName: payload['contact_name'] as String? ?? '',
+            timestamp: DateTime.fromMillisecondsSinceEpoch(
+              payload['timestamp'] as int? ?? now.millisecondsSinceEpoch,
+            ),
+            encrypted: message.payload,
+            status: 'ringing',
+            createdAt: now,
+          ),
+        );
+        break;
+      case MessageTypes.callRejected:
+        final id = payload['id'] as String?;
+        if (!_isSource() || id == null) break;
+        final claimed = await _operations.claimOn(
+          transaction,
+          operationId: id,
+          kind: 'call_reject',
+          payload: '{}',
+        );
+        final existingState = claimed
+            ? null
+            : await _operations.stateOn(transaction, id);
+        if (existingState != 'succeeded' && existingState != 'executing') {
+          await _operations.updateStateOn(transaction, id, 'executing');
+        }
+        break;
+      case MessageTypes.callStatus:
+        final id = payload['id'] as String?;
+        if (id != null) {
+          await _dao.updateStatusOn(
+            transaction,
+            id,
+            payload['status'] as String? ?? 'ended',
+          );
+        }
+        break;
+      case MessageTypes.callInfo:
+        final id = payload['id'] as String?;
+        if (id != null) {
+          await _dao.updateCallerInfoOn(
+            transaction,
+            id,
+            number: payload['number'] as String?,
+            contactName: payload['contact_name'] as String?,
+          );
+        }
+        break;
+    }
   }
 
   CallEvent? _findCall(String id) => state.where((e) => e.id == id).firstOrNull;

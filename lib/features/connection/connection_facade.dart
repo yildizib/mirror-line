@@ -1300,7 +1300,16 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
       });
       if (!isNewMessage) {
         _logger.i('Skipping duplicate Inbox message: ${message.id}');
+        return;
       }
+      // Facade handlers perform UI and platform work only after the durable
+      // Inbox/domain transaction has successfully committed.
+      await _dispatchIncomingMessage(
+        message,
+        payload,
+        now,
+        alreadyPersisted: true,
+      );
       if (message.type == MessageTypes.smsOutgoing) {
         await _ref
             .read(smsFacadeProvider.notifier)
@@ -1336,6 +1345,7 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
     Map<String, dynamic> payload,
     DateTime now, {
     Transaction? transaction,
+    bool alreadyPersisted = false,
   }) async {
     switch (message.type) {
       case MessageTypes.callIncoming:
@@ -1350,6 +1360,7 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
               message,
               now,
               transaction: transaction,
+              alreadyPersisted: alreadyPersisted,
             );
         break;
 
@@ -1364,6 +1375,7 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
               message,
               now,
               transaction: transaction,
+              alreadyPersisted: alreadyPersisted,
             );
         break;
 
@@ -1389,6 +1401,7 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
               message,
               now,
               transaction: transaction,
+              alreadyPersisted: alreadyPersisted,
             );
         break;
 
