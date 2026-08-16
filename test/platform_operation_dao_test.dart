@@ -43,7 +43,10 @@ void main() {
       ),
       isFalse,
     );
-    await dao.updateState('m1', 'succeeded');
+    expect(
+      await dao.transition('m1', from: ['received'], to: 'succeeded'),
+      isTrue,
+    );
     expect(await dao.state('m1'), 'succeeded');
     expect(await dao.payload('m1'), '{"messageId":"sms-1"}');
   });
@@ -53,8 +56,43 @@ void main() {
       await dao.claim(operationId: 'm2', kind: 'call_reject', payload: '{}'),
       isTrue,
     );
-    await dao.updateState('m2', 'executing');
+    await dao.transition('m2', from: ['received'], to: 'executing');
     expect(await dao.recoverExecuting(), 1);
     expect(await dao.state('m2'), 'received');
+  });
+
+  test(
+    'terminal and submitted operations cannot be overwritten or recovered',
+    () async {
+      await dao.claim(operationId: 'm3', kind: 'sms_send', payload: '{}');
+      await dao.transition('m3', from: ['received'], to: 'executing');
+      await dao.transition('m3', from: ['executing'], to: 'submitted');
+
+      expect(
+        await dao.transition('m3', from: ['submitted'], to: 'succeeded'),
+        isTrue,
+      );
+      expect(
+        await dao.transition('m3', from: ['submitted'], to: 'failed'),
+        isFalse,
+      );
+      expect(await dao.recoverExecuting(), 0);
+      expect(await dao.state('m3'), 'succeeded');
+    },
+  );
+
+  test('operations can be queried for recovery by kind and state', () async {
+    await dao.claim(
+      operationId: 'sms',
+      kind: 'sms_send',
+      payload: '{"id":"1"}',
+    );
+    await dao.claim(operationId: 'call', kind: 'call_reject', payload: '{}');
+
+    final operations = await dao.list(kind: 'sms_send', states: ['received']);
+
+    expect(operations, hasLength(1));
+    expect(operations.single.id, 'sms');
+    expect(operations.single.payload, '{"id":"1"}');
   });
 }

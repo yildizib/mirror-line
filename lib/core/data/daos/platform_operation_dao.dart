@@ -77,39 +77,88 @@ class PlatformOperationDao {
     return rows.isEmpty ? null : rows.single['payload'] as String;
   }
 
-  Future<void> updateState(String operationId, String state) async {
+  /// Advances an operation only from one of [from] states. Terminal states
+  /// are consequently monotonic: delayed callbacks cannot overwrite them.
+  Future<bool> transition(
+    String operationId, {
+    required Iterable<String> from,
+    required String to,
+  }) async {
     final db = await _database;
-    await db.update(
-      'platform_operation',
-      {'state': state, 'updated_at': DateTime.now().millisecondsSinceEpoch},
-      where: 'operation_id = ?',
-      whereArgs: [operationId],
-    );
+    return transitionOn(db, operationId, from: from, to: to);
   }
 
-  Future<void> updateStateOn(
+  Future<bool> transitionOn(
     DatabaseExecutor db,
-    String operationId,
-    String state,
-  ) async {
-    await db.update(
+    String operationId, {
+    required Iterable<String> from,
+    required String to,
+  }) async {
+    final states = from.toList(growable: false);
+    if (states.isEmpty) return false;
+    final changed = await db.update(
       'platform_operation',
-      {'state': state, 'updated_at': DateTime.now().millisecondsSinceEpoch},
-      where: 'operation_id = ?',
-      whereArgs: [operationId],
+      {'state': to, 'updated_at': DateTime.now().millisecondsSinceEpoch},
+      where:
+          'operation_id = ? AND state IN (${List.filled(states.length, '?').join(', ')})',
+      whereArgs: [operationId, ...states],
     );
+    return changed == 1;
   }
 
-  Future<int> recoverExecuting() async {
+  Future<List<PlatformOperation>> list({
+    required String kind,
+    required Iterable<String> states,
+  }) async {
     final db = await _database;
+    final requestedStates = states.toList(growable: false);
+    if (requestedStates.isEmpty) return [];
+    final rows = await db.query(
+      'platform_operation',
+      where:
+          'kind = ? AND state IN (${List.filled(requestedStates.length, '?').join(', ')})',
+      whereArgs: [kind, ...requestedStates],
+      orderBy: 'created_at ASC',
+    );
+    return rows
+        .map(
+          (row) => PlatformOperation(
+            id: row['operation_id'] as String,
+            kind: row['kind'] as String,
+            state: row['state'] as String,
+            payload: row['payload'] as String,
+          ),
+        )
+        .toList();
+  }
+
+  /// Only executions which never reached a platform boundary can be retried.
+  Future<int> recoverExecuting({String? kind}) async {
+    final db = await _database;
+    final where = kind == null ? 'state = ?' : 'state = ? AND kind = ?';
+    final args = kind == null ? ['executing'] : ['executing', kind];
     return db.update(
       'platform_operation',
       {
         'state': 'received',
         'updated_at': DateTime.now().millisecondsSinceEpoch,
       },
-      where: 'state = ?',
-      whereArgs: ['executing'],
+      where: where,
+      whereArgs: args,
     );
   }
+}
+
+class PlatformOperation {
+  const PlatformOperation({
+    required this.id,
+    required this.kind,
+    required this.state,
+    required this.payload,
+  });
+
+  final String id;
+  final String kind;
+  final String state;
+  final String payload;
 }

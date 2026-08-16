@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logger/logger.dart';
@@ -40,7 +41,7 @@ final callEventMapProvider = Provider<Map<String, CallEvent>>((ref) {
 /// callbacks as before.
 class CallFacade extends StateNotifier<List<CallEvent>> {
   final CallEventDao _dao;
-  final PlatformOperationDao _operations = PlatformOperationDao();
+  final PlatformOperationDao _operations;
   final Ref _ref;
   final Logger _logger;
   final bool Function() _isSource;
@@ -93,7 +94,9 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
     required this._notify,
     Future<bool> Function()? rejectCall,
     CallEventDao? dao,
+    PlatformOperationDao? operations,
   }) : _dao = dao ?? CallEventDao(),
+       _operations = operations ?? PlatformOperationDao(),
        _rejectCall = rejectCall ?? TelephonyChannel.rejectCall,
        super([]) {
     _initialized = load();
@@ -435,42 +438,11 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
         break;
 
       case MessageTypes.callRejected:
-        final id = payload['id'] as String?;
-        // Only actually end the call if it's still the one ringing --
-        // guards against a reject command arriving after the call was
-        // already answered/missed/ended, which would otherwise hang up
-        // an unrelated live call instead of rejecting a ringing one.
-        if (!_isSource() || id == null || id != _activeCallId) return false;
-        final claimed = transaction == null
-            ? await _operations.claim(
-                operationId: id,
-                kind: 'call_reject',
-                payload: '{}',
-              )
-            : await _operations.claimOn(
-                transaction,
-                operationId: id,
-                kind: 'call_reject',
-                payload: '{}',
-              );
-        final existingState = claimed
-            ? null
-            : transaction == null
-            ? await _operations.state(id)
-            : await _operations.stateOn(transaction, id);
-        final rejected = existingState == 'succeeded' || await _rejectCall();
-        if (!rejected) return false;
-        if (transaction != null) {
-          await _operations.updateStateOn(transaction, id, 'succeeded');
-        } else {
-          await _operations.updateState(id, 'succeeded');
+        if (!_isSource()) return false;
+        await _claimCallReject(message.id, payload, transaction: transaction);
+        if (transaction == null && !alreadyPersisted) {
+          return executeCallReject(message.id);
         }
-        _removeNativeSession(_activeNativeCallSessionId, id);
-        await updateStatus(id, 'rejected');
-        await _sendOrQueue(MessageTypes.callStatus, {
-          'id': id,
-          'status': 'rejected',
-        });
         return true;
 
       case MessageTypes.callStatus:
@@ -543,20 +515,8 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
         );
         break;
       case MessageTypes.callRejected:
-        final id = payload['id'] as String?;
-        if (!_isSource() || id == null) break;
-        final claimed = await _operations.claimOn(
-          transaction,
-          operationId: id,
-          kind: 'call_reject',
-          payload: '{}',
-        );
-        final existingState = claimed
-            ? null
-            : await _operations.stateOn(transaction, id);
-        if (existingState != 'succeeded' && existingState != 'executing') {
-          await _operations.updateStateOn(transaction, id, 'executing');
-        }
+        if (!_isSource()) break;
+        await _claimCallReject(message.id, payload, transaction: transaction);
         break;
       case MessageTypes.callStatus:
         final id = payload['id'] as String?;
@@ -579,6 +539,105 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
           );
         }
         break;
+    }
+  }
+
+  Future<void> _claimCallReject(
+    String operationId,
+    Map<String, dynamic> payload, {
+    DatabaseExecutor? transaction,
+  }) async {
+    final callId = payload['id'] as String?;
+    if (callId == null) return;
+    final encodedPayload = jsonEncode({'callId': callId});
+    if (transaction == null) {
+      await _operations.claim(
+        operationId: operationId,
+        kind: 'call_reject',
+        payload: encodedPayload,
+      );
+    } else {
+      await _operations.claimOn(
+        transaction,
+        operationId: operationId,
+        kind: 'call_reject',
+        payload: encodedPayload,
+      );
+    }
+  }
+
+  /// Executes a committed command. The message ID, rather than the domain
+  /// call ID, is the idempotency key because commands may be retried.
+  Future<bool> executeCallReject(String operationId, [String? payload]) async {
+    if (!_isSource()) return false;
+    final encodedPayload = payload ?? await _operations.payload(operationId);
+    if (encodedPayload == null) return false;
+    final callId =
+        (jsonDecode(encodedPayload) as Map<String, dynamic>)['callId']
+            as String?;
+    if (callId == null) return false;
+    if (!await _operations.transition(
+      operationId,
+      from: ['received'],
+      to: 'executing',
+    )) {
+      return false;
+    }
+    // Never reject a different live call when a stale command is recovered.
+    if (_activeCallId != callId) {
+      await _operations.transition(
+        operationId,
+        from: ['executing'],
+        to: 'failed',
+      );
+      return false;
+    }
+    try {
+      if (!await _operations.transition(
+        operationId,
+        from: ['executing'],
+        to: 'submitted',
+      )) {
+        return false;
+      }
+      final rejected = await _rejectCall();
+      if (!await _operations.transition(
+        operationId,
+        from: ['submitted'],
+        to: rejected ? 'succeeded' : 'failed',
+      )) {
+        return false;
+      }
+      if (!rejected) return false;
+      _removeNativeSession(_activeNativeCallSessionId, callId);
+      await updateStatus(callId, 'rejected');
+      final rejectedEvent = _findCall(callId);
+      if (rejectedEvent != null) await _notifyCall(rejectedEvent);
+      await _sendOrQueue(MessageTypes.callStatus, {
+        'id': callId,
+        'status': 'rejected',
+      });
+      return true;
+    } catch (error, stackTrace) {
+      // The platform may have rejected the call before throwing. Keep this
+      // indeterminate instead of retrying a command that could hit another call.
+      _logger.e(
+        'Call rejection result is indeterminate: $error',
+        stackTrace: stackTrace,
+      );
+      return false;
+    }
+  }
+
+  Future<void> recoverCallRejects() async {
+    if (!_isSource()) return;
+    await _operations.recoverExecuting(kind: 'call_reject');
+    final pending = await _operations.list(
+      kind: 'call_reject',
+      states: ['received'],
+    );
+    for (final operation in pending) {
+      await executeCallReject(operation.id, operation.payload);
     }
   }
 

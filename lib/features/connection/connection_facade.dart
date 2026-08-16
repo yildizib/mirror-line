@@ -7,7 +7,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logger/logger.dart';
 import 'package:mirrorline/core/data/daos/known_network_dao.dart';
 import 'package:mirrorline/core/data/daos/inbox_dao.dart';
-import 'package:mirrorline/core/data/daos/platform_operation_dao.dart';
 import 'package:mirrorline/core/data/models/inbox_record.dart';
 import 'package:mirrorline/core/data/daos/peer_dao.dart';
 import 'package:mirrorline/core/data/models/peer.dart';
@@ -104,7 +103,6 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
   final KnownNetworkDao _knownNetworkDao = KnownNetworkDao();
   final QueueService _queue = QueueService();
   final InboxDao _inbox = InboxDao();
-  final PlatformOperationDao _platformOperations = PlatformOperationDao();
   final BeaconBroadcaster _broadcaster = BeaconBroadcaster();
   // Used only by _scanSubnetsWithProgress (force-reconnect's manual scan);
   // the periodic fallback scan's own scanner now lives inside
@@ -424,7 +422,6 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
   List<String> _allLocalIps = [];
 
   Future<void> _startAsSource(int lifecycleGeneration) async {
-    await _platformOperations.recoverExecuting();
     final peer = _peer!;
     final key = _key!;
     _reconnectScheduler.stop();
@@ -503,13 +500,16 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
     } catch (e) {
       _logger.e('Telephony startListening failed: $e');
     }
+    // Recovery is independent of Inbox redelivery. Only `executing` work is
+    // returned to `received`; `submitted` work remains indeterminate.
+    await _ref.read(smsFacadeProvider.notifier).recoverOutgoingSms();
+    await _ref.read(callFacadeProvider.notifier).recoverCallRejects();
     _logger.i(
       'Source mode active: server on ${peer.port}, beacon broadcasting.',
     );
   }
 
   Future<void> _startAsMain(int lifecycleGeneration) async {
-    await _platformOperations.recoverExecuting();
     final peer = _peer!;
     final key = _key!;
     final isPaired = peer.publicKey.isNotEmpty;
@@ -1313,7 +1313,12 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
       if (message.type == MessageTypes.smsOutgoing) {
         await _ref
             .read(smsFacadeProvider.notifier)
-            .executeOutgoingSms(payload, message);
+            .executeOutgoingSms(message.id);
+      }
+      if (message.type == MessageTypes.callRejected) {
+        await _ref
+            .read(callFacadeProvider.notifier)
+            .executeCallReject(message.id);
       }
       await _sendDeliveryAck(socketManager, message.id);
       return;

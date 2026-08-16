@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logger/logger.dart';
 import 'package:mirrorline/core/data/database.dart';
+import 'package:mirrorline/core/data/daos/platform_operation_dao.dart';
 import 'package:mirrorline/core/data/models/call_event.dart';
 import 'package:mirrorline/core/network/message_protocol.dart';
 import 'package:mirrorline/core/services/notification_service.dart';
@@ -11,6 +12,7 @@ import 'package:mirrorline/features/calls/call_facade.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class _FakePathProviderPlatform extends PathProviderPlatform
     with MockPlatformInterfaceMixin {
@@ -28,6 +30,7 @@ void main() {
   setUpAll(() {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
+    SharedPreferences.setMockInitialValues({});
   });
 
   setUp(() async {
@@ -141,6 +144,47 @@ void main() {
       expect(rejected, false);
       expect(facade.state.single.status, 'ringing');
       expect(sentTypes, isEmpty);
+      expect(await PlatformOperationDao().state('command'), 'failed');
+    },
+  );
+
+  test(
+    'call reject uses transport message ID and ignores duplicate execution',
+    () async {
+      var rejections = 0;
+      final container = buildContainer(
+        isSource: () => true,
+        rejectCall: () async {
+          rejections++;
+          return true;
+        },
+      );
+      final facade = container.read(callFacadeProvider.notifier);
+      final now = DateTime(2025, 1, 1, 12);
+      await facade.handleNativeEvent(
+        {'state': 'RINGING', 'number': '+15555550100'},
+        id: 'domain-call-id',
+        now: now,
+      );
+      await facade.handleIncomingMessage(
+        MessageTypes.callRejected,
+        {'id': 'domain-call-id'},
+        MirrorMessage(
+          type: MessageTypes.callRejected,
+          id: 'transport-command-id',
+          timestamp: now.millisecondsSinceEpoch,
+          payload: '',
+        ),
+        now,
+      );
+
+      expect(rejections, 1);
+      expect(
+        await PlatformOperationDao().state('transport-command-id'),
+        'succeeded',
+      );
+      expect(await facade.executeCallReject('transport-command-id'), isFalse);
+      expect(rejections, 1);
     },
   );
 

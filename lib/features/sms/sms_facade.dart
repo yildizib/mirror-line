@@ -32,7 +32,7 @@ final smsFacadeProvider = StateNotifierProvider<SmsFacade, List<SmsMessage>>((
 /// same reasoning as CallFacade. Pure delegation, no behavior change.
 class SmsFacade extends StateNotifier<List<SmsMessage>> {
   final SmsMessageDao _dao;
-  final PlatformOperationDao _operations = PlatformOperationDao();
+  final PlatformOperationDao _operations;
   final Ref _ref;
   final Logger _logger;
   final bool Function() _isSource;
@@ -40,6 +40,8 @@ class SmsFacade extends StateNotifier<List<SmsMessage>> {
   final Future<bool> Function(String, Map<String, dynamic>, DomainMutation)?
   _sendOrQueueWithMutation;
   final ShowNotification _notify;
+  final Future<void> Function(String, String, {required String operationId})
+  _sendSms;
   final Map<String, String> _pendingStatuses = {};
   late final Future<void> _initialized;
 
@@ -51,7 +53,12 @@ class SmsFacade extends StateNotifier<List<SmsMessage>> {
     this._sendOrQueueWithMutation,
     required this._notify,
     SmsMessageDao? dao,
+    PlatformOperationDao? operations,
+    Future<void> Function(String, String, {required String operationId})?
+    sendSms,
   }) : _dao = dao ?? SmsMessageDao(),
+       _operations = operations ?? PlatformOperationDao(),
+       _sendSms = sendSms ?? TelephonyChannel.sendSms,
        super([]) {
     _initialized = load();
   }
@@ -353,33 +360,19 @@ class SmsFacade extends StateNotifier<List<SmsMessage>> {
             'body': body,
           });
           if (!alreadyPersisted) {
-            final claimed = transaction == null
-                ? await _operations.claim(
-                    operationId: message.id,
-                    kind: 'sms_send',
-                    payload: operationPayload,
-                  )
-                : await _operations.claimOn(
-                    transaction,
-                    operationId: message.id,
-                    kind: 'sms_send',
-                    payload: operationPayload,
-                  );
-            final existingState = claimed
-                ? null
-                : transaction == null
-                ? await _operations.state(message.id)
-                : await _operations.stateOn(transaction, message.id);
-            if (existingState != 'succeeded' && existingState != 'executing') {
-              if (transaction != null) {
-                await _operations.updateStateOn(
-                  transaction,
-                  message.id,
-                  'executing',
-                );
-              } else {
-                await _operations.updateState(message.id, 'executing');
-              }
+            if (transaction == null) {
+              await _operations.claim(
+                operationId: message.id,
+                kind: 'sms_send',
+                payload: operationPayload,
+              );
+            } else {
+              await _operations.claimOn(
+                transaction,
+                operationId: message.id,
+                kind: 'sms_send',
+                payload: operationPayload,
+              );
             }
             // Submit to Android only after the Inbox transaction commits.
           }
@@ -451,7 +444,7 @@ class SmsFacade extends StateNotifier<List<SmsMessage>> {
       case MessageTypes.smsOutgoing:
         if (!_isSource()) break;
         final id = payload['id'] as String? ?? message.id;
-        final claimed = await _operations.claimOn(
+        await _operations.claimOn(
           transaction,
           operationId: message.id,
           kind: 'sms_send',
@@ -461,12 +454,6 @@ class SmsFacade extends StateNotifier<List<SmsMessage>> {
             'body': payload['body'] as String? ?? '',
           }),
         );
-        final existingState = claimed
-            ? null
-            : await _operations.stateOn(transaction, message.id);
-        if (existingState != 'succeeded' && existingState != 'executing') {
-          await _operations.updateStateOn(transaction, message.id, 'executing');
-        }
         await _dao.insertOn(
           transaction,
           SmsMessage(
@@ -500,30 +487,50 @@ class SmsFacade extends StateNotifier<List<SmsMessage>> {
 
   /// Submits a durably claimed operation after its Inbox transaction commits.
   /// Android reports the final sent result through the operation-ID callback.
-  Future<void> executeOutgoingSms(
-    Map<String, dynamic> payload,
-    MirrorMessage message,
-  ) async {
+  Future<void> executeOutgoingSms(String operationId, [String? payload]) async {
     if (!_isSource()) return;
-    final state = await _operations.state(message.id);
-    if (state == 'received') {
-      await _operations.updateState(message.id, 'executing');
-    } else if (state != 'executing') {
+    final encodedPayload = payload ?? await _operations.payload(operationId);
+    if (encodedPayload == null) return;
+    if (!await _operations.transition(
+      operationId,
+      from: ['received'],
+      to: 'executing',
+    )) {
       return;
     }
+    final operationPayload = jsonDecode(encodedPayload) as Map<String, dynamic>;
     try {
       // Persist submission before crossing the Android boundary. A crash
       // after this point is indeterminate and must not trigger a blind retry.
-      await _operations.updateState(message.id, 'submitted');
-      await TelephonyChannel.sendSms(
-        payload['address'] as String? ?? '',
-        payload['body'] as String? ?? '',
-        operationId: message.id,
+      if (!await _operations.transition(
+        operationId,
+        from: ['executing'],
+        to: 'submitted',
+      )) {
+        return;
+      }
+      await _sendSms(
+        operationPayload['address'] as String? ?? '',
+        operationPayload['body'] as String? ?? '',
+        operationId: operationId,
       );
     } catch (error) {
-      _logger.e('SMS submission failed: $error');
-      await _operations.updateState(message.id, 'failed');
-      await updateStatus(payload['id'] as String? ?? message.id, 'failed');
+      // The Android boundary may have accepted the request before throwing.
+      // Keep `submitted` indeterminate rather than risking a duplicate send.
+      _logger.e('SMS submission result is indeterminate: $error');
+    }
+  }
+
+  /// Replays only operations which did not cross the Android boundary.
+  Future<void> recoverOutgoingSms() async {
+    if (!_isSource()) return;
+    await _operations.recoverExecuting(kind: 'sms_send');
+    final pending = await _operations.list(
+      kind: 'sms_send',
+      states: ['received'],
+    );
+    for (final operation in pending) {
+      await executeOutgoingSms(operation.id, operation.payload);
     }
   }
 
@@ -539,15 +546,17 @@ class SmsFacade extends StateNotifier<List<SmsMessage>> {
         operationId;
     if (sent) {
       final status = success ? 'sent' : 'failed';
-      await _operations.updateState(
+      if (await _operations.transition(
         operationId,
-        success ? 'succeeded' : 'failed',
-      );
-      await updateStatus(messageId, status);
-      await _sendOrQueue(MessageTypes.smsStatus, {
-        'id': messageId,
-        'status': status,
-      });
+        from: ['submitted'],
+        to: success ? 'succeeded' : 'failed',
+      )) {
+        await updateStatus(messageId, status);
+        await _sendOrQueue(MessageTypes.smsStatus, {
+          'id': messageId,
+          'status': status,
+        });
+      }
     } else {
       await updateDeliveryStatus(messageId, success ? 'delivered' : 'failed');
     }
