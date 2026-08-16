@@ -155,7 +155,7 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
   // attacker without the identity key can't replay their way into a new
   // session -- this only needs to cover replay within one live session.
   int? _lastAcceptedMessageTimestamp;
-  Future<void>? _flushInFlight;
+  final OutboxFlushGate _flushGate = OutboxFlushGate();
   bool _disposed = false;
   int _lifecycleGeneration = 0;
 
@@ -1551,18 +1551,7 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
           .sendSmsNotification(address, body, id: id);
 
   Future<void> _flushQueue() async {
-    final running = _flushInFlight;
-    if (running != null) {
-      await running;
-      return;
-    }
-    final future = _flushQueueWorker();
-    _flushInFlight = future;
-    try {
-      await future;
-    } finally {
-      if (identical(_flushInFlight, future)) _flushInFlight = null;
-    }
+    await _flushGate.run(_flushQueueWorker);
   }
 
   Future<void> _flushQueueWorker() async {

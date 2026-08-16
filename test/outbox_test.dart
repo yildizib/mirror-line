@@ -160,4 +160,17 @@ void main() {
     expect(rows.single['attempt_count'], 1);
     expect(rows.single['next_attempt_at'] as int, greaterThan(before + 900));
   });
+
+  test('concurrent flush requests share one worker', () async {
+    final gate = OutboxFlushGate();
+    var executions = 0;
+    Future<void> worker() async {
+      executions++;
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
+
+    await Future.wait([gate.run(worker), gate.run(worker)]);
+
+    expect(executions, 1);
+  });
 }

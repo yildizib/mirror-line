@@ -4,6 +4,25 @@ import 'package:uuid/uuid.dart';
 import 'package:sqflite/sqflite.dart';
 import 'dart:math';
 
+class OutboxFlushGate {
+  Future<void>? _inFlight;
+
+  Future<void> run(Future<void> Function() worker) async {
+    final running = _inFlight;
+    if (running != null) {
+      await running;
+      return;
+    }
+    final future = worker();
+    _inFlight = future;
+    try {
+      await future;
+    } finally {
+      if (identical(_inFlight, future)) _inFlight = null;
+    }
+  }
+}
+
 class QueueService {
   final QueueDao _dao;
 
