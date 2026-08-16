@@ -1415,7 +1415,9 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
           .sendSmsNotification(address, body, id: id);
 
   Future<void> _flushQueue() async {
-    final items = await _queue.pendingItems();
+    final destinationPeerId = _peer?.id;
+    if (destinationPeerId == null) return;
+    final items = await _queue.pendingItems(destinationPeerId);
     if (items.isEmpty) return;
     _logger.i('Flushing ${items.length} queued message(s).');
     for (final item in items) {

@@ -12,12 +12,18 @@ class QueueDao {
     await db.insert('outbox', item.toJson());
   }
 
-  Future<List<QueueItem>> getAll() async {
+  Future<List<QueueItem>> getAll(String destinationPeerId) async {
     final db = await _database;
     final maps = await db.query(
       'outbox',
-      where: 'status = ? AND (next_attempt_at IS NULL OR next_attempt_at <= ?)',
-      whereArgs: ['pending', DateTime.now().millisecondsSinceEpoch],
+      where:
+          'destination_peer_id = ? AND status = ? AND '
+          '(next_attempt_at IS NULL OR next_attempt_at <= ?)',
+      whereArgs: [
+        destinationPeerId,
+        'pending',
+        DateTime.now().millisecondsSinceEpoch,
+      ],
       orderBy: 'created_at ASC',
     );
     return maps.map(QueueItem.fromJson).toList();

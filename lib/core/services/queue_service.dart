@@ -22,7 +22,8 @@ class QueueService {
     );
   }
 
-  Future<List<QueueItem>> pendingItems() => _dao.getAll();
+  Future<List<QueueItem>> pendingItems(String destinationPeerId) =>
+      _dao.getAll(destinationPeerId);
 
   Future<void> markSent(int id) async {
     await _dao.updateStatus(id, 'transported');
