@@ -3,9 +3,8 @@ package io.github.yildizib.mirrorline
 import android.Manifest
 import android.content.Context
 import android.content.Intent
-import android.content.BroadcastReceiver
-import android.content.IntentFilter
 import android.app.PendingIntent
+import android.net.Uri
 import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.LinkProperties
@@ -146,6 +145,19 @@ object MirrorLineChannel {
                 "nativeEventsNotReady", "notReady" -> {
                     NativeEventRouter.notReady()
                     MirrorLineNotificationListener.clearPendingNotifications()
+                    result.success(null)
+                }
+                "fetchSmsResults" -> result.success(
+                    SmsResultStore(appContext).pending().map {
+                        smsResultMap(it) + mapOf("kind" to it.kind)
+                    },
+                )
+                "ackSmsResult" -> {
+                    val operationId = call.argument<String>("operationId") ?: ""
+                    val kind = call.argument<String>("kind") ?: ""
+                    if (operationId.isNotEmpty() && kind in setOf(SmsResultStore.SENT, SmsResultStore.DELIVERED)) {
+                        SmsResultStore(appContext).acknowledge(operationId, kind)
+                    }
                     result.success(null)
                 }
                 "rejectCall" -> result.success(rejectCall(appContext))
@@ -386,81 +398,54 @@ object MirrorLineChannel {
             SmsManager.getDefault()
         }
 
-        val sentAction = "$CHANNEL_NAME.SMS_SENT.$operationId"
-        val deliveredAction = "$CHANNEL_NAME.SMS_DELIVERED.$operationId"
         val parts = smsManager.divideMessage(body)
         val multipartParts = parts?.takeIf { it.size > 1 }
         val partCount = multipartParts?.size ?: 1
-        registerSmsResultReceiver(context, sentAction, "onSmsSent", operationId, partCount)
-        registerSmsResultReceiver(
-            context,
-            deliveredAction,
-            "onSmsDelivered",
-            operationId,
-            partCount,
-        )
-        fun pendingIntent(action: String, requestCode: Int): PendingIntent =
+        val resultStore = SmsResultStore(context)
+        fun pendingIntent(kind: String, partIndex: Int): PendingIntent =
             PendingIntent.getBroadcast(
                 context,
-                requestCode,
-                Intent(action).setPackage(context.packageName),
+                partIndex,
+                Intent(context, SmsResultReceiver::class.java)
+                    .setAction(SmsResultReceiver.ACTION)
+                    .setData(Uri.parse("mirrorline://sms/${Uri.encode(operationId)}/$kind/$partIndex"))
+                    .putExtra(SmsResultReceiver.EXTRA_OPERATION_ID, operationId)
+                    .putExtra(SmsResultReceiver.EXTRA_KIND, kind)
+                    .putExtra(SmsResultReceiver.EXTRA_PART_INDEX, partIndex)
+                    .putExtra(SmsResultReceiver.EXTRA_PART_COUNT, partCount),
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
-        if (multipartParts != null) {
-            smsManager.sendMultipartTextMessage(
-                address,
-                null,
-                multipartParts,
-                ArrayList(List(partCount) { index ->
-                    pendingIntent(sentAction, operationId.hashCode() + index)
-                }),
-                ArrayList(List(partCount) { index ->
-                    pendingIntent(
-                        deliveredAction,
-                        (operationId.hashCode() xor 0x40000000) + index,
-                    )
-                }),
-            )
-        } else {
-            smsManager.sendTextMessage(
-                address,
-                null,
-                body,
-                pendingIntent(sentAction, operationId.hashCode()),
-                pendingIntent(deliveredAction, operationId.hashCode() xor 0x40000000),
-            )
+        try {
+            if (multipartParts != null) {
+                smsManager.sendMultipartTextMessage(
+                    address, null, multipartParts,
+                    ArrayList(List(partCount) { pendingIntent(SmsResultStore.SENT, it) }),
+                    ArrayList(List(partCount) { pendingIntent(SmsResultStore.DELIVERED, it) }),
+                )
+            } else {
+                smsManager.sendTextMessage(
+                    address, null, body,
+                    pendingIntent(SmsResultStore.SENT, 0),
+                    pendingIntent(SmsResultStore.DELIVERED, 0),
+                )
+            }
+        } catch (error: Exception) {
+            resultStore.recordFailure(operationId, partCount)?.let(::routeSmsResult)
+            throw error
         }
     }
 
-    private fun registerSmsResultReceiver(
-        context: Context,
-        action: String,
-        event: String,
-        operationId: String,
-        expectedResults: Int,
-    ) {
-        var receivedResults = 0
-        var successful = true
-        val receiver = object : BroadcastReceiver() {
-            override fun onReceive(receiverContext: Context, intent: Intent) {
-                successful = successful && resultCode == android.app.Activity.RESULT_OK
-                receivedResults++
-                if (receivedResults == expectedResults) {
-                    NativeEventRouter.route(
-                        event,
-                        mapOf("operationId" to operationId, "success" to successful),
-                    )
-                    receiverContext.unregisterReceiver(this)
-                }
-            }
-        }
-        val filter = IntentFilter(action)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            context.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
-        } else {
-            context.registerReceiver(receiver, filter)
-        }
+    internal fun routeSmsResult(result: SmsResult) {
+        NativeEventRouter.route(
+            if (result.kind == SmsResultStore.SENT) "onSmsSent" else "onSmsDelivered",
+            smsResultMap(result),
+        )
     }
+
+    private fun smsResultMap(result: SmsResult) = mapOf(
+        "operationId" to result.operationId,
+        "success" to result.success,
+    )
 
     private fun rejectCall(context: Context): Boolean {
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.ANSWER_PHONE_CALLS)

@@ -131,8 +131,65 @@ void main() {
     );
   });
 
+  test(
+    'consumes and acknowledges durable SMS results after handling',
+    () async {
+      final calls = <MethodCall>[];
+      final handled = <String>[];
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        calls.add(call);
+        if (call.method == 'fetchSmsResults') {
+          return [
+            {'operationId': 'message-123', 'kind': 'sent', 'success': true},
+          ];
+        }
+        return null;
+      });
+      TelephonyChannel.setEventHandler((type, data) {
+        handled.add('$type:${data['success']}');
+      });
+
+      await TelephonyChannel.consumePendingSmsResults();
+
+      expect(handled, ['onSmsSent:true']);
+      expect(calls.map((call) => call.method), [
+        'fetchSmsResults',
+        'ackSmsResult',
+      ]);
+      expect(calls.last.arguments, {
+        'operationId': 'message-123',
+        'kind': 'sent',
+      });
+    },
+  );
+
+  test('retains a durable SMS result when handling fails', () async {
+    final calls = <MethodCall>[];
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      calls.add(call);
+      if (call.method == 'fetchSmsResults') {
+        return [
+          {'operationId': 'message-123', 'kind': 'delivered', 'success': false},
+        ];
+      }
+      return null;
+    });
+    TelephonyChannel.setEventHandler((_, _) => throw StateError('not durable'));
+
+    await expectLater(
+      TelephonyChannel.consumePendingSmsResults(),
+      throwsA(isA<StateError>()),
+    );
+
+    expect(calls.map((call) => call.method), ['fetchSmsResults']);
+  });
+
   testWidgets('forwards SMS operation result events', (tester) async {
     final events = <(String, Map<dynamic, dynamic>)>[];
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      expect(call.method, 'ackSmsResult');
+      return null;
+    });
     TelephonyChannel.setEventHandler((type, data) => events.add((type, data)));
 
     await tester.binding.defaultBinaryMessenger.handlePlatformMessage(

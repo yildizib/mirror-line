@@ -346,6 +346,7 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
             return;
           }
           await TelephonyChannel.nativeEventsReady();
+          await TelephonyChannel.consumePendingSmsResults();
           if (!_isLifecycleCurrent(lifecycleGeneration)) {
             await TelephonyChannel.nativeEventsNotReady();
             return;
