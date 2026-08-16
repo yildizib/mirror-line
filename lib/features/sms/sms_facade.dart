@@ -203,7 +203,7 @@ class SmsFacade extends StateNotifier<List<SmsMessage>> {
   /// the peer never reconnected long enough for the queued ack to retry.
   /// Independent of the offline queue's own retry count, which only
   /// advances when the connection actually comes back up: without this,
-  /// a message could otherwise show "Gönderiliyor" forever.
+  /// a message could otherwise show "Sending" forever.
   Future<void> failStalePending(Duration threshold) async {
     await initialized;
     final cutoff = DateTime.now().subtract(threshold);

@@ -9,7 +9,7 @@ import androidx.core.content.ContextCompat
 
 /**
  * Resolves a raw phone number to the caller/sender's address-book display
- * name, so notifications can show "Ayşe Yılmaz" instead of a bare number.
+ * name, so notifications can show "Jane Doe" instead of a bare number.
  * Best-effort and optional: READ_CONTACTS is not in the app's required
  * permission set, so this simply returns null (caller falls back to the
  * number) whenever the permission isn't granted or nothing matches.

@@ -749,10 +749,10 @@ class MirrorLineService : Service() {
             if (manager.getNotificationChannel(CHANNEL_ID) == null) {
                 val channel = NotificationChannel(
                     CHANNEL_ID,
-                    "MirrorLine Senkronizasyon",
+                    "MirrorLine Synchronization",
                     NotificationManager.IMPORTANCE_LOW
                 )
-                channel.description = "Arama ve SMS senkronizasyonu arka plan servisi"
+                channel.description = "Background service for call and SMS synchronization"
                 manager.createNotificationChannel(channel)
             }
         }
@@ -760,8 +760,8 @@ class MirrorLineService : Service() {
 
     private fun buildNotification(): Notification =
         NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("MirrorLine çalışıyor")
-            .setContentText("Arama ve SMS senkronizasyonu aktif")
+            .setContentTitle("MirrorLine is running")
+            .setContentText("Call and SMS synchronization is active")
             .setSmallIcon(android.R.drawable.ic_menu_call)
             .setOngoing(true)
             .setSilent(true)

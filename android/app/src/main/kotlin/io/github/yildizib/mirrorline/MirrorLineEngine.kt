@@ -14,7 +14,7 @@ import io.flutter.embedding.engine.dart.DartExecutor
  * Activity is reclaimed while the screen is off). That killed the entire
  * Dart isolate -- including the TCP socket, beacon broadcaster/listener and
  * heartbeat living in ConnectionNotifier -- even though MirrorLineService's
- * foreground notification kept showing "MirrorLine çalışıyor". Keeping one
+ * foreground notification kept showing "MirrorLine is running". Keeping one
  * engine alive for the process lets the mirroring connection survive
  * Activity destruction as long as the foreground service itself is alive.
  */

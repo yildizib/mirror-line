@@ -46,7 +46,7 @@ void main() {
     await client.sendMessage('sms_incoming', {
       'id': 'msg-1',
       'address': '+905551112233',
-      'body': 'Merhaba',
+      'body': 'Hello',
     });
 
     await completer.future.timeout(const Duration(seconds: 5));
@@ -56,7 +56,7 @@ void main() {
     // The payload must decrypt back to the original content.
     final decrypted = await CryptoManager.decrypt(key, received.first.payload);
     expect(decrypted, contains('"address":"+905551112233"'));
-    expect(decrypted, contains('"body":"Merhaba"'));
+    expect(decrypted, contains('"body":"Hello"'));
 
     await client.disconnect();
     final secondClient = SocketManager(onMessage: (_) {});

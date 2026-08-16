@@ -20,7 +20,7 @@ class KeyStore {
   // selection time and never overwritten by pairing. The `peer` table row
   // is repurposed by pairing to represent the *other* device, so anything
   // that needs to know "who am I" (e.g. the beacon broadcaster advertising
-  // itself, or the Settings "Bu Cihaz" card) must read from here instead.
+  // itself, or the Settings "This Device" card) must read from here instead.
   static const _selfIdKey = 'self_peer_id';
   static const _selfDeviceNameKey = 'self_device_name';
 

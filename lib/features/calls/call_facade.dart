@@ -80,7 +80,7 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
   // the Source's MISSED `call_status` was lost/delayed (socket died, queue
   // never flushed, the user swiped the ringing notification with no dismiss
   // callback wired), the timer auto-converts it to `missed` locally so the
-  // notification isn't frozen on "Çalıyor" forever. Per-call timers, keyed
+  // notification isn't frozen on "ringing" forever. Per-call timers, keyed
   // by call id, cancelled on every terminal transition. Local-only: never
   // sends anything to the Source (the Source's MISSED stays authoritative,
   // and a stray `call_rejected` would risk calling `rejectCall` there).
@@ -430,7 +430,7 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
         // Render the notification from the *current* state (which may now
         // be `missed` after the buffered status above) instead of the
         // immutable local `event` (still `ringing`), so the body shows the
-        // live status, not a stale "Çalıyor".
+        // live status, not a stale "ringing".
         final current = _findCall(id) ?? event;
         await _notifyCall(current);
         // Arm the self-healing watchdog: if the Source's MISSED never
@@ -467,8 +467,8 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
         if (existing.status == 'rejected' && status != 'rejected') break;
         await updateStatus(id, status);
         // Update the existing call notification in place (same id) so it
-        // reflects the live status (Cevaplandı/Cevapsız/Sonlandı) instead
-        // of just sitting there saying "Çalıyor" forever.
+        // reflects the live status (answered/missed/ended) instead of just
+        // sitting there saying "ringing" forever.
         final updated = _findCall(id);
         if (updated != null) await _notifyCall(updated);
         break;
@@ -685,7 +685,7 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
   /// Arms a one-shot watchdog for a newly created `ringing` call. If the
   /// Source's MISSED `call_status` never arrives within the timeout, the
   /// call is locally converted to `missed` and its notification re-rendered
-  /// so it doesn't sit on "Çalıyor" forever. Cancelled on every terminal
+  /// so it doesn't sit on "ringing" forever. Cancelled on every terminal
   /// transition via [_cancelWatchdog].
   void _armWatchdog(String id) {
     _cancelWatchdog(id);

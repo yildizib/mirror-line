@@ -113,17 +113,17 @@ abstract class MessageTypes {
   static const String notificationRemoved = 'notification_removed';
 
   // ---- Pairing handshake ----------------------------------------------
-  // Scanner -> Scanned:  "Ben {deviceName} ({myId}) seninle eşleşmek istiyorum"
+  // Scanner -> Scanned: starts a pairing request from {deviceName} ({myId}).
   static const String pairingRequest = 'pairing_request';
-  // Scanned -> Scanner:  "Eşleşmeyi onayladım, ben {deviceName} ({myId})"
+  // Scanned -> Scanner: accepts pairing as {deviceName} ({myId}).
   static const String pairingAccept = 'pairing_accept';
-  // Scanned -> Scanner:  "Eşleşme reddedildi"
+  // Scanned -> Scanner: rejects pairing.
   static const String pairingReject = 'pairing_reject';
-  // Scanner -> Scanned:  "pairingAccept'i aldım ve kendi tarafımı da
-  // kalıcı olarak kaydettim" -- Scanned, bu ack'i almadan applyPairedPeer
-  // çağırmaz (bkz. authOk/authAck deseni aşağıda). Bunsuz, pairingAccept
-  // ağ üzerinde kaybolursa Scanned kendini eşleşmiş sanır ama Scanner hiç
-  // kaydetmemiş olur -- asimetrik, kendi kendine düzelmeyen bir durum.
+  // Scanner -> Scanned: confirms pairingAccept was received and persisted.
+  // Scanned does not call applyPairedPeer before this acknowledgement (see
+  // the authOk/authAck pattern below). Without it, a lost pairingAccept
+  // leaves Scanned paired while Scanner has no record: an asymmetric state
+  // that cannot self-heal.
   static const String pairingAck = 'pairing_ack';
   // Scanned -> Scanner: local persistence completed successfully.
   static const String pairingComplete = 'pairing_complete';
@@ -133,16 +133,16 @@ abstract class MessageTypes {
   // ---- Connection authentication (challenge-response) -----------------
   // Client -> Server: starts a fresh authenticated connection attempt.
   static const String authHello = 'auth_hello';
-  // Server -> Client:  "Bana kim olduğunu kanıtla" (nonce içerir)
+  // Server -> Client: challenges the client to prove its identity (nonce).
   static const String authChallenge = 'auth_challenge';
-  // Client -> Server:  "İşte imzalı nonce'um"
+  // Client -> Server: returns the signed nonce.
   static const String authResponse = 'auth_response';
-  // Server -> Client:  "Doğrulandı, bağlantı kabul"
+  // Server -> Client: confirms authentication and accepts the connection.
   static const String authOk = 'auth_ok';
-  // Client -> Server:  "authOk'u aldım" -- server ancak bunu alınca
-  // bağlantıyı kurulmuş sayar; aksi halde authOk kaybolursa server yanlışça
-  // "bağlı" görünüp client çoktan vazgeçmiş olabilirdi.
+  // Client -> Server: confirms authOk. The server treats the connection as
+  // established only after this acknowledgement; otherwise a lost authOk can
+  // leave the server connected after the client has already given up.
   static const String authAck = 'auth_ack';
-  // Server -> Client:  "Doğrulanamadı, bağlantı reddedildi"
+  // Server -> Client: rejects an unauthenticated connection.
   static const String authFail = 'auth_fail';
 }

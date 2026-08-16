@@ -93,7 +93,7 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
   // when the connection actually comes back up (see _flushQueue), so if
   // the peer never reconnects a queued sms_status ack would otherwise
   // never get marked either way -- this is a connection-state-independent
-  // backstop so "Gönderiliyor" doesn't linger forever.
+  // backstop so "Sending" doesn't linger forever.
   static const Duration _pendingSmsTimeout = Duration(minutes: 2);
 
   final Logger _logger = Logger();

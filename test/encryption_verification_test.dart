@@ -17,7 +17,7 @@ void main() {
 
   test('sensitive plaintext never appears in raw bytes on the wire', () async {
     final key = CryptoManager.generateKey();
-    const secretBody = 'GIZLI-SIR-cok-ozel-mesaj-icerigi-9d81f3';
+    const secretBody = 'SENSITIVE-SECRET-very-private-message-content-9d81f3';
     const secretNumber = '+905551112233';
 
     // A raw (undecrypting) TCP server, standing in for "an eavesdropper on
@@ -103,7 +103,7 @@ void main() {
 
       final encrypted = await CryptoManager.encrypt(
         key,
-        'hassas telefon numarası: 5551234567',
+        'sensitive phone number: 5551234567',
       );
       final result = await CryptoManager.decrypt(wrongKey, encrypted);
 
@@ -178,7 +178,7 @@ void main() {
 
   test('each encrypted message uses a fresh nonce (no nonce reuse)', () async {
     final key = CryptoManager.generateKey();
-    const plaintext = 'aynı mesaj iki kere şifrelenirse';
+    const plaintext = 'the same message encrypted twice';
 
     final first = await CryptoManager.encrypt(key, plaintext);
     final second = await CryptoManager.encrypt(key, plaintext);
