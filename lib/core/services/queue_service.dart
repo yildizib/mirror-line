@@ -2,6 +2,7 @@ import 'package:mirrorline/core/data/daos/queue_dao.dart';
 import 'package:mirrorline/core/data/models/queue_item.dart';
 import 'package:uuid/uuid.dart';
 import 'package:sqflite/sqflite.dart';
+import 'dart:math';
 
 class QueueService {
   final QueueDao _dao;
@@ -63,7 +64,16 @@ class QueueService {
       await _dao.updateStatus(id, 'dead_letter');
       return true;
     }
-    await _dao.updateRetryCount(id, retryCount + 1);
+    final nextRetryCount = retryCount + 1;
+    final exponentialSeconds = pow(2, retryCount).toInt().clamp(1, 300);
+    final jitterMilliseconds = Random().nextInt(1000);
+    await _dao.updateRetry(
+      id,
+      nextRetryCount,
+      DateTime.now().add(
+        Duration(seconds: exponentialSeconds, milliseconds: jitterMilliseconds),
+      ),
+    );
     return false;
   }
 

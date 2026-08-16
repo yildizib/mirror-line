@@ -1593,50 +1593,21 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
         if (sent) {
           if (item.id != null) await _queue.markSent(item.id!);
         } else {
-          if (item.id != null) await _onQueueItemFailed(item, payload);
+          if (item.id != null) await _onQueueItemFailed(item);
           break;
         }
       } catch (e) {
         _logger.e('Failed to flush queue item ${item.id}: $e');
-        if (item.id != null) await _onQueueItemFailed(item, null);
+        if (item.id != null) await _onQueueItemFailed(item);
       }
     }
   }
 
-  /// Records a failed mirror delivery without changing the authoritative
-  /// telephony outcome of the originating call or SMS.
-  Future<void> _onQueueItemFailed(
-    QueueItem item,
-    Map<String, dynamic>? payload,
-  ) async {
+  /// Records a failed transport attempt without changing domain state.
+  Future<void> _onQueueItemFailed(QueueItem item) async {
     final dropped = await _queue.markFailed(item.id!, item.retryCount);
-    if (!dropped) return;
-
-    final decodedPayload = payload ?? _tryDecode(item.payload);
-    final entryId = decodedPayload?['id'] as String?;
-    if (entryId == null) return;
-
-    switch (item.type) {
-      case MessageTypes.smsIncoming:
-      case MessageTypes.smsOutgoing:
-      case MessageTypes.smsStatus:
-        await _ref
-            .read(smsFacadeProvider.notifier)
-            .updateDeliveryStatus(entryId, 'failed');
-        break;
-      case MessageTypes.callIncoming:
-        await _ref
-            .read(callFacadeProvider.notifier)
-            .updateDeliveryStatus(entryId, 'failed');
-        break;
-    }
-  }
-
-  Map<String, dynamic>? _tryDecode(String payload) {
-    try {
-      return jsonDecode(payload) as Map<String, dynamic>;
-    } catch (_) {
-      return null;
+    if (dropped) {
+      _logger.w('Outbox item ${item.messageId} moved to dead letter.');
     }
   }
 

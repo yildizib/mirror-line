@@ -141,4 +141,23 @@ void main() {
     );
     expect(rows.single['status'], 'completed');
   });
+
+  test('retry scheduling uses exponential delay with jitter', () async {
+    final item = await service.enqueue(
+      'sms',
+      '{}',
+      destinationPeerId: 'peer-a',
+    );
+    final before = DateTime.now().millisecondsSinceEpoch;
+
+    await service.markFailed(item.id!, 0);
+
+    final rows = await db.query(
+      'outbox',
+      where: 'id = ?',
+      whereArgs: [item.id],
+    );
+    expect(rows.single['attempt_count'], 1);
+    expect(rows.single['next_attempt_at'] as int, greaterThan(before + 900));
+  });
 }

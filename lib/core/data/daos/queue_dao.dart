@@ -47,6 +47,23 @@ class QueueDao {
     );
   }
 
+  Future<void> updateRetry(
+    int id,
+    int retryCount,
+    DateTime nextAttemptAt,
+  ) async {
+    final db = await _database;
+    await db.update(
+      'outbox',
+      {
+        'attempt_count': retryCount,
+        'next_attempt_at': nextAttemptAt.millisecondsSinceEpoch,
+      },
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
   Future<void> updateStatus(int id, String status) async {
     final db = await _database;
     await db.update(
