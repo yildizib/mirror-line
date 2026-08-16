@@ -118,4 +118,27 @@ void main() {
     expect(await db.query('sms_message'), isEmpty);
     expect(await db.query('outbox'), isEmpty);
   });
+
+  test('lost and duplicate ACKs preserve idempotent retry identity', () async {
+    final item = await service.enqueue(
+      'sms',
+      '{}',
+      destinationPeerId: 'peer-a',
+      messageId: 'stable-message',
+    );
+    await service.markSent(item.id!);
+
+    final retry = await service.pendingItems('peer-a');
+    expect(retry.single.messageId, 'stable-message');
+    expect(retry.single.status, 'sent');
+
+    await service.markAcknowledged('stable-message');
+    await service.markAcknowledged('stable-message');
+    final rows = await db.query(
+      'outbox',
+      where: 'id = ?',
+      whereArgs: [item.id],
+    );
+    expect(rows.single['status'], 'completed');
+  });
 }
