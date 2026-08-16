@@ -214,14 +214,31 @@ class TelephonyChannel {
     }
   }
 
-  static Future<bool> rejectCall() async {
+  static Future<bool> rejectCall({required String operationId}) async {
     try {
-      final result = await _channel.invokeMethod<bool>('rejectCall');
+      final result = await _channel.invokeMethod<bool>('rejectCall', {
+        'operationId': operationId,
+      });
       return result ?? false;
     } on MissingPluginException {
       return false;
     } on PlatformException catch (e) {
       throw TelephonyChannelException.fromPlatform('rejectCall', e);
+    }
+  }
+
+  /// Whether Android durably accepted this call rejection. Recovery uses this
+  /// marker instead of risking an end request against a later call.
+  static Future<bool> hasCallRejection(String operationId) async {
+    try {
+      return await _channel.invokeMethod<bool>('hasCallRejection', {
+            'operationId': operationId,
+          }) ??
+          false;
+    } on MissingPluginException {
+      return false;
+    } on PlatformException catch (e) {
+      throw TelephonyChannelException.fromPlatform('hasCallRejection', e);
     }
   }
 

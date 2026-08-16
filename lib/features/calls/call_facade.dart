@@ -47,7 +47,8 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
   final bool Function() _isSource;
   final SendOrQueue _sendOrQueue;
   final ShowNotification _notify;
-  final Future<bool> Function() _rejectCall;
+  final Future<bool> Function({required String operationId}) _rejectCall;
+  final Future<bool> Function(String operationId) _hasCallRejection;
   late final Future<void> _initialized;
 
   final Map<String, String> _callIdByNativeSession = {};
@@ -92,12 +93,15 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
     required this._isSource,
     required this._sendOrQueue,
     required this._notify,
-    Future<bool> Function()? rejectCall,
+    Future<bool> Function({required String operationId})? rejectCall,
+    Future<bool> Function(String operationId)? hasCallRejection,
     CallEventDao? dao,
     PlatformOperationDao? operations,
   }) : _dao = dao ?? CallEventDao(),
        _operations = operations ?? PlatformOperationDao(),
        _rejectCall = rejectCall ?? TelephonyChannel.rejectCall,
+       _hasCallRejection =
+           hasCallRejection ?? TelephonyChannel.hasCallRejection,
        super([]) {
     _initialized = load();
   }
@@ -599,11 +603,11 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
       return false;
     }
     try {
-      final rejected = await _rejectCall();
+      final rejected = await _rejectCall(operationId: operationId);
       if (!await _operations.transition(
         operationId,
         from: ['ready'],
-        to: rejected ? 'succeeded' : 'failed',
+        to: rejected ? 'submitted' : 'failed',
       )) {
         return false;
       }
@@ -616,6 +620,11 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
         'id': callId,
         'status': 'rejected',
       });
+      await _operations.transition(
+        operationId,
+        from: ['submitted'],
+        to: 'succeeded',
+      );
       return true;
     } catch (error, stackTrace) {
       // A new call could replace this one after the platform boundary. Call
@@ -631,7 +640,19 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
   Future<void> recoverCallRejects() async {
     if (!_isSource()) return;
     await _operations.recoverExecuting(kind: 'call_reject');
-    await _operations.failReady(kind: 'call_reject');
+    final uncertain = await _operations.list(
+      kind: 'call_reject',
+      states: ['ready'],
+    );
+    for (final operation in uncertain) {
+      // Android writes this only after accepting endCall. Do not replay local
+      // side effects: its terminal call event remains the source of truth.
+      await _operations.transition(
+        operation.id,
+        from: ['ready'],
+        to: await _hasCallRejection(operation.id) ? 'submitted' : 'failed',
+      );
+    }
     final pending = await _operations.list(
       kind: 'call_reject',
       states: ['received'],

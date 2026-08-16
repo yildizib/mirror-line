@@ -167,7 +167,17 @@ object MirrorLineChannel {
                             SmsResultStore(appContext).hasSubmission(operationId),
                     )
                 }
-                "rejectCall" -> result.success(rejectCall(appContext))
+                "hasCallRejection" -> {
+                    val operationId = call.argument<String>("operationId") ?: ""
+                    result.success(
+                        operationId.isNotEmpty() &&
+                            CallRejectionStore(appContext).hasRejection(operationId),
+                    )
+                }
+                "rejectCall" -> {
+                    val operationId = call.argument<String>("operationId") ?: ""
+                    result.success(rejectCall(appContext, operationId))
+                }
                 "sendSms" -> {
                     val address = call.argument<String>("address") ?: ""
                     val body = call.argument<String>("body") ?: ""
@@ -457,7 +467,8 @@ object MirrorLineChannel {
         "success" to result.success,
     )
 
-    private fun rejectCall(context: Context): Boolean {
+    private fun rejectCall(context: Context, operationId: String): Boolean {
+        if (operationId.isEmpty()) return false
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.ANSWER_PHONE_CALLS)
             != PackageManager.PERMISSION_GRANTED
         ) {
@@ -465,11 +476,13 @@ object MirrorLineChannel {
         }
         return try {
             val telecomManager = context.getSystemService(TelecomManager::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            val rejected = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 telecomManager.endCall()
             } else {
                 rejectCallViaReflection(context)
             }
+            if (rejected) CallRejectionStore(context).record(operationId)
+            rejected
         } catch (e: Exception) {
             false
         }

@@ -49,7 +49,8 @@ void main() {
 
   ProviderContainer buildContainer({
     bool Function()? isSource,
-    Future<bool> Function()? rejectCall,
+    Future<bool> Function({required String operationId})? rejectCall,
+    Future<bool> Function(String operationId)? hasCallRejection,
     Future<bool> Function(String, Map<String, dynamic>)? sendOrQueue,
   }) {
     final container = ProviderContainer(
@@ -68,6 +69,7 @@ void main() {
                   NotificationPayload? payload,
                 }) async {},
             rejectCall: rejectCall,
+            hasCallRejection: hasCallRejection,
           );
         }),
       ],
@@ -115,7 +117,7 @@ void main() {
       final sentTypes = <String>[];
       final container = buildContainer(
         isSource: () => true,
-        rejectCall: () async => false,
+        rejectCall: ({required operationId}) async => false,
         sendOrQueue: (type, payload) async {
           sentTypes.add(type);
           return true;
@@ -156,7 +158,7 @@ void main() {
       var rejections = 0;
       final container = buildContainer(
         isSource: () => true,
-        rejectCall: () async {
+        rejectCall: ({required operationId}) async {
           rejections++;
           return true;
         },
@@ -196,7 +198,7 @@ void main() {
       var rejections = 0;
       final container = buildContainer(
         isSource: () => true,
-        rejectCall: () async {
+        rejectCall: ({required operationId}) async {
           rejections++;
           return true;
         },
@@ -230,6 +232,90 @@ void main() {
         await PlatformOperationDao().state('uncertain-old-call'),
         'failed',
       );
+    },
+  );
+
+  test(
+    'recovery records accepted rejection without replaying its side effects',
+    () async {
+      var nativeAccepted = false;
+      var rejections = 0;
+      final now = DateTime(2025, 1, 1, 12);
+      final firstContainer = buildContainer(
+        isSource: () => true,
+        rejectCall: ({required operationId}) async {
+          nativeAccepted = true;
+          // Model a process death after Android accepts endCall but before
+          // Dart receives the channel result and persists its terminal state.
+          throw StateError('lost native reply');
+        },
+        hasCallRejection: (operationId) async => nativeAccepted,
+      );
+      final firstFacade = firstContainer.read(callFacadeProvider.notifier);
+      await firstFacade.handleNativeEvent(
+        {
+          'state': 'RINGING',
+          'callSessionId': 'old-session',
+          'number': '+15555550100',
+        },
+        id: 'old-call',
+        now: now,
+      );
+      await firstFacade.handleIncomingMessage(
+        MessageTypes.callRejected,
+        {'id': 'old-call'},
+        MirrorMessage(
+          type: MessageTypes.callRejected,
+          id: 'accepted-command',
+          timestamp: now.millisecondsSinceEpoch,
+          payload: '',
+        ),
+        now,
+      );
+      expect(await PlatformOperationDao().state('accepted-command'), 'ready');
+      firstContainer.dispose();
+
+      final sentTypes = <String>[];
+      final secondContainer = buildContainer(
+        isSource: () => true,
+        rejectCall: ({required operationId}) async {
+          rejections++;
+          return true;
+        },
+        hasCallRejection: (operationId) async => nativeAccepted,
+        sendOrQueue: (type, payload) async {
+          sentTypes.add(type);
+          return true;
+        },
+      );
+      final secondFacade = secondContainer.read(callFacadeProvider.notifier);
+      await secondFacade.handleNativeEvent(
+        {
+          'state': 'RINGING',
+          'callSessionId': 'new-session',
+          'number': '+15555550101',
+        },
+        id: 'new-call',
+        now: now.add(const Duration(seconds: 1)),
+      );
+      sentTypes.clear();
+
+      await secondFacade.recoverCallRejects();
+
+      expect(rejections, 0);
+      expect(
+        await PlatformOperationDao().state('accepted-command'),
+        'submitted',
+      );
+      expect(
+        secondFacade.state.singleWhere((call) => call.id == 'old-call').status,
+        'ringing',
+      );
+      expect(
+        secondFacade.state.singleWhere((call) => call.id == 'new-call').status,
+        'ringing',
+      );
+      expect(sentTypes, isEmpty);
     },
   );
 
@@ -329,7 +415,7 @@ void main() {
     var nativeRejectCalls = 0;
     final container = buildContainer(
       isSource: () => true,
-      rejectCall: () async {
+      rejectCall: ({required operationId}) async {
         nativeRejectCalls++;
         return true;
       },
