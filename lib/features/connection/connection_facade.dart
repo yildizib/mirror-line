@@ -6,6 +6,8 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logger/logger.dart';
 import 'package:mirrorline/core/data/daos/known_network_dao.dart';
+import 'package:mirrorline/core/data/daos/inbox_dao.dart';
+import 'package:mirrorline/core/data/models/inbox_record.dart';
 import 'package:mirrorline/core/data/daos/peer_dao.dart';
 import 'package:mirrorline/core/data/models/peer.dart';
 import 'package:mirrorline/core/data/models/queue_item.dart';
@@ -101,6 +103,7 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
   final PeerDao _peerDao = PeerDao();
   final KnownNetworkDao _knownNetworkDao = KnownNetworkDao();
   final QueueService _queue = QueueService();
+  final InboxDao _inbox = InboxDao();
   final BeaconBroadcaster _broadcaster = BeaconBroadcaster();
   // Used only by _scanSubnetsWithProgress (force-reconnect's manual scan);
   // the periodic fallback scan's own scanner now lives inside
@@ -1274,6 +1277,23 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
       return;
     }
     _lastAcceptedMessageTimestamp = message.timestamp;
+
+    final receivedAt = DateTime.now();
+    final sourcePeerId = message.sourcePeerId;
+    if (sourcePeerId == null) return;
+    final isNewMessage = await _inbox.insertIfAbsent(
+      InboxRecord(
+        sourcePeerId: sourcePeerId,
+        messageId: message.id,
+        type: message.type,
+        receivedAt: receivedAt,
+        updatedAt: receivedAt,
+      ),
+    );
+    if (!isNewMessage) {
+      _logger.i('Skipping duplicate Inbox message: ${message.id}');
+      return;
+    }
 
     final payload = jsonDecode(decrypted) as Map<String, dynamic>;
     final now = DateTime.now();
