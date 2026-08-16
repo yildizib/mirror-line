@@ -142,7 +142,24 @@ class SocketManager {
       _server = await ServerSocket.bind(InternetAddress.anyIPv4, port);
       _logger.i('Socket server listening on port $port');
 
-      _server!.listen((socket) {
+      _server!.listen((socket) async {
+        final accept = onAcceptConnection;
+        if (accept != null) {
+          try {
+            if (!await accept(socket.remoteAddress.address)) {
+              _logger.w(
+                'Rejected incoming connection from '
+                '${socket.remoteAddress.address}.',
+              );
+              await socket.close();
+              return;
+            }
+          } catch (e) {
+            _logger.e('Incoming connection policy failed: $e');
+            socket.destroy();
+            return;
+          }
+        }
         final generation = ++_connectGeneration;
         final previous = _session;
         if (previous != null) {

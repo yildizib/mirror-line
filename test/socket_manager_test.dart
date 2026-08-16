@@ -661,4 +661,30 @@ void main() {
       await server.disconnect();
     },
   );
+
+  test(
+    'incoming connection policy rejects before authentication starts',
+    () async {
+      final key = CryptoManager.generateKey();
+      final acceptedAddresses = <String>[];
+      final server = SocketManager(
+        onMessage: (_) {},
+        onConnected: () {},
+        onDisconnected: () {},
+        onAcceptConnection: (address) async {
+          acceptedAddresses.add(address);
+          return false;
+        },
+      );
+      await server.startServer(45915, key);
+
+      final socket = await Socket.connect('127.0.0.1', 45915);
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+
+      expect(acceptedAddresses, ['127.0.0.1']);
+      expect(server.isConnected, isFalse);
+      await socket.close();
+      await server.disconnect();
+    },
+  );
 }
