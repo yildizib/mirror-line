@@ -9,6 +9,10 @@ class CallEventDao {
 
   Future<void> insert(CallEvent event) async {
     final db = await _database;
+    await insertOn(db, event);
+  }
+
+  Future<void> insertOn(DatabaseExecutor db, CallEvent event) async {
     await db.insert(
       'call_event',
       event.toJson(),

@@ -10,6 +10,7 @@ import 'package:mirrorline/core/services/notification_service.dart';
 import 'package:mirrorline/core/telephony/telephony_channel.dart';
 import 'package:mirrorline/features/connection/connection_facade.dart';
 import 'package:uuid/uuid.dart';
+import 'package:sqflite/sqflite.dart';
 
 final callFacadeProvider = StateNotifierProvider<CallFacade, List<CallEvent>>((
   ref,
@@ -128,7 +129,18 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
   /// repeat from ever showing up as two list entries.
   Future<void> add(CallEvent event) async {
     await initialized;
-    await _dao.insert(event);
+    await _persistEvent(event);
+  }
+
+  Future<void> _persistEvent(
+    CallEvent event, {
+    DatabaseExecutor? transaction,
+  }) async {
+    if (transaction == null) {
+      await _dao.insert(event);
+    } else {
+      await _dao.insertOn(transaction, event);
+    }
     final exists = state.any((e) => e.id == event.id);
     state = exists
         ? state.map((e) => e.id == event.id ? event : e).toList()
@@ -358,8 +370,9 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
     String type,
     Map<String, dynamic> payload,
     MirrorMessage message,
-    DateTime now,
-  ) async {
+    DateTime now, {
+    DatabaseExecutor? transaction,
+  }) async {
     await initialized;
     switch (type) {
       case MessageTypes.callIncoming:
@@ -384,7 +397,7 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
           status: 'ringing',
           createdAt: now,
         );
-        await add(event);
+        await _persistEvent(event, transaction: transaction);
         // A `call_status` peer message may have arrived before this
         // `call_incoming` (re-entrancy on the Source side, or queue
         // reorder). If so, it was buffered in `_pendingCallStatuses` --

@@ -1278,26 +1278,64 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
     }
     _lastAcceptedMessageTimestamp = message.timestamp;
 
-    final receivedAt = DateTime.now();
+    final payload = jsonDecode(decrypted) as Map<String, dynamic>;
+    final now = DateTime.now();
     final sourcePeerId = message.sourcePeerId;
     if (sourcePeerId == null) return;
-    final isNewMessage = await _inbox.insertIfAbsent(
-      InboxRecord(
-        sourcePeerId: sourcePeerId,
-        messageId: message.id,
-        type: message.type,
-        receivedAt: receivedAt,
-        updatedAt: receivedAt,
-      ),
+    final receivedAt = DateTime.now();
+    final record = InboxRecord(
+      sourcePeerId: sourcePeerId,
+      messageId: message.id,
+      type: message.type,
+      receivedAt: receivedAt,
+      updatedAt: receivedAt,
     );
+    final isDomainMessage = {
+      MessageTypes.callIncoming,
+      MessageTypes.callRejected,
+      MessageTypes.callStatus,
+      MessageTypes.callInfo,
+      MessageTypes.smsIncoming,
+      MessageTypes.smsOutgoing,
+      MessageTypes.smsStatus,
+      MessageTypes.notificationMirrored,
+      MessageTypes.notificationRemoved,
+    }.contains(message.type);
+
+    if (isDomainMessage) {
+      var isNewMessage = false;
+      final database = await AppDatabase.instance.database;
+      await database.transaction((transaction) async {
+        isNewMessage = await _inbox.insertIfAbsentOn(transaction, record);
+        if (isNewMessage) {
+          await _dispatchIncomingMessage(
+            message,
+            payload,
+            now,
+            transaction: transaction,
+          );
+        }
+      });
+      if (!isNewMessage) {
+        _logger.i('Skipping duplicate Inbox message: ${message.id}');
+      }
+      return;
+    }
+
+    final isNewMessage = await _inbox.insertIfAbsent(record);
     if (!isNewMessage) {
       _logger.i('Skipping duplicate Inbox message: ${message.id}');
       return;
     }
+    await _dispatchIncomingMessage(message, payload, now);
+  }
 
-    final payload = jsonDecode(decrypted) as Map<String, dynamic>;
-    final now = DateTime.now();
-
+  Future<void> _dispatchIncomingMessage(
+    MirrorMessage message,
+    Map<String, dynamic> payload,
+    DateTime now, {
+    Transaction? transaction,
+  }) async {
     switch (message.type) {
       case MessageTypes.callIncoming:
       case MessageTypes.callRejected:
@@ -1305,7 +1343,13 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
       case MessageTypes.callInfo:
         await _ref
             .read(callFacadeProvider.notifier)
-            .handleIncomingMessage(message.type, payload, message, now);
+            .handleIncomingMessage(
+              message.type,
+              payload,
+              message,
+              now,
+              transaction: transaction,
+            );
         break;
 
       case MessageTypes.smsIncoming:
@@ -1313,7 +1357,13 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
       case MessageTypes.smsStatus:
         await _ref
             .read(smsFacadeProvider.notifier)
-            .handleIncomingMessage(message.type, payload, message, now);
+            .handleIncomingMessage(
+              message.type,
+              payload,
+              message,
+              now,
+              transaction: transaction,
+            );
         break;
 
       case MessageTypes.ack:
@@ -1324,7 +1374,13 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
       case MessageTypes.notificationRemoved:
         await _ref
             .read(notificationFacadeProvider.notifier)
-            .handleIncomingMessage(message.type, payload, message, now);
+            .handleIncomingMessage(
+              message.type,
+              payload,
+              message,
+              now,
+              transaction: transaction,
+            );
         break;
 
       case MessageTypes.pairingRequest:

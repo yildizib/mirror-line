@@ -8,6 +8,7 @@ import 'package:mirrorline/core/services/stable_notification_id.dart';
 import 'package:mirrorline/core/services/watched_apps_service.dart';
 import 'package:mirrorline/features/connection/connection_facade.dart';
 import 'package:uuid/uuid.dart';
+import 'package:sqflite/sqflite.dart';
 
 final notificationFacadeProvider =
     StateNotifierProvider<NotificationFacade, List<NotificationEvent>>((ref) {
@@ -72,7 +73,18 @@ class NotificationFacade extends StateNotifier<List<NotificationEvent>> {
 
   Future<void> add(NotificationEvent event) async {
     await initialized;
-    await _dao.insert(event);
+    await _persistEvent(event);
+  }
+
+  Future<void> _persistEvent(
+    NotificationEvent event, {
+    DatabaseExecutor? transaction,
+  }) async {
+    if (transaction == null) {
+      await _dao.insert(event);
+    } else {
+      await _dao.insertOn(transaction, event);
+    }
     final exists = state.any((e) => e.id == event.id);
     state = exists
         ? state.map((e) => e.id == event.id ? event : e).toList()
@@ -227,8 +239,9 @@ class NotificationFacade extends StateNotifier<List<NotificationEvent>> {
     String type,
     Map<String, dynamic> payload,
     MirrorMessage message,
-    DateTime now,
-  ) async {
+    DateTime now, {
+    DatabaseExecutor? transaction,
+  }) async {
     await initialized;
     switch (type) {
       case MessageTypes.notificationMirrored:
@@ -253,7 +266,7 @@ class NotificationFacade extends StateNotifier<List<NotificationEvent>> {
           ),
           createdAt: now,
         );
-        await add(event);
+        await _persistEvent(event, transaction: transaction);
         await _notify(
           id: stableNotificationId(
             'mirrored_notification',

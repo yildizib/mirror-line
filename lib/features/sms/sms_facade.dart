@@ -8,6 +8,7 @@ import 'package:mirrorline/core/services/notification_service.dart';
 import 'package:mirrorline/core/telephony/telephony_channel.dart';
 import 'package:mirrorline/features/connection/connection_facade.dart';
 import 'package:uuid/uuid.dart';
+import 'package:sqflite/sqflite.dart';
 
 final smsFacadeProvider = StateNotifierProvider<SmsFacade, List<SmsMessage>>((
   ref,
@@ -120,11 +121,22 @@ class SmsFacade extends StateNotifier<List<SmsMessage>> {
   /// same message).
   Future<void> add(SmsMessage message) async {
     await initialized;
+    await _persistMessage(message);
+  }
+
+  Future<void> _persistMessage(
+    SmsMessage message, {
+    DatabaseExecutor? transaction,
+  }) async {
     final pendingStatus = _pendingStatuses.remove(message.id);
     final effectiveMessage = pendingStatus == null
         ? message
         : message.copyWith(status: pendingStatus);
-    await _dao.insert(effectiveMessage);
+    if (transaction == null) {
+      await _dao.insert(effectiveMessage);
+    } else {
+      await _dao.insertOn(transaction, effectiveMessage);
+    }
     final exists = state.any((m) => m.id == message.id);
     state = exists
         ? state.map((m) => m.id == message.id ? effectiveMessage : m).toList()
@@ -258,8 +270,9 @@ class SmsFacade extends StateNotifier<List<SmsMessage>> {
     String type,
     Map<String, dynamic> payload,
     MirrorMessage message,
-    DateTime now,
-  ) async {
+    DateTime now, {
+    DatabaseExecutor? transaction,
+  }) async {
     await initialized;
     switch (type) {
       case MessageTypes.smsIncoming:
@@ -285,7 +298,7 @@ class SmsFacade extends StateNotifier<List<SmsMessage>> {
           ),
           createdAt: now,
         );
-        await add(smsEvent);
+        await _persistMessage(smsEvent, transaction: transaction);
         await _notify(
           id: int.tryParse(id) ?? 2,
           title: smsEvent.displayName(appL10n(_ref)),
@@ -306,7 +319,7 @@ class SmsFacade extends StateNotifier<List<SmsMessage>> {
             _logger.e('SMS send failed: $e');
             status = 'failed';
           }
-          await add(
+          await _persistMessage(
             SmsMessage(
               id: id,
               threadId: payload['thread_id'] as String? ?? '',
@@ -321,6 +334,7 @@ class SmsFacade extends StateNotifier<List<SmsMessage>> {
               ),
               createdAt: now,
             ),
+            transaction: transaction,
           );
           // Queued (not fire-and-forget): if the connection drops between
           // sending the SMS and acking it, a direct socket write would be

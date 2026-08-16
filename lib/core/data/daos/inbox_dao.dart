@@ -16,6 +16,10 @@ class InboxDao {
 
   Future<bool> insertIfAbsent(InboxRecord record) async {
     final db = await _database;
+    return insertIfAbsentOn(db, record);
+  }
+
+  Future<bool> insertIfAbsentOn(DatabaseExecutor db, InboxRecord record) async {
     final inserted = await db.insert(
       'inbox',
       record.toJson(),

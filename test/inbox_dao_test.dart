@@ -59,4 +59,35 @@ void main() {
     expect(await dao.deleteOlderThan(DateTime(2027)), 1);
     expect(await dao.get('peer-a', 'message-a'), isNull);
   });
+
+  test('Inbox and domain persistence roll back together', () async {
+    final record = InboxRecord(
+      sourcePeerId: 'peer-a',
+      messageId: 'message-a',
+      type: 'call',
+      receivedAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+    );
+
+    expect(
+      () => db.transaction((transaction) async {
+        await transaction.insert('call_event', {
+          'id': 'call-transaction',
+          'direction': 'incoming',
+          'number': '+1',
+          'contact_name': '',
+          'timestamp': 1,
+          'encrypted': '',
+          'status': 'ringing',
+          'delivery_status': 'none',
+          'created_at': 1,
+        });
+        await dao.insertIfAbsentOn(transaction, record);
+        throw StateError('rollback');
+      }),
+      throwsStateError,
+    );
+    expect(await db.query('call_event'), isEmpty);
+    expect(await db.query('inbox'), isEmpty);
+  });
 }
