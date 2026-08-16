@@ -9,6 +9,8 @@
 // seam, so these tests exercise the same invariants at the algorithm level
 // or through the real, already-testable ReconnectScheduler/
 // PeerDiscoveryCoordinator classes it delegates to.
+import 'dart:convert';
+
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logger/logger.dart';
@@ -32,11 +34,29 @@ void main() {
       ip: '192.0.2.10',
       port: 45678,
       key: 'unused',
-      publicKey: 'AQID',
+      publicKey: base64Encode(List<int>.filled(32, 7)),
       createdAt: DateTime(2026),
     );
 
-    test('rejects a paired peer when the local identity is missing', () {
+    test('accepts only a complete paired authentication identity', () async {
+      final localKeyPair = await Ed25519().newKeyPair();
+
+      expect(
+        ConnectionFacade.hasValidPairedIdentity(
+          peer: peer,
+          sharedKey: SecretKey(const [1]),
+          localKeyPair: localKeyPair,
+        ),
+        isTrue,
+      );
+      expect(
+        ConnectionFacade.hasValidPairedIdentity(
+          peer: peer,
+          sharedKey: null,
+          localKeyPair: localKeyPair,
+        ),
+        isFalse,
+      );
       expect(
         ConnectionFacade.hasValidPairedIdentity(
           peer: peer,
@@ -47,12 +67,13 @@ void main() {
       );
     });
 
-    test('rejects a paired peer with a corrupt public identity', () async {
+    test('rejects corrupt persisted peer identity before auth setup', () async {
       final localKeyPair = await Ed25519().newKeyPair();
+      final corruptPeer = peer.copyWith(publicKey: 'AQID');
 
       expect(
         ConnectionFacade.hasValidPairedIdentity(
-          peer: peer,
+          peer: corruptPeer,
           sharedKey: SecretKey(const [1]),
           localKeyPair: localKeyPair,
         ),

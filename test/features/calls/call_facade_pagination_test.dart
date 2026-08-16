@@ -236,10 +236,11 @@ void main() {
   );
 
   test(
-    'recovery records accepted rejection without replaying its side effects',
+    'restart reconciles accepted rejection without another native call or status',
     () async {
       var nativeAccepted = false;
       var rejections = 0;
+      final reconciliationQueries = <String>[];
       final now = DateTime(2025, 1, 1, 12);
       final firstContainer = buildContainer(
         isSource: () => true,
@@ -282,7 +283,10 @@ void main() {
           rejections++;
           return true;
         },
-        hasCallRejection: (operationId) async => nativeAccepted,
+        hasCallRejection: (operationId) async {
+          reconciliationQueries.add(operationId);
+          return nativeAccepted;
+        },
         sendOrQueue: (type, payload) async {
           sentTypes.add(type);
           return true;
@@ -303,6 +307,7 @@ void main() {
       await secondFacade.recoverCallRejects();
 
       expect(rejections, 0);
+      expect(reconciliationQueries, ['accepted-command']);
       expect(
         await PlatformOperationDao().state('accepted-command'),
         'submitted',
