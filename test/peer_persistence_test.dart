@@ -274,4 +274,45 @@ void main() {
     facade.dispose();
     await db.close();
   });
+
+  test('deleting a peer quarantines pending and sent Outbox rows', () async {
+    final db = await databaseFactory.openDatabase(
+      inMemoryDatabasePath,
+      options: OpenDatabaseOptions(
+        version: AppDatabase.schemaVersion,
+        onCreate: AppDatabase.instance.createTables,
+      ),
+    );
+    final dao = PeerDao.forDatabase(db);
+    final peer = Peer(
+      id: 'peer-to-delete',
+      deviceName: 'Paired Device',
+      role: 'main',
+      ip: '192.168.1.2',
+      port: 45678,
+      key: 'key',
+      publicKey: 'public-key',
+      createdAt: DateTime.now(),
+    );
+    await dao.insert(peer);
+    for (final status in ['pending', 'sent', 'completed']) {
+      await db.insert('outbox', {
+        'message_id': 'message-$status',
+        'destination_peer_id': peer.id,
+        'type': 'sms',
+        'payload': '{}',
+        'status': status,
+        'attempt_count': 0,
+        'created_at': 1,
+      });
+    }
+
+    await dao.delete(peer.id);
+
+    final rows = await db.query('outbox', orderBy: 'message_id');
+    expect(rows[0]['status'], 'completed');
+    expect(rows[1]['status'], 'dead_letter');
+    expect(rows[2]['status'], 'dead_letter');
+    await db.close();
+  });
 }

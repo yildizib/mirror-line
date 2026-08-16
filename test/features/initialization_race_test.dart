@@ -75,6 +75,7 @@ NotificationEvent _notification(String id) {
   return NotificationEvent(
     id: id,
     nativeId: 'native-$id',
+    sourcePeerId: NotificationEvent.localSourcePeerId,
     packageName: 'com.example.chat',
     appName: 'Chat',
     title: 'Message',

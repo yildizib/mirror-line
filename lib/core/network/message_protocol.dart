@@ -67,6 +67,21 @@ class MirrorMessage {
     'timestamp': timestamp,
   });
 
+  /// Stable context signed during authentication. It binds the fresh server
+  /// challenge to both paired identities and this specific connection.
+  static String authTranscript({
+    required String sessionId,
+    required String serverPeerId,
+    required String clientPeerId,
+    required String nonce,
+  }) => jsonEncode({
+    'protocolVersion': currentProtocolVersion,
+    'sessionId': sessionId,
+    'serverPeerId': serverPeerId,
+    'clientPeerId': clientPeerId,
+    'nonce': nonce,
+  });
+
   String encode() => jsonEncode(toJson());
 
   static MirrorMessage decode(String raw) =>

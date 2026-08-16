@@ -18,7 +18,6 @@ import 'package:mirrorline/core/network/message_protocol.dart';
 import 'package:mirrorline/core/network/peer_discovery.dart';
 import 'package:mirrorline/core/network/socket_manager.dart';
 import 'package:mirrorline/core/network/subnet_scanner.dart';
-import 'package:mirrorline/core/security/crypto_manager.dart';
 import 'package:mirrorline/core/security/key_store.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:mirrorline/core/services/connectivity_service.dart';
@@ -148,15 +147,6 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
   // fallback-scan and network-changed paths, not just timer-driven
   // reconnects, so the two must not be conflated.
   int _connectGeneration = 0;
-  // Guards against an active on-path attacker (e.g. ARP spoofing into an
-  // already-authenticated TCP session) replaying a previously captured,
-  // genuinely valid encrypted message to make the app act on it a second
-  // time -- GCM's auth tag proves *who* encrypted a message but not that
-  // it's fresh. Reset per connection (see onConnected below); a brand new
-  // connection already requires a fresh signed challenge-response, so an
-  // attacker without the identity key can't replay their way into a new
-  // session -- this only needs to cover replay within one live session.
-  int? _lastAcceptedMessageTimestamp;
   final OutboxFlushGate _flushGate = OutboxFlushGate();
   bool _disposed = false;
   int _lifecycleGeneration = 0;
@@ -606,7 +596,6 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
         _peerDiscoveryCoordinator.markConnected();
         _cancelActiveScan();
         _peerDiscoveryCoordinator.cancelActiveScan();
-        _lastAcceptedMessageTimestamp = null;
         _ref.read(connectionStatusProvider.notifier).clearError();
         _logger.i('Socket connected and authenticated!');
         // Source: the peer (Main) connected to us. Record its remote
@@ -1261,38 +1250,15 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
     SocketManager socketManager,
     MirrorMessage message,
   ) async {
-    final key = _key;
     final sessionGeneration = socketManager.sessionGeneration;
-    if (key == null || sessionGeneration == null) return;
+    if (sessionGeneration == null) return;
 
-    final decrypted = await CryptoManager.decrypt(
-      key,
-      message.payload,
-      aad: message.hasAuthenticatedEnvelope
-          ? utf8.encode(message.authenticatedData())
-          : const [],
-    );
+    final decrypted = await socketManager.decryptMessage(message);
     if (!socketManager.isSessionCurrent(sessionGeneration)) return;
     if (decrypted == null) {
       _logger.e('Decryption failed for message: ${message.id}');
       return;
     }
-
-    // Reject a message with a timestamp at or before the last one we
-    // accepted on this connection -- a genuinely valid (correctly
-    // decrypted) message can still be a replayed copy of a real one an
-    // on-path attacker captured earlier. Strictly-less-than (not <=) so a
-    // legitimate burst of messages constructed within the same
-    // millisecond -- e.g. _flushQueue draining several queued items --
-    // is never mistaken for a replay.
-    final lastAccepted = _lastAcceptedMessageTimestamp;
-    if (lastAccepted != null && message.timestamp < lastAccepted) {
-      _logger.w(
-        'Rejected likely-replayed message: ${message.id} (type=${message.type})',
-      );
-      return;
-    }
-    _lastAcceptedMessageTimestamp = message.timestamp;
 
     final payload = jsonDecode(decrypted) as Map<String, dynamic>;
     final now = DateTime.now();
@@ -1334,7 +1300,8 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
       });
       if (!isNewMessage) {
         _logger.i('Skipping duplicate Inbox message: ${message.id}');
-      } else if (message.type == MessageTypes.smsOutgoing) {
+      }
+      if (message.type == MessageTypes.smsOutgoing) {
         await _ref
             .read(smsFacadeProvider.notifier)
             .executeOutgoingSms(payload, message);
@@ -1404,7 +1371,10 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
         final acknowledgedId = payload['message_id'] as String?;
         final result = payload['result'] as String?;
         if (acknowledgedId != null && result == 'committed') {
-          await _queue.markAcknowledged(acknowledgedId);
+          await _queue.markAcknowledged(
+            acknowledgedId,
+            destinationPeerId: _peer?.id,
+          );
           _logger.i('Committed ACK received: $acknowledgedId');
         }
         break;

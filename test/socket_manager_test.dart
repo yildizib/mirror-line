@@ -218,6 +218,9 @@ void main() {
     final serverPub = base64Encode(
       (await serverKeyPair.extractPublicKey()).bytes,
     );
+    final clientPub = base64Encode(
+      (await clientKeyPair.extractPublicKey()).bytes,
+    );
 
     // The first server accepts TCP but never starts authentication.
     final silentSockets = <Socket>[];
@@ -239,74 +242,18 @@ void main() {
     await Future<void>.delayed(const Duration(milliseconds: 200));
     await client.disconnectClient();
 
-    // Delay the replacement challenge until after the first session timer
-    // would have fired, but before the replacement session timeout.
-    final replacementSockets = <Socket>[];
-    final replacementSocketSubscriptions = <StreamSubscription<String>>[];
-    final replacementAck = Completer<void>();
-    final replacementServer = await ServerSocket.bind(
-      InternetAddress.loopbackIPv4,
-      45909,
-    );
-    final replacementServerSubscription = replacementServer.listen((socket) {
-      replacementSockets.add(socket);
-      replacementSocketSubscriptions.add(
-        socket
-            .cast<List<int>>()
-            .transform(utf8.decoder)
-            .transform(const LineSplitter())
-            .listen((line) async {
-              final message = MirrorMessage.decode(line);
-              if (message.type == MessageTypes.authResponse) {
-                final encrypted = await CryptoManager.encrypt(key, '{}');
-                final authOk = MirrorMessage(
-                  type: MessageTypes.authOk,
-                  id: 'replacement-auth-ok',
-                  timestamp: DateTime.now().millisecondsSinceEpoch,
-                  payload: encrypted,
-                );
-                socket.write('${authOk.encode()}\n');
-                await socket.flush();
-              } else if (message.type == MessageTypes.authAck &&
-                  !replacementAck.isCompleted) {
-                replacementAck.complete();
-              }
-            }),
-      );
-      unawaited(
-        Future<void>.delayed(const Duration(milliseconds: 650), () async {
-          final nonce = CryptoManager.generateNonce();
-          final signature = await CryptoManager.sign(serverKeyPair, nonce);
-          final encrypted = await CryptoManager.encrypt(
-            key,
-            jsonEncode({'nonce': nonce, 'signature': signature}),
-          );
-          final challenge = MirrorMessage(
-            type: MessageTypes.authChallenge,
-            id: 'replacement-challenge',
-            timestamp: DateTime.now().millisecondsSinceEpoch,
-            payload: encrypted,
-          );
-          socket.write('${challenge.encode()}\n');
-          await socket.flush();
-        }),
-      );
-    });
-
     expect(await staleAttempt, isFalse);
+    final replacementServer = SocketManager(onMessage: (_) {});
+    replacementServer.setAuthIdentity(
+      peerPublicKeyBase64: clientPub,
+      localKeyPair: serverKeyPair,
+    );
+    await replacementServer.startServer(45909, key);
     expect(await client.connect('127.0.0.1', 45909, key), isTrue);
-    await replacementAck.future.timeout(const Duration(seconds: 2));
     expect(client.isAuthed, isTrue);
 
     await client.disconnect();
-    await replacementServerSubscription.cancel();
-    for (final subscription in replacementSocketSubscriptions) {
-      await subscription.cancel();
-    }
-    for (final socket in replacementSockets) {
-      socket.destroy();
-    }
-    await replacementServer.close();
+    await replacementServer.disconnect();
     await silentSubscription.cancel();
     for (final socket in silentSockets) {
       socket.destroy();
@@ -544,6 +491,7 @@ void main() {
       final socket = await Socket.connect('127.0.0.1', 45913);
       final sessionId = Completer<String>();
       SecretKey? sessionKey;
+      String? challengeNonce;
       var nextSequence = 0;
       var normalFrame = '';
 
@@ -598,13 +546,23 @@ void main() {
             final payload = jsonDecode(decrypted!) as Map<String, dynamic>;
             if (message.type == MessageTypes.authChallenge) {
               sessionId.complete(message.sessionId!);
+              challengeNonce = payload['nonce'] as String;
               sessionKey = await CryptoManager.deriveSessionKey(
                 key,
                 message.sessionId!,
               );
+              final transcript = MirrorMessage.authTranscript(
+                sessionId: message.sessionId!,
+                serverPeerId: serverPub,
+                clientPeerId: clientPub,
+                nonce: challengeNonce!,
+              );
               final signature = await CryptoManager.sign(
                 clientKeyPair,
-                payload['nonce'] as String,
+                CryptoManager.authenticationSignatureData(
+                  'response',
+                  transcript,
+                ),
               );
               await sendEnvelope(
                 type: MessageTypes.authResponse,
@@ -615,7 +573,20 @@ void main() {
             } else if (message.type == MessageTypes.authOk) {
               await sendEnvelope(
                 type: MessageTypes.authAck,
-                payload: {},
+                payload: {
+                  'signature': await CryptoManager.sign(
+                    clientKeyPair,
+                    CryptoManager.authenticationSignatureData(
+                      'ack',
+                      MirrorMessage.authTranscript(
+                        sessionId: await sessionId.future,
+                        serverPeerId: serverPub,
+                        clientPeerId: clientPub,
+                        nonce: challengeNonce!,
+                      ),
+                    ),
+                  ),
+                },
                 session: await sessionId.future,
                 sequence: nextSequence++,
               );

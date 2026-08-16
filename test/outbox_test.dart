@@ -52,13 +52,25 @@ void main() {
 
     await service.markSent(item.id!);
 
-    expect(await service.pendingItems('peer-a'), hasLength(1));
     final rows = await db.query(
       'outbox',
       where: 'id = ?',
       whereArgs: [item.id],
     );
     expect(rows.single['status'], 'sent');
+    expect(rows.single['next_attempt_at'], isNotNull);
+    expect(
+      await service.pendingItems('peer-a'),
+      isEmpty,
+      reason: 'wait for the ACK retry window instead of immediately resending',
+    );
+    await db.update(
+      'outbox',
+      {'next_attempt_at': DateTime.now().millisecondsSinceEpoch - 1},
+      where: 'id = ?',
+      whereArgs: [item.id],
+    );
+    expect((await service.pendingItems('peer-a')).single.status, 'sent');
     await service.markAcknowledged(item.messageId);
     final acknowledged = await db.query(
       'outbox',
@@ -128,12 +140,38 @@ void main() {
     );
     await service.markSent(item.id!);
 
+    await db.update(
+      'outbox',
+      {'next_attempt_at': DateTime.now().millisecondsSinceEpoch - 1},
+      where: 'id = ?',
+      whereArgs: [item.id],
+    );
+
     final retry = await service.pendingItems('peer-a');
     expect(retry.single.messageId, 'stable-message');
     expect(retry.single.status, 'sent');
 
     await service.markAcknowledged('stable-message');
     await service.markAcknowledged('stable-message');
+    final rows = await db.query(
+      'outbox',
+      where: 'id = ?',
+      whereArgs: [item.id],
+    );
+    expect(rows.single['status'], 'completed');
+  });
+
+  test('stale terminal transitions cannot overwrite a completed ACK', () async {
+    final item = await service.enqueue(
+      'sms',
+      '{}',
+      destinationPeerId: 'peer-a',
+    );
+
+    await service.markAcknowledged(item.messageId);
+    await service.markSent(item.id!);
+    expect(await service.markFailed(item.id!, 5), isFalse);
+
     final rows = await db.query(
       'outbox',
       where: 'id = ?',
@@ -161,16 +199,19 @@ void main() {
     expect(rows.single['next_attempt_at'] as int, greaterThan(before + 900));
   });
 
-  test('concurrent flush requests share one worker', () async {
-    final gate = OutboxFlushGate();
-    var executions = 0;
-    Future<void> worker() async {
-      executions++;
-      await Future<void>.delayed(const Duration(milliseconds: 10));
-    }
+  test(
+    'concurrent flush requests schedule one rerun after the active worker',
+    () async {
+      final gate = OutboxFlushGate();
+      var executions = 0;
+      Future<void> worker() async {
+        executions++;
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
 
-    await Future.wait([gate.run(worker), gate.run(worker)]);
+      await Future.wait([gate.run(worker), gate.run(worker)]);
 
-    expect(executions, 1);
-  });
+      expect(executions, 2);
+    },
+  );
 }

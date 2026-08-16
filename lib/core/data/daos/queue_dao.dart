@@ -37,51 +37,80 @@ class QueueDao {
     return maps.map(QueueItem.fromJson).toList();
   }
 
-  Future<void> updateRetryCount(int id, int retryCount) async {
+  Future<bool> updateRetryCount(int id, int retryCount) async {
     final db = await _database;
-    await db.update(
+    final updated = await db.update(
       'outbox',
       {'attempt_count': retryCount},
-      where: 'id = ?',
+      where: "id = ? AND status IN ('pending', 'sent')",
       whereArgs: [id],
     );
+    return updated == 1;
   }
 
-  Future<void> updateRetry(
+  Future<bool> updateRetry(
     int id,
     int retryCount,
     DateTime nextAttemptAt,
   ) async {
     final db = await _database;
-    await db.update(
+    final updated = await db.update(
       'outbox',
       {
         'attempt_count': retryCount,
         'next_attempt_at': nextAttemptAt.millisecondsSinceEpoch,
       },
-      where: 'id = ?',
+      where: "id = ? AND status IN ('pending', 'sent')",
       whereArgs: [id],
     );
+    return updated == 1;
   }
 
-  Future<void> updateStatus(int id, String status) async {
+  Future<bool> markSent(int id, DateTime nextAttemptAt) async {
     final db = await _database;
-    await db.update(
+    final updated = await db.update(
       'outbox',
-      {'status': status},
-      where: 'id = ?',
+      {
+        'status': 'sent',
+        'next_attempt_at': nextAttemptAt.millisecondsSinceEpoch,
+      },
+      where: "id = ? AND status IN ('pending', 'sent')",
       whereArgs: [id],
     );
+    return updated == 1;
   }
 
-  Future<void> updateStatusByMessageId(String messageId, String status) async {
+  Future<bool> markAcknowledged(
+    String messageId, {
+    String? destinationPeerId,
+  }) async {
     final db = await _database;
-    await db.update(
-      'outbox',
-      {'status': status},
-      where: 'message_id = ?',
-      whereArgs: [messageId],
+    final where = StringBuffer(
+      "message_id = ? AND status IN ('pending', 'sent')",
     );
+    final whereArgs = <Object>[messageId];
+    if (destinationPeerId != null) {
+      where.write(' AND destination_peer_id = ?');
+      whereArgs.add(destinationPeerId);
+    }
+    final updated = await db.update(
+      'outbox',
+      {'status': 'completed', 'next_attempt_at': null},
+      where: where.toString(),
+      whereArgs: whereArgs,
+    );
+    return updated == 1;
+  }
+
+  Future<bool> moveToDeadLetter(int id) async {
+    final db = await _database;
+    final updated = await db.update(
+      'outbox',
+      {'status': 'dead_letter', 'next_attempt_at': null},
+      where: "id = ? AND status IN ('pending', 'sent')",
+      whereArgs: [id],
+    );
+    return updated == 1;
   }
 
   Future<void> delete(int id) async {

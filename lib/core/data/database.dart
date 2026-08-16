@@ -6,7 +6,7 @@ import 'package:sqflite/sqflite.dart';
 class AppDatabase {
   static final AppDatabase instance = AppDatabase._internal();
   static Database? _database;
-  static const int schemaVersion = 10;
+  static const int schemaVersion = 11;
 
   AppDatabase._internal();
 
@@ -133,18 +133,18 @@ class AppDatabase {
           INSERT INTO outbox
             (message_id, destination_peer_id, type, payload, attempt_count,
              created_at)
-          SELECT 'legacy-' || id, (SELECT id FROM peer LIMIT 1), type, payload,
-            retry_count, created_at
+          SELECT 'legacy-' || id, (SELECT id FROM peer), type, payload,
+             retry_count, created_at
           FROM offline_queue
-          WHERE EXISTS (SELECT 1 FROM peer)
+          WHERE (SELECT COUNT(*) FROM peer) = 1
         ''');
         await db.execute('''
           INSERT INTO offline_queue_quarantine
             (id, type, payload, retry_count, created_at, reason)
           SELECT id, type, payload, retry_count, created_at,
-            'No destination peer was available during migration'
+            'Legacy queue destination was ambiguous or unavailable during migration'
           FROM offline_queue
-          WHERE NOT EXISTS (SELECT 1 FROM peer)
+          WHERE (SELECT COUNT(*) FROM peer) != 1
         ''');
         await db.execute('DROP TABLE offline_queue');
       }
@@ -173,6 +173,23 @@ class AppDatabase {
           updated_at INTEGER NOT NULL
         )
       ''');
+    }
+    if (oldVersion < 11) {
+      final notificationTable = await db.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type = 'table' "
+        "AND name = 'notification_event'",
+      );
+      if (notificationTable.isNotEmpty) {
+        await db.execute(
+          'ALTER TABLE notification_event ADD COLUMN source_peer_id '
+          'TEXT NOT NULL DEFAULT "__local__";',
+        );
+        await db.execute('DROP INDEX IF EXISTS notification_event_source_key');
+        await db.execute(
+          'CREATE UNIQUE INDEX notification_event_source_key '
+          'ON notification_event(source_peer_id, package_name, native_id)',
+        );
+      }
     }
   }
 
@@ -252,6 +269,7 @@ class AppDatabase {
       CREATE TABLE notification_event (
         id TEXT PRIMARY KEY,
         native_id TEXT NOT NULL,
+        source_peer_id TEXT NOT NULL,
         package_name TEXT NOT NULL,
         app_name TEXT NOT NULL DEFAULT "",
         title TEXT NOT NULL DEFAULT "",
@@ -263,7 +281,7 @@ class AppDatabase {
     ''');
     await db.execute(
       'CREATE UNIQUE INDEX notification_event_source_key '
-      'ON notification_event(package_name, native_id)',
+      'ON notification_event(source_peer_id, package_name, native_id)',
     );
 
     await db.execute('''

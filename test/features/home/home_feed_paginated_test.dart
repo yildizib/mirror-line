@@ -128,6 +128,7 @@ void main() {
   NotificationEvent makeNotif(String id, DateTime ts) => NotificationEvent(
     id: id,
     nativeId: id,
+    sourcePeerId: NotificationEvent.localSourcePeerId,
     packageName: 'com.app',
     appName: 'App',
     title: 'Title',

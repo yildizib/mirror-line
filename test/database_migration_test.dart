@@ -76,6 +76,7 @@ void main() {
       containsAll([
         'id',
         'native_id',
+        'source_peer_id',
         'package_name',
         'app_name',
         'title',
@@ -390,12 +391,136 @@ void main() {
     final rows = await db.query('notification_event');
     expect(rows, hasLength(1));
     expect(rows.first['package_name'], 'com.example.chat');
+    expect(rows.first['source_peer_id'], '__local__');
 
     await db.close();
   });
+
+  test(
+    'legacy queue migration quarantines rows without exactly one peer',
+    () async {
+      for (final peerCount in [0, 2]) {
+        final db = await databaseFactory.openDatabase(
+          inMemoryDatabasePath,
+          options: OpenDatabaseOptions(version: 7),
+        );
+        await db.execute('''
+        CREATE TABLE peer (
+          id TEXT PRIMARY KEY, role TEXT NOT NULL, ip TEXT NOT NULL,
+          port INTEGER NOT NULL, key TEXT NOT NULL, created_at INTEGER NOT NULL
+        )
+      ''');
+        await db.execute('''
+        CREATE TABLE offline_queue (
+          id INTEGER PRIMARY KEY, type TEXT NOT NULL, payload TEXT NOT NULL,
+          retry_count INTEGER NOT NULL, created_at INTEGER NOT NULL
+        )
+      ''');
+        await _createV7NotificationEvent(db);
+        for (var index = 0; index < peerCount; index++) {
+          await db.insert('peer', {
+            'id': 'peer-$index',
+            'role': 'main',
+            'ip': '192.168.1.$index',
+            'port': 45678,
+            'key': 'key',
+            'created_at': 1,
+          });
+        }
+        await db.insert('offline_queue', {
+          'id': 1,
+          'type': 'sms',
+          'payload': '{}',
+          'retry_count': 0,
+          'created_at': 1,
+        });
+
+        await AppDatabase.instance.upgradeTables(
+          db,
+          7,
+          AppDatabase.schemaVersion,
+        );
+
+        expect(await db.query('outbox'), isEmpty);
+        final quarantine = await db.query('offline_queue_quarantine');
+        expect(quarantine, hasLength(1));
+        expect(
+          quarantine.single['reason'],
+          contains('ambiguous or unavailable'),
+        );
+        await db.close();
+      }
+    },
+  );
+
+  test(
+    'legacy queue migration assigns rows when exactly one peer exists',
+    () async {
+      final db = await databaseFactory.openDatabase(
+        inMemoryDatabasePath,
+        options: OpenDatabaseOptions(version: 7),
+      );
+      await db.execute('''
+      CREATE TABLE peer (
+        id TEXT PRIMARY KEY, role TEXT NOT NULL, ip TEXT NOT NULL,
+        port INTEGER NOT NULL, key TEXT NOT NULL, created_at INTEGER NOT NULL
+      )
+    ''');
+      await db.execute('''
+      CREATE TABLE offline_queue (
+        id INTEGER PRIMARY KEY, type TEXT NOT NULL, payload TEXT NOT NULL,
+        retry_count INTEGER NOT NULL, created_at INTEGER NOT NULL
+      )
+    ''');
+      await _createV7NotificationEvent(db);
+      await db.insert('peer', {
+        'id': 'only-peer',
+        'role': 'main',
+        'ip': '192.168.1.1',
+        'port': 45678,
+        'key': 'key',
+        'created_at': 1,
+      });
+      await db.insert('offline_queue', {
+        'id': 1,
+        'type': 'sms',
+        'payload': '{}',
+        'retry_count': 0,
+        'created_at': 1,
+      });
+
+      await AppDatabase.instance.upgradeTables(
+        db,
+        7,
+        AppDatabase.schemaVersion,
+      );
+
+      final outbox = await db.query('outbox');
+      expect(outbox, hasLength(1));
+      expect(outbox.single['destination_peer_id'], 'only-peer');
+      expect(await db.query('offline_queue_quarantine'), isEmpty);
+      await db.close();
+    },
+  );
 }
 
 Future<List<String>> _columnNames(Database db, String table) async {
   final info = await db.rawQuery('PRAGMA table_info($table)');
   return info.map((row) => row['name'] as String).toList();
+}
+
+Future<void> _createV7NotificationEvent(Database db) {
+  return db.execute('''
+    CREATE TABLE notification_event (
+      id TEXT PRIMARY KEY,
+      native_id TEXT NOT NULL,
+      package_name TEXT NOT NULL,
+      app_name TEXT NOT NULL DEFAULT "",
+      title TEXT NOT NULL DEFAULT "",
+      text TEXT NOT NULL DEFAULT "",
+      encrypted TEXT NOT NULL,
+      timestamp INTEGER NOT NULL,
+      created_at INTEGER NOT NULL
+    )
+  ''');
 }

@@ -6,14 +6,15 @@ import 'dart:math';
 
 class OutboxFlushGate {
   Future<void>? _inFlight;
+  bool _rerunRequested = false;
 
   Future<void> run(Future<void> Function() worker) async {
     final running = _inFlight;
     if (running != null) {
-      await running;
-      return;
+      _rerunRequested = true;
+      return running;
     }
-    final future = worker();
+    final future = _run(worker);
     _inFlight = future;
     try {
       await future;
@@ -21,9 +22,17 @@ class OutboxFlushGate {
       if (identical(_inFlight, future)) _inFlight = null;
     }
   }
+
+  Future<void> _run(Future<void> Function() worker) async {
+    do {
+      _rerunRequested = false;
+      await worker();
+    } while (_rerunRequested);
+  }
 }
 
 class QueueService {
+  static const _ackRetryDelay = Duration(seconds: 5);
   final QueueDao _dao;
 
   QueueService({QueueDao? dao}) : _dao = dao ?? QueueDao();
@@ -67,12 +76,19 @@ class QueueService {
   Future<List<QueueItem>> pendingItems(String destinationPeerId) =>
       _dao.getAll(destinationPeerId);
 
+  /// Keeps a successfully written item eligible if its ACK is lost.
   Future<void> markSent(int id) async {
-    await _dao.updateStatus(id, 'sent');
+    await _dao.markSent(id, DateTime.now().add(_ackRetryDelay));
   }
 
-  Future<void> markAcknowledged(String messageId) async {
-    await _dao.updateStatusByMessageId(messageId, 'completed');
+  Future<void> markAcknowledged(
+    String messageId, {
+    String? destinationPeerId,
+  }) async {
+    await _dao.markAcknowledged(
+      messageId,
+      destinationPeerId: destinationPeerId,
+    );
   }
 
   /// Returns true if this was the final attempt and the item was dropped
@@ -80,8 +96,7 @@ class QueueService {
   /// user, e.g. by marking the originating SMS/call entry as 'failed').
   Future<bool> markFailed(int id, int retryCount) async {
     if (retryCount >= 5) {
-      await _dao.updateStatus(id, 'dead_letter');
-      return true;
+      return _dao.moveToDeadLetter(id);
     }
     final nextRetryCount = retryCount + 1;
     final exponentialSeconds = pow(2, retryCount).toInt().clamp(1, 300);

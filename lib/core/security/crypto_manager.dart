@@ -125,6 +125,13 @@ class CryptoManager {
     }
   }
 
+  /// Prefix a signed transcript by its purpose so a valid signature for one
+  /// authentication control frame cannot be replayed as another.
+  static String authenticationSignatureData(
+    String purpose,
+    String transcript,
+  ) => 'mirrorline/auth/$purpose/$transcript';
+
   /// Generates a random nonce as a base64 string (32 bytes).
   static String generateNonce() {
     return base64Encode(_randomBytes(32));

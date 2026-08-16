@@ -44,10 +44,12 @@ void main() {
     required String id,
     required DateTime timestamp,
     String packageName = 'com.test.app',
+    String sourcePeerId = NotificationEvent.localSourcePeerId,
   }) {
     return NotificationEvent(
       id: id,
       nativeId: id,
+      sourcePeerId: sourcePeerId,
       packageName: packageName,
       appName: 'Test',
       title: 'Title',
@@ -142,5 +144,19 @@ void main() {
     }
     final all = await dao.getAll();
     expect(all.length, 5);
+  });
+
+  test('keeps matching native IDs from separate source peers', () async {
+    final timestamp = DateTime(2025, 1, 1, 12);
+    await dao.insert(
+      makeEvent(id: 'peer-a', timestamp: timestamp, sourcePeerId: 'peer-a'),
+    );
+    await dao.insert(
+      makeEvent(id: 'peer-b', timestamp: timestamp, sourcePeerId: 'peer-b'),
+    );
+
+    final events = await dao.getAll();
+    expect(events, hasLength(2));
+    expect(events.map((event) => event.sourcePeerId), {'peer-a', 'peer-b'});
   });
 }

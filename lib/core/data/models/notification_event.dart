@@ -1,8 +1,12 @@
 class NotificationEvent {
+  /// Source identity used for notifications produced on this device.
+  static const String localSourcePeerId = '__local__';
+
   final String id;
   // Native's own stable per-notification key (sbn.key) -- used to match a
   // dismissal (onNotificationRemoved) back to the right stored event.
   final String nativeId;
+  final String sourcePeerId;
   final String packageName;
   final String appName;
   final String title;
@@ -14,6 +18,7 @@ class NotificationEvent {
   NotificationEvent({
     required this.id,
     required this.nativeId,
+    required this.sourcePeerId,
     required this.packageName,
     this.appName = '',
     this.title = '',
@@ -26,6 +31,7 @@ class NotificationEvent {
   Map<String, dynamic> toJson() => {
     'id': id,
     'native_id': nativeId,
+    'source_peer_id': sourcePeerId,
     'package_name': packageName,
     'app_name': appName,
     'title': title,
@@ -40,6 +46,7 @@ class NotificationEvent {
   ) => NotificationEvent(
     id: json['id'] as String,
     nativeId: json['native_id'] as String,
+    sourcePeerId: json['source_peer_id'] as String,
     packageName: json['package_name'] as String,
     appName: json['app_name'] as String? ?? '',
     title: json['title'] as String? ?? '',

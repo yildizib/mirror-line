@@ -368,16 +368,8 @@ class SmsFacade extends StateNotifier<List<SmsMessage>> {
             ),
             transaction: transaction,
           );
-          // Queued (not fire-and-forget): if the connection drops between
-          // sending the SMS and acking it, a direct socket write would be
-          // silently lost, leaving the Main device's copy stuck on
-          // 'pending' ("Gönderiliyor") forever with nothing left to ever
-          // correct it. Queuing lets this retry once the connection is
-          // back, same as every other outgoing message type.
-          await _sendOrQueue(MessageTypes.smsStatus, {
-            'id': id,
-            'status': status,
-          });
+          // Queue the final status only after the native result arrives,
+          // outside the Inbox transaction.
         }
         break;
 
@@ -400,10 +392,17 @@ class SmsFacade extends StateNotifier<List<SmsMessage>> {
     Map<String, dynamic> payload,
     MirrorMessage message,
   ) async {
-    if (!_isSource() || await _operations.state(message.id) != 'executing') {
+    if (!_isSource()) return;
+    final state = await _operations.state(message.id);
+    if (state == 'received') {
+      await _operations.updateState(message.id, 'executing');
+    } else if (state != 'executing') {
       return;
     }
     try {
+      // Persist submission before crossing the Android boundary. A crash
+      // after this point is indeterminate and must not trigger a blind retry.
+      await _operations.updateState(message.id, 'submitted');
       await TelephonyChannel.sendSms(
         payload['address'] as String? ?? '',
         payload['body'] as String? ?? '',
