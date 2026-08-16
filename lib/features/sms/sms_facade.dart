@@ -338,7 +338,7 @@ class SmsFacade extends StateNotifier<List<SmsMessage>> {
               : transaction == null
               ? await _operations.state(message.id)
               : await _operations.stateOn(transaction, message.id);
-          if (existingState != 'succeeded') {
+          if (existingState != 'succeeded' && existingState != 'executing') {
             if (transaction != null) {
               await _operations.updateStateOn(
                 transaction,

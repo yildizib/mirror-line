@@ -448,6 +448,8 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
             : await _operations.stateOn(transaction, id);
         final rejected = existingState == 'succeeded'
             ? true
+            : existingState == 'executing'
+            ? false
             : await _rejectCall();
         if (!rejected) return false;
         if (transaction != null) {
