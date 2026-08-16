@@ -37,6 +37,23 @@ class QueueDao {
     return maps.map(QueueItem.fromJson).toList();
   }
 
+  /// Returns the next time a connected peer needs an Outbox wake-up.
+  Future<DateTime?> nextAttemptAt(String destinationPeerId) async {
+    final db = await _database;
+    final maps = await db.query(
+      'outbox',
+      columns: ['MIN(next_attempt_at) AS next_attempt_at'],
+      where:
+          "destination_peer_id = ? AND status IN ('pending', 'sent') AND "
+          'next_attempt_at IS NOT NULL',
+      whereArgs: [destinationPeerId],
+    );
+    final milliseconds = maps.single['next_attempt_at'] as int?;
+    return milliseconds == null
+        ? null
+        : DateTime.fromMillisecondsSinceEpoch(milliseconds);
+  }
+
   Future<bool> updateRetryCount(int id, int retryCount) async {
     final db = await _database;
     final updated = await db.update(
