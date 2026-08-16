@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mirrorline/core/data/daos/queue_dao.dart';
@@ -96,6 +97,47 @@ void main() {
       whereArgs: [item.id],
     );
     expect(rows.single['status'], 'dead_letter');
+  });
+
+  test('dead letters remain excluded after a process restart', () async {
+    final directory = await Directory.systemTemp.createTemp(
+      'mirrorline_outbox_restart_test',
+    );
+    final path = '${directory.path}/outbox.db';
+    Database? restartedDb;
+    try {
+      final firstDb = await databaseFactory.openDatabase(
+        path,
+        options: OpenDatabaseOptions(
+          version: AppDatabase.schemaVersion,
+          onCreate: AppDatabase.instance.createTables,
+        ),
+      );
+      final firstService = QueueService(dao: QueueDao.forDatabase(firstDb));
+      final item = await firstService.enqueue(
+        'sms',
+        '{}',
+        destinationPeerId: 'peer-a',
+      );
+      expect(await firstService.markFailed(item.id!, 5), isTrue);
+      await firstDb.close();
+
+      restartedDb = await databaseFactory.openDatabase(path);
+      final restartedService = QueueService(
+        dao: QueueDao.forDatabase(restartedDb),
+      );
+      expect(await restartedService.pendingItems('peer-a'), isEmpty);
+      final row = (await restartedDb.query(
+        'outbox',
+        where: 'id = ?',
+        whereArgs: [item.id],
+      )).single;
+      expect(row['status'], 'dead_letter');
+      expect(row['next_attempt_at'], isNull);
+    } finally {
+      await restartedDb?.close();
+      await directory.delete(recursive: true);
+    }
   });
 
   test('lost ACK retries with the original ID until dead-lettered', () async {

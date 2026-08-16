@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mirrorline/core/data/daos/platform_operation_dao.dart';
 import 'package:mirrorline/core/data/database.dart';
@@ -60,6 +62,74 @@ void main() {
     expect(await dao.recoverExecuting(), 1);
     expect(await dao.state('m2'), 'received');
   });
+
+  test(
+    'committed execution survives a database reopen and rolls back atomically',
+    () async {
+      final directory = await Directory.systemTemp.createTemp(
+        'mirrorline_platform_operation_test',
+      );
+      final path = '${directory.path}/operations.db';
+      Database? restartedDb;
+      try {
+        final firstDb = await databaseFactory.openDatabase(
+          path,
+          options: OpenDatabaseOptions(
+            version: AppDatabase.schemaVersion,
+            onCreate: AppDatabase.instance.createTables,
+          ),
+        );
+        final firstDao = PlatformOperationDao.forDatabase(firstDb);
+        await firstDb.transaction((transaction) async {
+          expect(
+            await firstDao.claimOn(
+              transaction,
+              operationId: 'restart-command',
+              kind: 'sms_send',
+              payload: '{"messageId":"sms-1"}',
+            ),
+            isTrue,
+          );
+          expect(
+            await firstDao.transitionOn(
+              transaction,
+              'restart-command',
+              from: ['received'],
+              to: 'executing',
+            ),
+            isTrue,
+          );
+        });
+        await firstDb.close();
+
+        restartedDb = await databaseFactory.openDatabase(path);
+        final restartedDao = PlatformOperationDao.forDatabase(restartedDb);
+        expect(await restartedDao.recoverExecuting(), 1);
+        expect(await restartedDao.state('restart-command'), 'received');
+        expect(
+          await restartedDao.payload('restart-command'),
+          '{"messageId":"sms-1"}',
+        );
+
+        expect(
+          () => restartedDb!.transaction((transaction) async {
+            await restartedDao.claimOn(
+              transaction,
+              operationId: 'rolled-back-command',
+              kind: 'sms_send',
+              payload: '{}',
+            );
+            throw StateError('rollback command claim');
+          }),
+          throwsStateError,
+        );
+        expect(await restartedDao.state('rolled-back-command'), isNull);
+      } finally {
+        await restartedDb?.close();
+        await directory.delete(recursive: true);
+      }
+    },
+  );
 
   test(
     'terminal and submitted operations cannot be overwritten or recovered',

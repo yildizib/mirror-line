@@ -46,6 +46,38 @@ void main() {
     expect(await KeyStore.getDeviceKeyPair(), isNotNull);
   });
 
+  test('concurrent identity creation shares one atomic write', () async {
+    var writes = 0;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+          final arguments = Map<String, dynamic>.from(call.arguments as Map);
+          final key = arguments['key'] as String;
+          switch (call.method) {
+            case 'read':
+              return values[key];
+            case 'write':
+              writes++;
+              values[key] = arguments['value'] as String;
+              return null;
+            case 'delete':
+              values.remove(key);
+              return null;
+            default:
+              throw UnimplementedError(call.method);
+          }
+        });
+
+    final publicKeys = await Future.wait(
+      List.generate(8, (_) => KeyStore.ensureDeviceKeyPair()),
+    );
+
+    expect(publicKeys.toSet(), hasLength(1));
+    expect(writes, 1);
+    expect(values.keys, contains('device_ed25519'));
+    expect(values.keys, isNot(contains('device_ed25519_private')));
+    expect(values.keys, isNot(contains('device_ed25519_public')));
+  });
+
   test('fails closed for corrupted atomic identity records', () async {
     values['device_ed25519'] = jsonEncode({
       'version': 1,
@@ -72,10 +104,13 @@ void main() {
     expect(values, isNot(contains('device_ed25519_public')));
   });
 
-  test('fails closed for partial legacy identities', () async {
-    values['device_ed25519_private'] = base64Encode(List<int>.filled(32, 1));
+  test('fails closed for either partial legacy identity component', () async {
+    for (final key in ['device_ed25519_private', 'device_ed25519_public']) {
+      values.clear();
+      values[key] = base64Encode(List<int>.filled(32, 1));
 
-    expect(await KeyStore.getDevicePublicKey(), isNull);
-    expect(KeyStore.ensureDeviceKeyPair, throwsStateError);
+      expect(await KeyStore.getDevicePublicKey(), isNull);
+      expect(KeyStore.ensureDeviceKeyPair, throwsStateError);
+    }
   });
 }
