@@ -24,13 +24,6 @@ kayıtlı telefon (Source) sadece arka planda hattı taşır; siz her şeyi kend
 telefonunuzdan (Main) görürsünüz — aramalar, mesajlar, bildirimler. İnternete ya
 da sunucuya gerek yok, iki telefon aynı WiFi'a bağlı olunca doğrudan konuşur.
 
-## Teslimat Garantisi
-
-Mesaj teslimatı **en az bir kez (at-least-once)** garantisi ve idempotent işlemeye
-dayanır. Outbox/Inbox ve platform operation ID'leri duplicate teslimatı güvenle
-tekrar işleyebilmek için kullanılır; ağ seviyesinde mutlak exactly-once garantisi
-verilmez.
-
 ## Lisans
 
 [Apache License 2.0](LICENSE).
@@ -69,12 +62,6 @@ registered phone (Source) simply carries the line in the background, while you
 see everything on your own phone (Main) — calls, messages, notifications. No
 internet, no server; the two phones talk to each other directly over the same
 Wi-Fi network.
-
-## Delivery Guarantee
-
-Message delivery is **at-least-once** with idempotent processing. Durable
-Outbox/Inbox records and platform operation IDs make duplicate delivery safe;
-MirrorLine does not claim an absolute network-level exactly-once guarantee.
 
 ## License
 
