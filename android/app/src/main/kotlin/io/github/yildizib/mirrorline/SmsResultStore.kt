@@ -23,8 +23,7 @@ class SmsResultStore(context: Context) {
         Context.MODE_PRIVATE,
     )
 
-    @Synchronized
-    fun prepare(operationId: String, kind: String, partCount: Int) {
+    fun prepare(operationId: String, kind: String, partCount: Int) = synchronized(lock) {
         val token = token(operationId)
         val key = key(token, kind)
         val records = preferences.getStringSet(RECORDS, emptySet())!!.toMutableSet()
@@ -36,27 +35,25 @@ class SmsResultStore(context: Context) {
     }
 
     /** Records Android's acceptance before invoking the irreversible API. */
-    @Synchronized
-    fun prepareSubmission(operationId: String) {
+    fun prepareSubmission(operationId: String) = synchronized(lock) {
         val submissions = preferences.getStringSet(SUBMISSIONS, emptySet())!!.toMutableSet()
         if (submissions.add(token(operationId))) {
             preferences.edit().putStringSet(SUBMISSIONS, submissions).commit()
         }
     }
 
-    @Synchronized
-    fun hasSubmission(operationId: String): Boolean =
+    fun hasSubmission(operationId: String): Boolean = synchronized(lock) {
         token(operationId) in preferences.getStringSet(SUBMISSIONS, emptySet())!!
+    }
 
     /** Returns a final result only after every distinct part has reported. */
-    @Synchronized
     fun record(
         operationId: String,
         kind: String,
         partIndex: Int,
         partCount: Int,
         success: Boolean,
-    ): SmsResult? {
+    ): SmsResult? = synchronized(lock) {
         prepare(operationId, kind, partCount)
         val key = key(token(operationId), kind)
         val resultKey = "$RESULT_PREFIX$key.$partIndex"
@@ -67,8 +64,7 @@ class SmsResultStore(context: Context) {
         return completed(operationId, kind, key)
     }
 
-    @Synchronized
-    fun recordFailure(operationId: String, partCount: Int): SmsResult? {
+    fun recordFailure(operationId: String, partCount: Int): SmsResult? = synchronized(lock) {
         var result: SmsResult? = null
         for (partIndex in 0 until partCount) {
             result = record(operationId, SENT, partIndex, partCount, false) ?: result
@@ -77,17 +73,17 @@ class SmsResultStore(context: Context) {
         return result
     }
 
-    @Synchronized
-    fun pending(): List<SmsResult> = preferences.getStringSet(RECORDS, emptySet())!!
+    fun pending(): List<SmsResult> = synchronized(lock) {
+        preferences.getStringSet(RECORDS, emptySet())!!
         .mapNotNull { key ->
             val separator = key.lastIndexOf('.')
             if (separator <= 0) return@mapNotNull null
             val operationId = decode(key.substring(0, separator)) ?: return@mapNotNull null
             completed(operationId, key.substring(separator + 1), key)
         }
+    }
 
-    @Synchronized
-    fun acknowledge(operationId: String, kind: String) {
+    fun acknowledge(operationId: String, kind: String) = synchronized(lock) {
         val key = key(token(operationId), kind)
         val records = preferences.getStringSet(RECORDS, emptySet())!!.toMutableSet()
         records.remove(key)
@@ -104,7 +100,6 @@ class SmsResultStore(context: Context) {
         editor.commit()
     }
 
-    @Synchronized
     private fun discard(operationId: String, kind: String) {
         acknowledge(operationId, kind)
     }
@@ -141,5 +136,6 @@ class SmsResultStore(context: Context) {
         private const val SUBMISSIONS = "submissions"
         private const val META_PREFIX = "meta."
         private const val RESULT_PREFIX = "result."
+        private val lock = Any()
     }
 }

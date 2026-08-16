@@ -6,6 +6,9 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 @RunWith(RobolectricTestRunner::class)
 class SmsResultStoreTest {
@@ -56,5 +59,39 @@ class SmsResultStoreTest {
         recreatedStore.acknowledge(operationId, SmsResultStore.SENT)
 
         assertTrue(SmsResultStore(context).pending().isEmpty())
+    }
+
+    @Test
+    fun `receiver instances retain concurrent callback updates`() {
+        val context = RuntimeEnvironment.getApplication()
+        val operationIds = (1..32).map { "concurrent-$it" }
+        val start = CountDownLatch(1)
+        val complete = CountDownLatch(operationIds.size)
+        val executor = Executors.newFixedThreadPool(operationIds.size)
+
+        operationIds.forEach { operationId ->
+            executor.execute {
+                start.await()
+                SmsResultStore(context).record(
+                    operationId,
+                    SmsResultStore.SENT,
+                    partIndex = 0,
+                    partCount = 1,
+                    success = true,
+                )
+                complete.countDown()
+            }
+        }
+        start.countDown()
+
+        assertTrue(complete.await(10, TimeUnit.SECONDS))
+        executor.shutdown()
+        assertEquals(
+            operationIds.toSet(),
+            SmsResultStore(context).pending().map { it.operationId }.toSet(),
+        )
+        operationIds.forEach {
+            SmsResultStore(context).acknowledge(it, SmsResultStore.SENT)
+        }
     }
 }

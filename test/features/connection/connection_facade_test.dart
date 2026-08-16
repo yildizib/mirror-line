@@ -13,6 +13,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:logger/logger.dart';
 import 'package:mirrorline/features/connection/peer_discovery_coordinator.dart';
 import 'package:mirrorline/features/connection/reconnect_scheduler.dart';
+import 'package:mirrorline/features/connection/connection_facade.dart';
 
 /// Mirrors ConnectionFacade._handleIncomingMessage's replay guard exactly:
 /// reject only a timestamp strictly less than the last accepted one.
@@ -122,5 +123,37 @@ void main() {
         expect(discoveredCalls, 0);
       },
     );
+  });
+
+  group('Incoming connection policy', () {
+    test('Source accepts only the paired Main address', () {
+      expect(
+        ConnectionFacade.acceptsIncomingConnection(
+          isSource: true,
+          expectedPeerAddress: '192.0.2.10',
+          remoteAddress: '192.0.2.10',
+        ),
+        isTrue,
+      );
+      expect(
+        ConnectionFacade.acceptsIncomingConnection(
+          isSource: true,
+          expectedPeerAddress: '192.0.2.10',
+          remoteAddress: '192.0.2.11',
+        ),
+        isFalse,
+      );
+    });
+
+    test('pairing-time server permits an incoming connection', () {
+      expect(
+        ConnectionFacade.acceptsIncomingConnection(
+          isSource: false,
+          expectedPeerAddress: null,
+          remoteAddress: '192.0.2.10',
+        ),
+        isTrue,
+      );
+    });
   });
 }

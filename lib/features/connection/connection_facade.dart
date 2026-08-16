@@ -602,6 +602,7 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
     late final SocketManager sm;
     sm = SocketManager(
       onMessage: (message) => _handleIncomingMessage(sm, message),
+      onAcceptConnection: _acceptIncomingConnection,
       onConnected: () {
         state = true;
         _reconnectScheduler.markConnected();
@@ -647,6 +648,35 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
     );
     _configureAuth(sm);
     return sm;
+  }
+
+  Future<bool> _acceptIncomingConnection(String remoteAddress) async {
+    final expectedAddress = _lastDiscoveredIp ?? _peer?.ip;
+    final accepted = acceptsIncomingConnection(
+      isSource: isSource,
+      expectedPeerAddress: expectedAddress,
+      remoteAddress: remoteAddress,
+    );
+    if (!accepted) {
+      _logger.w(
+        'Rejected incoming connection from unexpected address $remoteAddress.',
+      );
+    }
+    return accepted;
+  }
+
+  /// Source only accepts the paired Main device. Pairing-time servers must
+  /// remain open so either device can establish the initial transport.
+  static bool acceptsIncomingConnection({
+    required bool isSource,
+    required String? expectedPeerAddress,
+    required String remoteAddress,
+  }) {
+    if (!isSource) return true;
+    return expectedPeerAddress != null &&
+        expectedPeerAddress.isNotEmpty &&
+        expectedPeerAddress != 'unknown' &&
+        remoteAddress == expectedPeerAddress;
   }
 
   /// Sets the auth identity (peer's public key + our Ed25519 keypair) on
