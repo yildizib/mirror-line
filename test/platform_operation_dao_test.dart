@@ -38,4 +38,14 @@ void main() {
     await dao.updateState('m1', 'succeeded');
     expect(await dao.state('m1'), 'succeeded');
   });
+
+  test('executing operations are recovered after process restart', () async {
+    expect(
+      await dao.claim(operationId: 'm2', kind: 'call_reject', payload: '{}'),
+      isTrue,
+    );
+    await dao.updateState('m2', 'executing');
+    expect(await dao.recoverExecuting(), 1);
+    expect(await dao.state('m2'), 'received');
+  });
 }

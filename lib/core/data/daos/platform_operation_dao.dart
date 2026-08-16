@@ -87,4 +87,17 @@ class PlatformOperationDao {
       whereArgs: [operationId],
     );
   }
+
+  Future<int> recoverExecuting() async {
+    final db = await _database;
+    return db.update(
+      'platform_operation',
+      {
+        'state': 'received',
+        'updated_at': DateTime.now().millisecondsSinceEpoch,
+      },
+      where: 'state = ?',
+      whereArgs: ['executing'],
+    );
+  }
 }
