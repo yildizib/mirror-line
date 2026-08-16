@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mirrorline/core/data/daos/queue_dao.dart';
 import 'package:mirrorline/core/data/database.dart';
+import 'package:mirrorline/core/data/models/queue_item.dart';
 import 'package:mirrorline/core/services/queue_service.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -74,5 +75,40 @@ void main() {
       whereArgs: [item.id],
     );
     expect(rows.single['status'], 'dead_letter');
+  });
+
+  test('domain mutation and Outbox insertion roll back together', () async {
+    final dao = QueueDao.forDatabase(db);
+    expect(
+      () => db.transaction((transaction) async {
+        await transaction.insert('sms_message', {
+          'id': 'sms-transaction',
+          'thread_id': '',
+          'address': '+1',
+          'contact_name': '',
+          'body': 'body',
+          'encrypted': '',
+          'direction': 'outgoing',
+          'status': 'pending',
+          'delivery_status': 'none',
+          'timestamp': 1,
+          'created_at': 1,
+        });
+        await dao.insertOn(
+          transaction,
+          QueueItem(
+            messageId: 'message-transaction',
+            destinationPeerId: 'peer-a',
+            type: 'sms',
+            payload: '{}',
+            createdAt: DateTime.fromMillisecondsSinceEpoch(1),
+          ),
+        );
+        throw StateError('rollback');
+      }),
+      throwsStateError,
+    );
+    expect(await db.query('sms_message'), isEmpty);
+    expect(await db.query('outbox'), isEmpty);
   });
 }

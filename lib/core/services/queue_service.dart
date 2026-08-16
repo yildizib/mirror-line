@@ -1,6 +1,7 @@
 import 'package:mirrorline/core/data/daos/queue_dao.dart';
 import 'package:mirrorline/core/data/models/queue_item.dart';
 import 'package:uuid/uuid.dart';
+import 'package:sqflite/sqflite.dart';
 
 class QueueService {
   final QueueDao _dao;
@@ -14,6 +15,25 @@ class QueueService {
     String? messageId,
   }) async {
     return _dao.insert(
+      QueueItem(
+        messageId: messageId ?? const Uuid().v4(),
+        destinationPeerId: destinationPeerId,
+        type: type,
+        payload: payload,
+        createdAt: DateTime.now(),
+      ),
+    );
+  }
+
+  Future<QueueItem> enqueueOnDatabase(
+    DatabaseExecutor db,
+    String type,
+    String payload, {
+    required String destinationPeerId,
+    String? messageId,
+  }) {
+    return _dao.insertOn(
+      db,
       QueueItem(
         messageId: messageId ?? const Uuid().v4(),
         destinationPeerId: destinationPeerId,

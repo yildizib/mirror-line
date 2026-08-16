@@ -16,6 +16,10 @@ class QueueDao {
 
   Future<QueueItem> insert(QueueItem item) async {
     final db = await _database;
+    return insertOn(db, item);
+  }
+
+  Future<QueueItem> insertOn(DatabaseExecutor db, QueueItem item) async {
     final id = await db.insert('outbox', item.toJson());
     return item.copyWith(id: id);
   }

@@ -9,6 +9,10 @@ class SmsMessageDao {
 
   Future<void> insert(SmsMessage message) async {
     final db = await _database;
+    await insertOn(db, message);
+  }
+
+  Future<void> insertOn(DatabaseExecutor db, SmsMessage message) async {
     await db.insert(
       'sms_message',
       message.toJson(),

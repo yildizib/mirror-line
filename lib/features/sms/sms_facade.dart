@@ -18,6 +18,7 @@ final smsFacadeProvider = StateNotifierProvider<SmsFacade, List<SmsMessage>>((
     logger: Logger(),
     isSource: () => connectionFacade.isSource,
     sendOrQueue: connectionFacade.sendOrQueue,
+    sendOrQueueWithMutation: connectionFacade.sendOrQueueWithMutation,
     notify: connectionFacade.notify,
   );
 });
@@ -31,6 +32,8 @@ class SmsFacade extends StateNotifier<List<SmsMessage>> {
   final Logger _logger;
   final bool Function() _isSource;
   final SendOrQueue _sendOrQueue;
+  final Future<bool> Function(String, Map<String, dynamic>, DomainMutation)?
+  _sendOrQueueWithMutation;
   final ShowNotification _notify;
   final Map<String, String> _pendingStatuses = {};
   late final Future<void> _initialized;
@@ -40,6 +43,7 @@ class SmsFacade extends StateNotifier<List<SmsMessage>> {
     required this._logger,
     required this._isSource,
     required this._sendOrQueue,
+    this._sendOrQueueWithMutation,
     required this._notify,
     SmsMessageDao? dao,
   }) : _dao = dao ?? SmsMessageDao(),
@@ -369,21 +373,19 @@ class SmsFacade extends StateNotifier<List<SmsMessage>> {
     await initialized;
     final smsId = id ?? const Uuid().v4();
     final sentAt = timestamp ?? DateTime.now();
-    await add(
-      SmsMessage(
-        id: smsId,
-        threadId: threadId ?? '',
-        address: address,
-        contactName: contactName ?? '',
-        body: body,
-        encrypted: '',
-        direction: 'outgoing',
-        status: 'pending',
-        timestamp: sentAt,
-        createdAt: sentAt,
-      ),
+    final message = SmsMessage(
+      id: smsId,
+      threadId: threadId ?? '',
+      address: address,
+      contactName: contactName ?? '',
+      body: body,
+      encrypted: '',
+      direction: 'outgoing',
+      status: 'pending',
+      timestamp: sentAt,
+      createdAt: sentAt,
     );
-    return _sendOrQueue(MessageTypes.smsOutgoing, {
+    final payload = {
       'id': smsId,
       'address': address,
       'body': body,
@@ -391,6 +393,17 @@ class SmsFacade extends StateNotifier<List<SmsMessage>> {
         'contact_name': contactName,
       if (threadId != null && threadId.isNotEmpty) 'thread_id': threadId,
       'timestamp': sentAt.millisecondsSinceEpoch,
-    });
+    };
+    if (_sendOrQueueWithMutation != null) {
+      final sent = await _sendOrQueueWithMutation(
+        MessageTypes.smsOutgoing,
+        payload,
+        (database) => _dao.insertOn(database, message),
+      );
+      state = [message, ...state.where((item) => item.id != message.id)];
+      return sent;
+    }
+    await add(message);
+    return _sendOrQueue(MessageTypes.smsOutgoing, payload);
   }
 }

@@ -9,6 +9,7 @@ import 'package:mirrorline/core/data/daos/known_network_dao.dart';
 import 'package:mirrorline/core/data/daos/peer_dao.dart';
 import 'package:mirrorline/core/data/models/peer.dart';
 import 'package:mirrorline/core/data/models/queue_item.dart';
+import 'package:mirrorline/core/data/database.dart';
 import 'package:mirrorline/core/network/lan_beacon.dart';
 import 'package:mirrorline/core/network/message_protocol.dart';
 import 'package:mirrorline/core/network/peer_discovery.dart';
@@ -16,6 +17,7 @@ import 'package:mirrorline/core/network/socket_manager.dart';
 import 'package:mirrorline/core/network/subnet_scanner.dart';
 import 'package:mirrorline/core/security/crypto_manager.dart';
 import 'package:mirrorline/core/security/key_store.dart';
+import 'package:sqflite/sqflite.dart';
 import 'package:mirrorline/core/services/connectivity_service.dart';
 import 'package:mirrorline/core/services/notification_service.dart';
 import 'package:mirrorline/core/services/queue_service.dart';
@@ -40,6 +42,7 @@ import 'dart:io';
 /// their own view of the socket.
 typedef SendOrQueue =
     Future<bool> Function(String type, Map<String, dynamic> payload);
+typedef DomainMutation = Future<void> Function(Transaction database);
 
 /// Shows (or replaces, by id) a local notification.
 typedef ShowNotification =
@@ -1392,6 +1395,29 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
   /// (Dart privacy is per-file). Same underlying implementation either way.
   Future<bool> sendOrQueue(String type, Map<String, dynamic> payload) =>
       _sendOrQueue(type, payload);
+
+  Future<bool> sendOrQueueWithMutation(
+    String type,
+    Map<String, dynamic> payload,
+    DomainMutation mutation,
+  ) async {
+    final destinationPeerId = _peer?.id;
+    if (destinationPeerId == null) return false;
+    final database = await AppDatabase.instance.database;
+    late QueueItem item;
+    await database.transaction((transaction) async {
+      await mutation(transaction);
+      item = await _queue.enqueueOnDatabase(
+        transaction,
+        type,
+        jsonEncode(payload),
+        destinationPeerId: destinationPeerId,
+      );
+    });
+    final sent = await _socketManager?.sendMessage(type, payload) ?? false;
+    if (sent && item.id != null) await _queue.markSent(item.id!);
+    return sent;
+  }
 
   Future<void> notify({
     required int id,
