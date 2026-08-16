@@ -140,6 +140,76 @@ void main() {
     }
   });
 
+  test(
+    'sent records survive restart and retry with their ID until ACKed',
+    () async {
+      final directory = await Directory.systemTemp.createTemp(
+        'mirrorline_outbox_live_restart_test',
+      );
+      final path = '${directory.path}/outbox.db';
+      Database? restartedDb;
+      try {
+        final firstDb = await databaseFactory.openDatabase(
+          path,
+          options: OpenDatabaseOptions(
+            version: AppDatabase.schemaVersion,
+            onCreate: AppDatabase.instance.createTables,
+          ),
+        );
+        final firstService = QueueService(dao: QueueDao.forDatabase(firstDb));
+        final item = await firstService.enqueue(
+          'sms',
+          '{}',
+          destinationPeerId: 'peer-a',
+          messageId: 'restart-lost-ack-id',
+        );
+        await firstService.markSent(item.id!);
+        await firstDb.close();
+
+        restartedDb = await databaseFactory.openDatabase(path);
+        final restartedService = QueueService(
+          dao: QueueDao.forDatabase(restartedDb),
+        );
+        final persisted = (await restartedDb.query(
+          'outbox',
+          where: 'id = ?',
+          whereArgs: [item.id],
+        )).single;
+        expect(persisted['status'], 'sent');
+        expect(persisted['message_id'], item.messageId);
+
+        await restartedDb.update(
+          'outbox',
+          {'next_attempt_at': DateTime.now().millisecondsSinceEpoch - 1},
+          where: 'id = ?',
+          whereArgs: [item.id],
+        );
+        final retry = (await restartedService.pendingItems('peer-a')).single;
+        expect(retry.id, item.id);
+        expect(retry.messageId, item.messageId);
+        expect(retry.status, 'sent');
+
+        await restartedService.markSent(retry.id!);
+        expect(
+          await restartedService.pendingItems('peer-a'),
+          isEmpty,
+          reason: 'a retry remains live while waiting for its committed ACK',
+        );
+        await restartedService.markAcknowledged(retry.messageId);
+        final acknowledged = (await restartedDb.query(
+          'outbox',
+          where: 'id = ?',
+          whereArgs: [item.id],
+        )).single;
+        expect(acknowledged['status'], 'completed');
+        expect(acknowledged['message_id'], item.messageId);
+      } finally {
+        await restartedDb?.close();
+        await directory.delete(recursive: true);
+      }
+    },
+  );
+
   test('lost ACK retries with the original ID until dead-lettered', () async {
     final item = await service.enqueue(
       'sms',
