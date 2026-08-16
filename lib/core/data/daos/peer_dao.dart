@@ -66,6 +66,12 @@ class PeerDao {
     await db.transaction((txn) async {
       if (oldId != newPeer.id) {
         await txn.delete('peer', where: 'id = ?', whereArgs: [oldId]);
+        await txn.update(
+          'outbox',
+          {'status': 'dead_letter'},
+          where: "destination_peer_id = ? AND status IN ('pending', 'sent')",
+          whereArgs: [oldId],
+        );
       }
       await txn.insert(
         'peer',
@@ -77,11 +83,24 @@ class PeerDao {
 
   Future<void> delete(String id) async {
     final db = await _database;
-    await db.delete('peer', where: 'id = ?', whereArgs: [id]);
+    await db.transaction((txn) async {
+      await txn.update(
+        'outbox',
+        {'status': 'dead_letter'},
+        where: "destination_peer_id = ? AND status IN ('pending', 'sent')",
+        whereArgs: [id],
+      );
+      await txn.delete('peer', where: 'id = ?', whereArgs: [id]);
+    });
   }
 
   Future<void> deleteAll() async {
     final db = await _database;
-    await db.delete('peer');
+    await db.transaction((txn) async {
+      await txn.update('outbox', {
+        'status': 'dead_letter',
+      }, where: "status IN ('pending', 'sent')");
+      await txn.delete('peer');
+    });
   }
 }

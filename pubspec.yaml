@@ -1,5 +1,5 @@
 name: mirrorline
-description: "Sunucusuz, uçtan uca şifreli iki telefon arası arama ve SMS senkronizasyonu."
+description: "Serverless, end-to-end encrypted call and SMS synchronization between two phones."
 
 publish_to: 'none'
 
@@ -69,6 +69,8 @@ dependencies:
 
 dev_dependencies:
   flutter_test:
+    sdk: flutter
+  integration_test:
     sdk: flutter
   flutter_lints: ^6.0.0
   build_runner: ^2.4.11

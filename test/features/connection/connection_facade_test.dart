@@ -9,10 +9,15 @@
 // seam, so these tests exercise the same invariants at the algorithm level
 // or through the real, already-testable ReconnectScheduler/
 // PeerDiscoveryCoordinator classes it delegates to.
+import 'dart:convert';
+
+import 'package:cryptography/cryptography.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logger/logger.dart';
+import 'package:mirrorline/core/data/models/peer.dart';
 import 'package:mirrorline/features/connection/peer_discovery_coordinator.dart';
 import 'package:mirrorline/features/connection/reconnect_scheduler.dart';
+import 'package:mirrorline/features/connection/connection_facade.dart';
 
 /// Mirrors ConnectionFacade._handleIncomingMessage's replay guard exactly:
 /// reject only a timestamp strictly less than the last accepted one.
@@ -21,6 +26,62 @@ bool _isReplay(int? lastAccepted, int messageTimestamp) {
 }
 
 void main() {
+  group('Paired identity validation', () {
+    final peer = Peer(
+      id: 'peer-id',
+      deviceName: 'Peer',
+      role: 'main',
+      ip: '192.0.2.10',
+      port: 45678,
+      key: 'unused',
+      publicKey: base64Encode(List<int>.filled(32, 7)),
+      createdAt: DateTime(2026),
+    );
+
+    test('accepts only a complete paired authentication identity', () async {
+      final localKeyPair = await Ed25519().newKeyPair();
+
+      expect(
+        ConnectionFacade.hasValidPairedIdentity(
+          peer: peer,
+          sharedKey: SecretKey(const [1]),
+          localKeyPair: localKeyPair,
+        ),
+        isTrue,
+      );
+      expect(
+        ConnectionFacade.hasValidPairedIdentity(
+          peer: peer,
+          sharedKey: null,
+          localKeyPair: localKeyPair,
+        ),
+        isFalse,
+      );
+      expect(
+        ConnectionFacade.hasValidPairedIdentity(
+          peer: peer,
+          sharedKey: SecretKey(const [1]),
+          localKeyPair: null,
+        ),
+        isFalse,
+      );
+    });
+
+    test('rejects corrupt persisted peer identity before auth setup', () async {
+      final localKeyPair = await Ed25519().newKeyPair();
+      final corruptPeer = peer.copyWith(publicKey: 'AQID');
+
+      expect(
+        ConnectionFacade.hasValidPairedIdentity(
+          peer: corruptPeer,
+          sharedKey: SecretKey(const [1]),
+          localKeyPair: localKeyPair,
+        ),
+        isFalse,
+      );
+    });
+  });
+
   group('Replay-timestamp guard', () {
     test('accepts the first message with no prior baseline', () {
       expect(_isReplay(null, 1000), false);
@@ -122,5 +183,37 @@ void main() {
         expect(discoveredCalls, 0);
       },
     );
+  });
+
+  group('Incoming connection policy', () {
+    test('Source accepts only the paired Main address', () {
+      expect(
+        ConnectionFacade.acceptsIncomingConnection(
+          isSource: true,
+          expectedPeerAddress: '192.0.2.10',
+          remoteAddress: '192.0.2.10',
+        ),
+        isTrue,
+      );
+      expect(
+        ConnectionFacade.acceptsIncomingConnection(
+          isSource: true,
+          expectedPeerAddress: '192.0.2.10',
+          remoteAddress: '192.0.2.11',
+        ),
+        isFalse,
+      );
+    });
+
+    test('pairing-time server permits an incoming connection', () {
+      expect(
+        ConnectionFacade.acceptsIncomingConnection(
+          isSource: false,
+          expectedPeerAddress: null,
+          remoteAddress: '192.0.2.10',
+        ),
+        isTrue,
+      );
+    });
   });
 }

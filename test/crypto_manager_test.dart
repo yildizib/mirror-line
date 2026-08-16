@@ -5,7 +5,7 @@ void main() {
   group('CryptoManager', () {
     test('encrypt/decrypt round trip', () async {
       final key = CryptoManager.generateKey();
-      const plainText = 'Merhaba MirrorLine! 🚀 {"json": true}';
+      const plainText = 'Hello MirrorLine! {"json": true}';
 
       final encrypted = await CryptoManager.encrypt(key, plainText);
       expect(encrypted, isNot(plainText));

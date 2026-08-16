@@ -4,6 +4,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logger/logger.dart';
 import 'package:mirrorline/core/data/database.dart';
+import 'package:mirrorline/core/data/daos/inbox_dao.dart';
+import 'package:mirrorline/core/data/daos/platform_operation_dao.dart';
+import 'package:mirrorline/core/data/models/inbox_record.dart';
 import 'package:mirrorline/core/data/models/call_event.dart';
 import 'package:mirrorline/core/network/message_protocol.dart';
 import 'package:mirrorline/core/services/notification_service.dart';
@@ -11,6 +14,7 @@ import 'package:mirrorline/features/calls/call_facade.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class _FakePathProviderPlatform extends PathProviderPlatform
     with MockPlatformInterfaceMixin {
@@ -28,6 +32,7 @@ void main() {
   setUpAll(() {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
+    SharedPreferences.setMockInitialValues({});
   });
 
   setUp(() async {
@@ -44,7 +49,8 @@ void main() {
 
   ProviderContainer buildContainer({
     bool Function()? isSource,
-    Future<bool> Function()? rejectCall,
+    Future<bool> Function({required String operationId})? rejectCall,
+    Future<bool> Function(String operationId)? hasCallRejection,
     Future<bool> Function(String, Map<String, dynamic>)? sendOrQueue,
   }) {
     final container = ProviderContainer(
@@ -63,6 +69,7 @@ void main() {
                   NotificationPayload? payload,
                 }) async {},
             rejectCall: rejectCall,
+            hasCallRejection: hasCallRejection,
           );
         }),
       ],
@@ -110,7 +117,7 @@ void main() {
       final sentTypes = <String>[];
       final container = buildContainer(
         isSource: () => true,
-        rejectCall: () async => false,
+        rejectCall: ({required operationId}) async => false,
         sendOrQueue: (type, payload) async {
           sentTypes.add(type);
           return true;
@@ -140,6 +147,179 @@ void main() {
 
       expect(rejected, false);
       expect(facade.state.single.status, 'ringing');
+      expect(sentTypes, isEmpty);
+      expect(await PlatformOperationDao().state('command'), 'failed');
+    },
+  );
+
+  test(
+    'call reject uses transport message ID and ignores duplicate execution',
+    () async {
+      var rejections = 0;
+      final container = buildContainer(
+        isSource: () => true,
+        rejectCall: ({required operationId}) async {
+          rejections++;
+          return true;
+        },
+      );
+      final facade = container.read(callFacadeProvider.notifier);
+      final now = DateTime(2025, 1, 1, 12);
+      await facade.handleNativeEvent(
+        {'state': 'RINGING', 'number': '+15555550100'},
+        id: 'domain-call-id',
+        now: now,
+      );
+      await facade.handleIncomingMessage(
+        MessageTypes.callRejected,
+        {'id': 'domain-call-id'},
+        MirrorMessage(
+          type: MessageTypes.callRejected,
+          id: 'transport-command-id',
+          timestamp: now.millisecondsSinceEpoch,
+          payload: '',
+        ),
+        now,
+      );
+
+      expect(rejections, 1);
+      expect(
+        await PlatformOperationDao().state('transport-command-id'),
+        'succeeded',
+      );
+      expect(await facade.executeCallReject('transport-command-id'), isFalse);
+      expect(rejections, 1);
+    },
+  );
+
+  test(
+    'recovery never retries an uncertain call rejection against a new call',
+    () async {
+      var rejections = 0;
+      final container = buildContainer(
+        isSource: () => true,
+        rejectCall: ({required operationId}) async {
+          rejections++;
+          return true;
+        },
+      );
+      final facade = container.read(callFacadeProvider.notifier);
+      await facade.initialized;
+      await PlatformOperationDao().claim(
+        operationId: 'uncertain-old-call',
+        kind: 'call_reject',
+        payload: '{"callId":"old-call","nativeSessionId":"old-session"}',
+      );
+      await PlatformOperationDao().transition(
+        'uncertain-old-call',
+        from: ['received'],
+        to: 'ready',
+      );
+      await facade.handleNativeEvent(
+        {
+          'state': 'RINGING',
+          'callSessionId': 'new-session',
+          'number': '+15555550101',
+        },
+        id: 'new-call',
+        now: DateTime(2025, 1, 1, 12),
+      );
+
+      await facade.recoverCallRejects();
+
+      expect(rejections, 0);
+      expect(
+        await PlatformOperationDao().state('uncertain-old-call'),
+        'failed',
+      );
+    },
+  );
+
+  test(
+    'restart reconciles accepted rejection without another native call or status',
+    () async {
+      var nativeAccepted = false;
+      var rejections = 0;
+      final reconciliationQueries = <String>[];
+      final now = DateTime(2025, 1, 1, 12);
+      final firstContainer = buildContainer(
+        isSource: () => true,
+        rejectCall: ({required operationId}) async {
+          nativeAccepted = true;
+          // Model a process death after Android accepts endCall but before
+          // Dart receives the channel result and persists its terminal state.
+          throw StateError('lost native reply');
+        },
+        hasCallRejection: (operationId) async => nativeAccepted,
+      );
+      final firstFacade = firstContainer.read(callFacadeProvider.notifier);
+      await firstFacade.handleNativeEvent(
+        {
+          'state': 'RINGING',
+          'callSessionId': 'old-session',
+          'number': '+15555550100',
+        },
+        id: 'old-call',
+        now: now,
+      );
+      await firstFacade.handleIncomingMessage(
+        MessageTypes.callRejected,
+        {'id': 'old-call'},
+        MirrorMessage(
+          type: MessageTypes.callRejected,
+          id: 'accepted-command',
+          timestamp: now.millisecondsSinceEpoch,
+          payload: '',
+        ),
+        now,
+      );
+      expect(await PlatformOperationDao().state('accepted-command'), 'ready');
+      firstContainer.dispose();
+
+      final sentTypes = <String>[];
+      final secondContainer = buildContainer(
+        isSource: () => true,
+        rejectCall: ({required operationId}) async {
+          rejections++;
+          return true;
+        },
+        hasCallRejection: (operationId) async {
+          reconciliationQueries.add(operationId);
+          return nativeAccepted;
+        },
+        sendOrQueue: (type, payload) async {
+          sentTypes.add(type);
+          return true;
+        },
+      );
+      final secondFacade = secondContainer.read(callFacadeProvider.notifier);
+      await secondFacade.handleNativeEvent(
+        {
+          'state': 'RINGING',
+          'callSessionId': 'new-session',
+          'number': '+15555550101',
+        },
+        id: 'new-call',
+        now: now.add(const Duration(seconds: 1)),
+      );
+      sentTypes.clear();
+
+      await secondFacade.recoverCallRejects();
+
+      expect(rejections, 0);
+      expect(reconciliationQueries, ['accepted-command']);
+      expect(
+        await PlatformOperationDao().state('accepted-command'),
+        'submitted',
+      );
+      expect(
+        secondFacade.state.singleWhere((call) => call.id == 'old-call').status,
+        'ringing',
+      );
+      expect(
+        secondFacade.state.singleWhere((call) => call.id == 'new-call').status,
+        'ringing',
+      );
       expect(sentTypes, isEmpty);
     },
   );
@@ -240,7 +420,7 @@ void main() {
     var nativeRejectCalls = 0;
     final container = buildContainer(
       isSource: () => true,
-      rejectCall: () async {
+      rejectCall: ({required operationId}) async {
         nativeRejectCalls++;
         return true;
       },
@@ -312,6 +492,87 @@ void main() {
 
     expect(facade.state.single.status, 'missed');
   });
+
+  test(
+    'call Inbox transaction persists before post-commit state publication',
+    () async {
+      final container = buildContainer();
+      final facade = container.read(callFacadeProvider.notifier);
+      final db = await AppDatabase.instance.database;
+      final inbox = InboxDao();
+      final now = DateTime(2026, 8, 16, 12);
+      final message = MirrorMessage(
+        type: MessageTypes.callIncoming,
+        id: 'call-transport-id',
+        timestamp: now.millisecondsSinceEpoch,
+        payload: 'ciphertext',
+        sourcePeerId: 'peer-a',
+      );
+      final payload = {
+        'id': 'call-domain-id',
+        'number': '+15555550100',
+        'contact_name': 'Test',
+        'timestamp': now.millisecondsSinceEpoch,
+      };
+
+      expect(
+        () => db.transaction((transaction) async {
+          await inbox.insertIfAbsentOn(
+            transaction,
+            InboxRecord(
+              sourcePeerId: 'peer-a',
+              messageId: message.id,
+              type: message.type,
+              receivedAt: now,
+              updatedAt: now,
+            ),
+          );
+          await facade.persistIncomingMessageOn(
+            message.type,
+            payload,
+            message,
+            now,
+            transaction,
+          );
+          throw StateError('rollback');
+        }),
+        throwsStateError,
+      );
+      expect(await db.query('inbox'), isEmpty);
+      expect(await db.query('call_event'), isEmpty);
+      expect(facade.state, isEmpty);
+
+      await db.transaction((transaction) async {
+        await inbox.insertIfAbsentOn(
+          transaction,
+          InboxRecord(
+            sourcePeerId: 'peer-a',
+            messageId: message.id,
+            type: message.type,
+            receivedAt: now,
+            updatedAt: now,
+          ),
+        );
+        await facade.persistIncomingMessageOn(
+          message.type,
+          payload,
+          message,
+          now,
+          transaction,
+        );
+      });
+      await facade.handleIncomingMessage(
+        message.type,
+        payload,
+        message,
+        now,
+        alreadyPersisted: true,
+      );
+
+      expect(await db.query('call_event'), hasLength(1));
+      expect(facade.state.single.id, 'call-domain-id');
+    },
+  );
 
   test('loadRecent filters by since', () async {
     final container = buildContainer();

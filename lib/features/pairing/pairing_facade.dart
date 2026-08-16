@@ -136,7 +136,13 @@ class _SocketPairingClientTransport implements PairingClientTransport {
         final key = _key;
         final generation = socket.sessionGeneration;
         if (key == null || generation == null) return;
-        final decrypted = await CryptoManager.decrypt(key, message.payload);
+        final decrypted = await CryptoManager.decrypt(
+          key,
+          message.payload,
+          aad: message.hasAuthenticatedEnvelope
+              ? utf8.encode(message.authenticatedData())
+              : const [],
+        );
         if (!socket.isSessionCurrent(generation)) return;
         Map<String, dynamic>? payload;
         try {

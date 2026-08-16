@@ -17,7 +17,7 @@ void main() {
 
   test('sensitive plaintext never appears in raw bytes on the wire', () async {
     final key = CryptoManager.generateKey();
-    const secretBody = 'GIZLI-SIR-cok-ozel-mesaj-icerigi-9d81f3';
+    const secretBody = 'SENSITIVE-SECRET-very-private-message-content-9d81f3';
     const secretNumber = '+905551112233';
 
     // A raw (undecrypting) TCP server, standing in for "an eavesdropper on
@@ -103,7 +103,7 @@ void main() {
 
       final encrypted = await CryptoManager.encrypt(
         key,
-        'hassas telefon numarası: 5551234567',
+        'sensitive phone number: 5551234567',
       );
       final result = await CryptoManager.decrypt(wrongKey, encrypted);
 
@@ -111,9 +111,74 @@ void main() {
     },
   );
 
+  test('AES-GCM associated data authenticates envelope metadata', () async {
+    final key = CryptoManager.generateKey();
+    final envelope = MirrorMessage(
+      type: MessageTypes.smsIncoming,
+      id: 'message-1',
+      timestamp: DateTime.now().millisecondsSinceEpoch,
+      payload: '',
+      sourcePeerId: 'source',
+      destinationPeerId: 'destination',
+      sessionId: 'session-1',
+      sequence: 1,
+    );
+    final encrypted = await CryptoManager.encrypt(
+      key,
+      '{"body":"secret"}',
+      aad: utf8.encode(envelope.authenticatedData()),
+    );
+
+    final decrypted = await CryptoManager.decrypt(
+      key,
+      encrypted,
+      aad: utf8.encode(envelope.authenticatedData()),
+    );
+    expect(decrypted, '{"body":"secret"}');
+
+    final tamperedEnvelope = MirrorMessage(
+      type: MessageTypes.smsIncoming,
+      id: envelope.id,
+      timestamp: envelope.timestamp,
+      payload: '',
+      sourcePeerId: envelope.sourcePeerId,
+      destinationPeerId: envelope.destinationPeerId,
+      sessionId: envelope.sessionId,
+      sequence: 2,
+    );
+    final tampered = await CryptoManager.decrypt(
+      key,
+      encrypted,
+      aad: utf8.encode(tamperedEnvelope.authenticatedData()),
+    );
+    expect(tampered, isNull);
+  });
+
+  test(
+    'session keys are deterministic per session and differ across sessions',
+    () async {
+      final sharedKey = CryptoManager.generateKey();
+      final first = await CryptoManager.deriveSessionKey(
+        sharedKey,
+        'session-a',
+      );
+      final firstAgain = await CryptoManager.deriveSessionKey(
+        sharedKey,
+        'session-a',
+      );
+      final second = await CryptoManager.deriveSessionKey(
+        sharedKey,
+        'session-b',
+      );
+
+      expect(await first.extractBytes(), await firstAgain.extractBytes());
+      expect(await first.extractBytes(), isNot(await second.extractBytes()));
+    },
+  );
+
   test('each encrypted message uses a fresh nonce (no nonce reuse)', () async {
     final key = CryptoManager.generateKey();
-    const plaintext = 'aynı mesaj iki kere şifrelenirse';
+    const plaintext = 'the same message encrypted twice';
 
     final first = await CryptoManager.encrypt(key, plaintext);
     final second = await CryptoManager.encrypt(key, plaintext);

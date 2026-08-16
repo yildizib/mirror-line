@@ -10,6 +10,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:logger/logger.dart';
 import 'package:mirrorline/core/data/database.dart';
 import 'package:mirrorline/core/data/models/notification_event.dart';
+import 'package:mirrorline/core/network/message_protocol.dart';
 import 'package:mirrorline/core/services/watched_apps_service.dart';
 import 'package:mirrorline/features/notifications/notification_facade.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
@@ -49,8 +50,9 @@ void main() {
   });
 
   ProviderContainer buildContainer(
-    List<MapEntry<String, Map<String, dynamic>>> sent,
-  ) {
+    List<MapEntry<String, Map<String, dynamic>>> sent, {
+    List<int>? notifiedIds,
+  }) {
     final container = ProviderContainer(
       overrides: [
         notificationFacadeProvider.overrideWith(
@@ -62,12 +64,9 @@ void main() {
               return true;
             },
             notify:
-                ({
-                  required id,
-                  required title,
-                  required body,
-                  payload,
-                }) async {},
+                ({required id, required title, required body, payload}) async {
+                  notifiedIds?.add(id);
+                },
           ),
         ),
       ],
@@ -132,6 +131,7 @@ void main() {
         NotificationEvent(
           id: 'evt-1',
           nativeId: 'native-1',
+          sourcePeerId: NotificationEvent.localSourcePeerId,
           packageName: 'com.example.chat',
           appName: 'Chat',
           title: 'New message',
@@ -190,4 +190,41 @@ void main() {
       expect(message.value['text'], 'Test body');
     },
   );
+
+  test('keeps peer notification identities distinct', () async {
+    final sent = <MapEntry<String, Map<String, dynamic>>>[];
+    final notifiedIds = <int>[];
+    final container = buildContainer(sent, notifiedIds: notifiedIds);
+    final facade = container.read(notificationFacadeProvider.notifier);
+    final payload = {
+      'packageName': 'com.example.chat',
+      'nativeId': 'shared-native-id',
+      'title': 'Hello',
+      'text': 'World',
+    };
+    final now = DateTime(2026, 8, 16, 12);
+
+    for (final peerId in ['peer-a', 'peer-b']) {
+      await facade.handleIncomingMessage(
+        MessageTypes.notificationMirrored,
+        payload,
+        MirrorMessage(
+          type: MessageTypes.notificationMirrored,
+          id: 'message-$peerId',
+          timestamp: now.millisecondsSinceEpoch,
+          payload: '',
+          sourcePeerId: peerId,
+        ),
+        now,
+      );
+    }
+
+    expect(facade.state, hasLength(2));
+    expect(facade.state.map((event) => event.sourcePeerId), {
+      'peer-a',
+      'peer-b',
+    });
+    expect(facade.state.map((event) => event.id).toSet(), hasLength(2));
+    expect(notifiedIds.toSet(), hasLength(2));
+  });
 }

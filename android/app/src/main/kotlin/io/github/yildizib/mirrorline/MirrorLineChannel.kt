@@ -3,6 +3,8 @@ package io.github.yildizib.mirrorline
 import android.Manifest
 import android.content.Context
 import android.content.Intent
+import android.app.PendingIntent
+import android.net.Uri
 import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.LinkProperties
@@ -145,12 +147,43 @@ object MirrorLineChannel {
                     MirrorLineNotificationListener.clearPendingNotifications()
                     result.success(null)
                 }
-                "rejectCall" -> result.success(rejectCall(appContext))
+                "fetchSmsResults" -> result.success(
+                    SmsResultStore(appContext).pending().map {
+                        smsResultMap(it) + mapOf("kind" to it.kind)
+                    },
+                )
+                "ackSmsResult" -> {
+                    val operationId = call.argument<String>("operationId") ?: ""
+                    val kind = call.argument<String>("kind") ?: ""
+                    if (operationId.isNotEmpty() && kind in setOf(SmsResultStore.SENT, SmsResultStore.DELIVERED)) {
+                        SmsResultStore(appContext).acknowledge(operationId, kind)
+                    }
+                    result.success(null)
+                }
+                "hasSmsSubmission" -> {
+                    val operationId = call.argument<String>("operationId") ?: ""
+                    result.success(
+                        operationId.isNotEmpty() &&
+                            SmsResultStore(appContext).hasSubmission(operationId),
+                    )
+                }
+                "hasCallRejection" -> {
+                    val operationId = call.argument<String>("operationId") ?: ""
+                    result.success(
+                        operationId.isNotEmpty() &&
+                            CallRejectionStore(appContext).hasRejection(operationId),
+                    )
+                }
+                "rejectCall" -> {
+                    val operationId = call.argument<String>("operationId") ?: ""
+                    result.success(rejectCall(appContext, operationId))
+                }
                 "sendSms" -> {
                     val address = call.argument<String>("address") ?: ""
                     val body = call.argument<String>("body") ?: ""
+                    val operationId = call.argument<String>("operationId") ?: ""
                     try {
-                        sendSms(appContext, address, body)
+                        sendSms(appContext, address, body, operationId)
                         result.success(null)
                     } catch (e: Exception) {
                         result.error("SMS_SEND_FAILED", e.message, null)
@@ -362,7 +395,7 @@ object MirrorLineChannel {
         }
     }
 
-    private fun sendSms(context: Context, address: String, body: String) {
+    private fun sendSms(context: Context, address: String, body: String, operationId: String) {
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.SEND_SMS)
             != PackageManager.PERMISSION_GRANTED
         ) {
@@ -370,6 +403,9 @@ object MirrorLineChannel {
         }
         if (address.isEmpty()) {
             throw IllegalArgumentException("Recipient address is empty")
+        }
+        if (operationId.isEmpty()) {
+            throw IllegalArgumentException("Operation ID is empty")
         }
 
         val smsManager = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -380,14 +416,59 @@ object MirrorLineChannel {
         }
 
         val parts = smsManager.divideMessage(body)
-        if (parts != null && parts.size > 1) {
-            smsManager.sendMultipartTextMessage(address, null, parts, null, null)
-        } else {
-            smsManager.sendTextMessage(address, null, body, null, null)
+        val multipartParts = parts?.takeIf { it.size > 1 }
+        val partCount = multipartParts?.size ?: 1
+        val resultStore = SmsResultStore(context)
+        // Commit the native acceptance record before the irreversible send.
+        // Dart recovery consults it rather than blindly invoking this again.
+        resultStore.prepareSubmission(operationId)
+        fun pendingIntent(kind: String, partIndex: Int): PendingIntent =
+            PendingIntent.getBroadcast(
+                context,
+                partIndex,
+                Intent(context, SmsResultReceiver::class.java)
+                    .setAction(SmsResultReceiver.ACTION)
+                    .setData(Uri.parse("mirrorline://sms/${Uri.encode(operationId)}/$kind/$partIndex"))
+                    .putExtra(SmsResultReceiver.EXTRA_OPERATION_ID, operationId)
+                    .putExtra(SmsResultReceiver.EXTRA_KIND, kind)
+                    .putExtra(SmsResultReceiver.EXTRA_PART_INDEX, partIndex)
+                    .putExtra(SmsResultReceiver.EXTRA_PART_COUNT, partCount),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+        try {
+            if (multipartParts != null) {
+                smsManager.sendMultipartTextMessage(
+                    address, null, multipartParts,
+                    ArrayList(List(partCount) { pendingIntent(SmsResultStore.SENT, it) }),
+                    ArrayList(List(partCount) { pendingIntent(SmsResultStore.DELIVERED, it) }),
+                )
+            } else {
+                smsManager.sendTextMessage(
+                    address, null, body,
+                    pendingIntent(SmsResultStore.SENT, 0),
+                    pendingIntent(SmsResultStore.DELIVERED, 0),
+                )
+            }
+        } catch (error: Exception) {
+            resultStore.recordFailure(operationId, partCount)?.let(::routeSmsResult)
+            throw error
         }
     }
 
-    private fun rejectCall(context: Context): Boolean {
+    internal fun routeSmsResult(result: SmsResult) {
+        NativeEventRouter.route(
+            if (result.kind == SmsResultStore.SENT) "onSmsSent" else "onSmsDelivered",
+            smsResultMap(result),
+        )
+    }
+
+    private fun smsResultMap(result: SmsResult) = mapOf(
+        "operationId" to result.operationId,
+        "success" to result.success,
+    )
+
+    private fun rejectCall(context: Context, operationId: String): Boolean {
+        if (operationId.isEmpty()) return false
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.ANSWER_PHONE_CALLS)
             != PackageManager.PERMISSION_GRANTED
         ) {
@@ -395,11 +476,13 @@ object MirrorLineChannel {
         }
         return try {
             val telecomManager = context.getSystemService(TelecomManager::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            val rejected = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 telecomManager.endCall()
             } else {
                 rejectCallViaReflection(context)
             }
+            if (rejected) CallRejectionStore(context).record(operationId)
+            rejected
         } catch (e: Exception) {
             false
         }

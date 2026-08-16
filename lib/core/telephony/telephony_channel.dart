@@ -121,6 +121,8 @@ class TelephonyChannel {
     'io.github.yildizib.mirrorline/telephony',
   );
   static int _eventHandlerGeneration = 0;
+  static FutureOr<void> Function(String type, Map<dynamic, dynamic> data)?
+  _eventHandler;
 
   static Future<MirroringServiceResult> startListening() =>
       _start('startListening');
@@ -212,9 +214,11 @@ class TelephonyChannel {
     }
   }
 
-  static Future<bool> rejectCall() async {
+  static Future<bool> rejectCall({required String operationId}) async {
     try {
-      final result = await _channel.invokeMethod<bool>('rejectCall');
+      final result = await _channel.invokeMethod<bool>('rejectCall', {
+        'operationId': operationId,
+      });
       return result ?? false;
     } on MissingPluginException {
       return false;
@@ -223,16 +227,99 @@ class TelephonyChannel {
     }
   }
 
-  static Future<void> sendSms(String address, String body) async {
+  /// Whether Android durably accepted this call rejection. Recovery uses this
+  /// marker instead of risking an end request against a later call.
+  static Future<bool> hasCallRejection(String operationId) async {
+    try {
+      return await _channel.invokeMethod<bool>('hasCallRejection', {
+            'operationId': operationId,
+          }) ??
+          false;
+    } on MissingPluginException {
+      return false;
+    } on PlatformException catch (e) {
+      throw TelephonyChannelException.fromPlatform('hasCallRejection', e);
+    }
+  }
+
+  static Future<void> sendSms(
+    String address,
+    String body, {
+    required String operationId,
+  }) async {
     try {
       await _channel.invokeMethod('sendSms', {
         'address': address,
         'body': body,
+        'operationId': operationId,
       });
     } on MissingPluginException {
       // ignore
     } on PlatformException catch (e) {
       throw TelephonyChannelException.fromPlatform('sendSms', e);
+    }
+  }
+
+  /// Whether Android durably accepted this SMS submission. This closes the
+  /// Dart-to-native crash window without submitting the SMS a second time.
+  static Future<bool> hasSmsSubmission(String operationId) async {
+    try {
+      return await _channel.invokeMethod<bool>('hasSmsSubmission', {
+            'operationId': operationId,
+          }) ??
+          false;
+    } on MissingPluginException {
+      return false;
+    } on PlatformException catch (e) {
+      throw TelephonyChannelException.fromPlatform('hasSmsSubmission', e);
+    }
+  }
+
+  /// Replays completed native SMS callbacks retained across process death.
+  /// Each result is removed from Android only after [handler] completes.
+  static Future<void> consumePendingSmsResults() async {
+    try {
+      final results = await _channel.invokeListMethod<Object?>(
+        'fetchSmsResults',
+      );
+      final handler = _eventHandler;
+      if (handler == null) return;
+      for (final value in results ?? const <Object?>[]) {
+        final result = value as Map?;
+        final operationId = result?['operationId'] as String?;
+        final kind = result?['kind'] as String?;
+        if (operationId == null || (kind != 'sent' && kind != 'delivered')) {
+          continue;
+        }
+        await _handleSmsResultEvent(
+          kind == 'sent' ? 'onSmsSent' : 'onSmsDelivered',
+          Map<dynamic, dynamic>.from(result!),
+        );
+      }
+    } on MissingPluginException {
+      // Graceful on non-Android platforms.
+    } on PlatformException catch (e) {
+      throw TelephonyChannelException.fromPlatform('fetchSmsResults', e);
+    }
+  }
+
+  static Future<void> _handleSmsResultEvent(
+    String type,
+    Map<dynamic, dynamic> data,
+  ) async {
+    final operationId = data['operationId'] as String?;
+    if (operationId == null) return;
+    await _eventHandler?.call(type, data);
+    final kind = type == 'onSmsSent' ? 'sent' : 'delivered';
+    try {
+      await _channel.invokeMethod<void>('ackSmsResult', {
+        'operationId': operationId,
+        'kind': kind,
+      });
+    } on MissingPluginException {
+      // Graceful on non-Android platforms.
+    } on PlatformException catch (e) {
+      throw TelephonyChannelException.fromPlatform('ackSmsResult', e);
     }
   }
 
@@ -357,6 +444,7 @@ class TelephonyChannel {
     FutureOr<void> Function(String type, Map<dynamic, dynamic> data) handler,
   ) {
     final generation = ++_eventHandlerGeneration;
+    _eventHandler = handler;
     _channel.setMethodCallHandler((call) async {
       switch (call.method) {
         case 'onCall':
@@ -366,6 +454,13 @@ class TelephonyChannel {
         case 'onNetworkChanged':
           await handler(call.method, (call.arguments as Map? ?? {}));
           return null;
+        case 'onSmsSent':
+        case 'onSmsDelivered':
+          await _handleSmsResultEvent(
+            call.method,
+            (call.arguments as Map? ?? {}),
+          );
+          return null;
         default:
           return null;
       }
@@ -373,6 +468,7 @@ class TelephonyChannel {
     return () {
       if (generation != _eventHandlerGeneration) return;
       _eventHandlerGeneration++;
+      _eventHandler = null;
       _channel.setMethodCallHandler(null);
     };
   }

@@ -21,13 +21,33 @@ class CryptoManager {
     return SecretKey(_randomBytes(32));
   }
 
-  static Future<String> encrypt(SecretKey key, String plainText) async {
+  /// Derives a key scoped to one authenticated connection. The pairing key
+  /// remains a bootstrap secret; application frames use this derived key.
+  static Future<SecretKey> deriveSessionKey(
+    SecretKey sharedKey,
+    String sessionId, {
+    String? transcript,
+  }) async {
+    final sharedBytes = await sharedKey.extractBytes();
+    final digest = crypto.Hmac(
+      crypto.sha256,
+      sharedBytes,
+    ).convert(utf8.encode('mirrorline/session/$sessionId/${transcript ?? ''}'));
+    return SecretKey(digest.bytes);
+  }
+
+  static Future<String> encrypt(
+    SecretKey key,
+    String plainText, {
+    List<int> aad = const [],
+  }) async {
     final nonceBytes = _randomBytes(12);
 
     final secretBox = await _algorithm.encrypt(
       utf8.encode(plainText),
       secretKey: key,
       nonce: nonceBytes,
+      aad: aad,
     );
 
     final combined = Uint8List(
@@ -45,7 +65,11 @@ class CryptoManager {
     return base64Encode(combined);
   }
 
-  static Future<String?> decrypt(SecretKey key, String encryptedBase64) async {
+  static Future<String?> decrypt(
+    SecretKey key,
+    String encryptedBase64, {
+    List<int> aad = const [],
+  }) async {
     try {
       final combined = base64Decode(encryptedBase64);
       if (combined.length < 28) return null;
@@ -57,7 +81,11 @@ class CryptoManager {
 
       final secretBox = SecretBox(cipherText, nonce: nonce, mac: Mac(macBytes));
 
-      final decrypted = await _algorithm.decrypt(secretBox, secretKey: key);
+      final decrypted = await _algorithm.decrypt(
+        secretBox,
+        secretKey: key,
+        aad: aad,
+      );
       return utf8.decode(decrypted);
     } catch (e) {
       return null;
@@ -97,6 +125,13 @@ class CryptoManager {
       return false;
     }
   }
+
+  /// Prefix a signed transcript by its purpose so a valid signature for one
+  /// authentication control frame cannot be replayed as another.
+  static String authenticationSignatureData(
+    String purpose,
+    String transcript,
+  ) => 'mirrorline/auth/$purpose/$transcript';
 
   /// Generates a random nonce as a base64 string (32 bytes).
   static String generateNonce() {

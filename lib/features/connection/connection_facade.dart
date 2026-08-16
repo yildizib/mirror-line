@@ -6,16 +6,19 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logger/logger.dart';
 import 'package:mirrorline/core/data/daos/known_network_dao.dart';
+import 'package:mirrorline/core/data/daos/inbox_dao.dart';
+import 'package:mirrorline/core/data/models/inbox_record.dart';
 import 'package:mirrorline/core/data/daos/peer_dao.dart';
 import 'package:mirrorline/core/data/models/peer.dart';
 import 'package:mirrorline/core/data/models/queue_item.dart';
+import 'package:mirrorline/core/data/database.dart';
 import 'package:mirrorline/core/network/lan_beacon.dart';
 import 'package:mirrorline/core/network/message_protocol.dart';
 import 'package:mirrorline/core/network/peer_discovery.dart';
 import 'package:mirrorline/core/network/socket_manager.dart';
 import 'package:mirrorline/core/network/subnet_scanner.dart';
-import 'package:mirrorline/core/security/crypto_manager.dart';
 import 'package:mirrorline/core/security/key_store.dart';
+import 'package:sqflite/sqflite.dart';
 import 'package:mirrorline/core/services/connectivity_service.dart';
 import 'package:mirrorline/core/services/notification_service.dart';
 import 'package:mirrorline/core/services/queue_service.dart';
@@ -40,6 +43,7 @@ import 'dart:io';
 /// their own view of the socket.
 typedef SendOrQueue =
     Future<bool> Function(String type, Map<String, dynamic> payload);
+typedef DomainMutation = Future<void> Function(Transaction database);
 
 /// Shows (or replaces, by id) a local notification.
 typedef ShowNotification =
@@ -89,7 +93,7 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
   // when the connection actually comes back up (see _flushQueue), so if
   // the peer never reconnects a queued sms_status ack would otherwise
   // never get marked either way -- this is a connection-state-independent
-  // backstop so "Gönderiliyor" doesn't linger forever.
+  // backstop so "Sending" doesn't linger forever.
   static const Duration _pendingSmsTimeout = Duration(minutes: 2);
 
   final Logger _logger = Logger();
@@ -98,6 +102,7 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
   final PeerDao _peerDao = PeerDao();
   final KnownNetworkDao _knownNetworkDao = KnownNetworkDao();
   final QueueService _queue = QueueService();
+  final InboxDao _inbox = InboxDao();
   final BeaconBroadcaster _broadcaster = BeaconBroadcaster();
   // Used only by _scanSubnetsWithProgress (force-reconnect's manual scan);
   // the periodic fallback scan's own scanner now lives inside
@@ -114,6 +119,7 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
   _SocketPairingTransport? _pairingTransport;
   Peer? _peer;
   SecretKey? _key;
+  SimpleKeyPair? _localKeyPair;
   Timer? _healthTimer;
   bool _connecting = false;
   bool _refreshing = false;
@@ -140,15 +146,8 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
   // fallback-scan and network-changed paths, not just timer-driven
   // reconnects, so the two must not be conflated.
   int _connectGeneration = 0;
-  // Guards against an active on-path attacker (e.g. ARP spoofing into an
-  // already-authenticated TCP session) replaying a previously captured,
-  // genuinely valid encrypted message to make the app act on it a second
-  // time -- GCM's auth tag proves *who* encrypted a message but not that
-  // it's fresh. Reset per connection (see onConnected below); a brand new
-  // connection already requires a fresh signed challenge-response, so an
-  // attacker without the identity key can't replay their way into a new
-  // session -- this only needs to cover replay within one live session.
-  int? _lastAcceptedMessageTimestamp;
+  final OutboxFlushGate _flushGate = OutboxFlushGate();
+  final OutboxRetryScheduler _outboxRetryScheduler = OutboxRetryScheduler();
   bool _disposed = false;
   int _lifecycleGeneration = 0;
 
@@ -248,6 +247,7 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
       }
     };
     _connectivity.startListening();
+    unawaited(_cleanupExpiredInbox());
 
     try {
       final lifecycleGeneration = _lifecycleGeneration;
@@ -286,10 +286,19 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
     if (_disposed) return;
     if (state == AppLifecycleState.resumed) {
       _socketManager?.setBackgroundMode(false);
+      unawaited(_cleanupExpiredInbox());
       _refresh();
       _maybeScheduleReconnect();
     } else if (state == AppLifecycleState.paused) {
       _socketManager?.setBackgroundMode(true);
+    }
+  }
+
+  Future<void> _cleanupExpiredInbox() async {
+    try {
+      await _inbox.deleteExpired();
+    } catch (error) {
+      _logger.w('Inbox retention cleanup failed: $error');
     }
   }
 
@@ -317,6 +326,7 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
       try {
         _peer = await _peerDao.getPeer();
         _key = await KeyStore.getPeerKey();
+        _localKeyPair = await KeyStore.getDeviceKeyPair();
         if (!_isLifecycleCurrent(lifecycleGeneration)) return;
       } catch (e) {
         _logger.e('Failed to load peer info: $e');
@@ -324,8 +334,12 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
       }
 
       final peer = _peer;
-      final pairingValid =
-          peer != null && peer.publicKey.isNotEmpty && _key != null;
+      final hasPairedPeer = peer != null && peer.publicKey.isNotEmpty;
+      final pairingValid = hasValidPairedIdentity(
+        peer: peer,
+        sharedKey: _key,
+        localKeyPair: _localKeyPair,
+      );
       final nativeRole = _mirroringRole(peer?.role);
       try {
         await TelephonyChannel.syncMirroringEligibility(
@@ -349,6 +363,7 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
             return;
           }
           await TelephonyChannel.nativeEventsReady();
+          await TelephonyChannel.consumePendingSmsResults();
           if (!_isLifecycleCurrent(lifecycleGeneration)) {
             await TelephonyChannel.nativeEventsNotReady();
             return;
@@ -366,6 +381,12 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
       _allLocalIps = allIps.map((e) => e.ip).toList();
       statusNotifier.setLocalIp(allIps.isNotEmpty ? allIps.first.ip : null);
       statusNotifier.setPeerIp(_peer?.ip);
+
+      if (hasPairedPeer && !pairingValid) {
+        _reportInvalidPairedIdentity();
+        await _stopMachinery();
+        return;
+      }
 
       if (!pairingValid) {
         _logger.w('No valid paired peer or key found. Waiting for pairing.');
@@ -430,7 +451,10 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
     _reconnectScheduler.stop();
 
     _socketManager ??= _createSocketManager();
-    await _configureAuth(_socketManager!);
+    if (!await _configureAuth(_socketManager!)) {
+      _reportInvalidPairedIdentity();
+      return;
+    }
     if (!_isLifecycleCurrent(lifecycleGeneration)) return;
     if (_socketManager!.isConnected == false) {
       try {
@@ -503,6 +527,10 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
     } catch (e) {
       _logger.e('Telephony startListening failed: $e');
     }
+    // Recovery is independent of Inbox redelivery. Only `executing` work is
+    // returned to `received`; `submitted` work remains indeterminate.
+    await _ref.read(smsFacadeProvider.notifier).recoverOutgoingSms();
+    await _ref.read(callFacadeProvider.notifier).recoverCallRejects();
     _logger.i(
       'Source mode active: server on ${peer.port}, beacon broadcasting.',
     );
@@ -522,7 +550,10 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
       // (only 'source' keeps a permanent server afterwards -- see
       // _startAsSource).
       _socketManager ??= _createSocketManager();
-      await _configureAuth(_socketManager!);
+      if (!await _configureAuth(_socketManager!)) {
+        _reportInvalidPairedIdentity();
+        return;
+      }
       if (!_isLifecycleCurrent(lifecycleGeneration)) return;
       if (_socketManager!.isConnected == false) {
         try {
@@ -589,13 +620,13 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
     late final SocketManager sm;
     sm = SocketManager(
       onMessage: (message) => _handleIncomingMessage(sm, message),
+      onAcceptConnection: _acceptIncomingConnection,
       onConnected: () {
         state = true;
         _reconnectScheduler.markConnected();
         _peerDiscoveryCoordinator.markConnected();
         _cancelActiveScan();
         _peerDiscoveryCoordinator.cancelActiveScan();
-        _lastAcceptedMessageTimestamp = null;
         _ref.read(connectionStatusProvider.notifier).clearError();
         _logger.i('Socket connected and authenticated!');
         // Source: the peer (Main) connected to us. Record its remote
@@ -614,6 +645,7 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
         _peerDiscoveryCoordinator.setThrottle(true);
       },
       onDisconnected: () {
+        _outboxRetryScheduler.cancel();
         final pairingTransport = _pairingTransport;
         if (pairingTransport != null) {
           _ref
@@ -632,21 +664,90 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
         _maybeScheduleReconnect();
       },
     );
-    _configureAuth(sm);
     return sm;
   }
 
+  Future<bool> _acceptIncomingConnection(String remoteAddress) async {
+    final expectedAddress = _lastDiscoveredIp ?? _peer?.ip;
+    final accepted = acceptsIncomingConnection(
+      isSource: isSource,
+      expectedPeerAddress: expectedAddress,
+      remoteAddress: remoteAddress,
+    );
+    if (!accepted) {
+      _logger.w(
+        'Rejected incoming connection from unexpected address $remoteAddress.',
+      );
+    }
+    return accepted;
+  }
+
+  /// Source only accepts the paired Main device. Pairing-time servers must
+  /// remain open so either device can establish the initial transport.
+  static bool acceptsIncomingConnection({
+    required bool isSource,
+    required String? expectedPeerAddress,
+    required String remoteAddress,
+  }) {
+    if (!isSource) return true;
+    return expectedPeerAddress != null &&
+        expectedPeerAddress.isNotEmpty &&
+        expectedPeerAddress != 'unknown' &&
+        remoteAddress == expectedPeerAddress;
+  }
+
+  /// Whether a persisted paired record has all validated authentication
+  /// material required to start networking.
+  static bool hasValidPairedIdentity({
+    required Peer? peer,
+    required SecretKey? sharedKey,
+    required SimpleKeyPair? localKeyPair,
+  }) {
+    if (peer == null ||
+        sharedKey == null ||
+        localKeyPair == null ||
+        peer.publicKey.isEmpty) {
+      return false;
+    }
+    try {
+      return base64Decode(peer.publicKey).length == 32;
+    } on FormatException {
+      return false;
+    }
+  }
+
   /// Sets the auth identity (peer's public key + our Ed25519 keypair) on
-  /// the socket so challenge-response authentication can run.
-  Future<void> _configureAuth(SocketManager sm) async {
+  /// the socket so challenge-response authentication can run. Unpaired
+  /// pairing-mode sockets deliberately have no auth identity.
+  Future<bool> _configureAuth(SocketManager sm) async {
     final peer = _peer;
-    if (peer == null) return;
-    final localKeyPair = await KeyStore.getDeviceKeyPair();
-    if (localKeyPair == null) return;
+    if (peer == null || peer.publicKey.isEmpty) return true;
+    final localKeyPair = _localKeyPair;
+    if (!hasValidPairedIdentity(
+      peer: peer,
+      sharedKey: _key,
+      localKeyPair: localKeyPair,
+    )) {
+      return false;
+    }
     sm.setAuthIdentity(
       peerPublicKeyBase64: peer.publicKey,
-      localKeyPair: localKeyPair,
+      localKeyPair: localKeyPair!,
     );
+    return true;
+  }
+
+  void _reportInvalidPairedIdentity() {
+    _logger.e(
+      'Paired identity is missing or corrupt. Networking is disabled until '
+      'the device is paired again.',
+    );
+    _ref
+        .read(connectionStatusProvider.notifier)
+        .recordConnectAttempt(
+          ConnectionErrorCode.connectFailed,
+          errorDetail: 'Paired identity is missing or corrupt.',
+        );
   }
 
   /// Arms [_reconnectScheduler] for a backoff-timed retry, preserving the
@@ -700,7 +801,10 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
     var result = false;
     try {
       _socketManager ??= _createSocketManager();
-      await _configureAuth(_socketManager!);
+      if (!await _configureAuth(_socketManager!)) {
+        _reportInvalidPairedIdentity();
+        return false;
+      }
       final ok = await _socketManager!.connect(
         ip,
         port,
@@ -818,6 +922,10 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
     required bool fromScan,
   }) async {
     if (!_online || _networkingStopped || _disposed) return;
+    if (!_isValidIpAddress(ip) || port < 1 || port > 65535) {
+      _logger.w('Ignoring invalid discovered address $ip:$port.');
+      return;
+    }
     if (fromScan) {
       if (state) return;
       _lastDiscoveredIp = ip;
@@ -1215,6 +1323,17 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
         await _ref
             .read(smsFacadeProvider.notifier)
             .handleNativeEvent(data, id: id, now: now);
+      } else if (type == 'onSmsSent' || type == 'onSmsDelivered') {
+        final operationId = data['operationId'] as String?;
+        if (operationId != null) {
+          await _ref
+              .read(smsFacadeProvider.notifier)
+              .handleSmsResult(
+                operationId,
+                sent: type == 'onSmsSent',
+                success: data['success'] == true,
+              );
+        }
       } else if (type == 'onNotification') {
         await _ref
             .read(notificationFacadeProvider.notifier)
@@ -1235,36 +1354,111 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
     SocketManager socketManager,
     MirrorMessage message,
   ) async {
-    final key = _key;
     final sessionGeneration = socketManager.sessionGeneration;
-    if (key == null || sessionGeneration == null) return;
+    if (sessionGeneration == null) return;
 
-    final decrypted = await CryptoManager.decrypt(key, message.payload);
+    final decrypted = await socketManager.decryptMessage(message);
     if (!socketManager.isSessionCurrent(sessionGeneration)) return;
     if (decrypted == null) {
       _logger.e('Decryption failed for message: ${message.id}');
       return;
     }
 
-    // Reject a message with a timestamp at or before the last one we
-    // accepted on this connection -- a genuinely valid (correctly
-    // decrypted) message can still be a replayed copy of a real one an
-    // on-path attacker captured earlier. Strictly-less-than (not <=) so a
-    // legitimate burst of messages constructed within the same
-    // millisecond -- e.g. _flushQueue draining several queued items --
-    // is never mistaken for a replay.
-    final lastAccepted = _lastAcceptedMessageTimestamp;
-    if (lastAccepted != null && message.timestamp < lastAccepted) {
-      _logger.w(
-        'Rejected likely-replayed message: ${message.id} (type=${message.type})',
-      );
-      return;
-    }
-    _lastAcceptedMessageTimestamp = message.timestamp;
-
     final payload = jsonDecode(decrypted) as Map<String, dynamic>;
     final now = DateTime.now();
+    final sourcePeerId = message.sourcePeerId;
+    if (sourcePeerId == null) return;
+    final receivedAt = DateTime.now();
+    final record = InboxRecord(
+      sourcePeerId: sourcePeerId,
+      messageId: message.id,
+      type: message.type,
+      receivedAt: receivedAt,
+      updatedAt: receivedAt,
+    );
+    final isDomainMessage = {
+      MessageTypes.callIncoming,
+      MessageTypes.callRejected,
+      MessageTypes.callStatus,
+      MessageTypes.callInfo,
+      MessageTypes.smsIncoming,
+      MessageTypes.smsOutgoing,
+      MessageTypes.smsStatus,
+      MessageTypes.notificationMirrored,
+      MessageTypes.notificationRemoved,
+    }.contains(message.type);
 
+    if (isDomainMessage) {
+      var isNewMessage = false;
+      final database = await AppDatabase.instance.database;
+      await database.transaction((transaction) async {
+        isNewMessage = await _inbox.insertIfAbsentOn(transaction, record);
+        if (isNewMessage) {
+          await _dispatchIncomingMessage(
+            message,
+            payload,
+            now,
+            transaction: transaction,
+          );
+        }
+      });
+      if (!isNewMessage) {
+        _logger.i('Skipping duplicate Inbox message: ${message.id}');
+        // A lost ACK causes the sender to retry the same committed message.
+        // Re-ACK it without repeating domain or platform work.
+        await _sendDeliveryAck(socketManager, message.id);
+        return;
+      }
+      // Facade handlers perform UI and platform work only after the durable
+      // Inbox/domain transaction has successfully committed.
+      await _dispatchIncomingMessage(
+        message,
+        payload,
+        now,
+        alreadyPersisted: true,
+      );
+      if (message.type == MessageTypes.smsOutgoing) {
+        await _ref
+            .read(smsFacadeProvider.notifier)
+            .executeOutgoingSms(message.id);
+      }
+      if (message.type == MessageTypes.callRejected) {
+        await _ref
+            .read(callFacadeProvider.notifier)
+            .executeCallReject(message.id);
+      }
+      await _sendDeliveryAck(socketManager, message.id);
+      return;
+    }
+
+    final isNewMessage = await _inbox.insertIfAbsent(record);
+    if (!isNewMessage) {
+      _logger.i('Skipping duplicate Inbox message: ${message.id}');
+      return;
+    }
+    await _dispatchIncomingMessage(message, payload, now);
+  }
+
+  Future<void> _sendDeliveryAck(
+    SocketManager socketManager,
+    String messageId,
+  ) async {
+    final sent = await socketManager.sendMessage(MessageTypes.ack, {
+      'message_id': messageId,
+      'result': 'committed',
+    });
+    if (!sent) {
+      _logger.w('Could not send delivery ACK for message $messageId.');
+    }
+  }
+
+  Future<void> _dispatchIncomingMessage(
+    MirrorMessage message,
+    Map<String, dynamic> payload,
+    DateTime now, {
+    Transaction? transaction,
+    bool alreadyPersisted = false,
+  }) async {
     switch (message.type) {
       case MessageTypes.callIncoming:
       case MessageTypes.callRejected:
@@ -1272,7 +1466,14 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
       case MessageTypes.callInfo:
         await _ref
             .read(callFacadeProvider.notifier)
-            .handleIncomingMessage(message.type, payload, message, now);
+            .handleIncomingMessage(
+              message.type,
+              payload,
+              message,
+              now,
+              transaction: transaction,
+              alreadyPersisted: alreadyPersisted,
+            );
         break;
 
       case MessageTypes.smsIncoming:
@@ -1280,18 +1481,41 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
       case MessageTypes.smsStatus:
         await _ref
             .read(smsFacadeProvider.notifier)
-            .handleIncomingMessage(message.type, payload, message, now);
+            .handleIncomingMessage(
+              message.type,
+              payload,
+              message,
+              now,
+              transaction: transaction,
+              alreadyPersisted: alreadyPersisted,
+            );
         break;
 
       case MessageTypes.ack:
-        _logger.i('ACK received: ${message.id}');
+        final acknowledgedId = payload['message_id'] as String?;
+        final result = payload['result'] as String?;
+        if (acknowledgedId != null && result == 'committed') {
+          await _queue.markAcknowledged(
+            acknowledgedId,
+            destinationPeerId: _peer?.id,
+          );
+          unawaited(_scheduleOutboxRetry());
+          _logger.i('Committed ACK received: $acknowledgedId');
+        }
         break;
 
       case MessageTypes.notificationMirrored:
       case MessageTypes.notificationRemoved:
         await _ref
             .read(notificationFacadeProvider.notifier)
-            .handleIncomingMessage(message.type, payload, message, now);
+            .handleIncomingMessage(
+              message.type,
+              payload,
+              message,
+              now,
+              transaction: transaction,
+              alreadyPersisted: alreadyPersisted,
+            );
         break;
 
       case MessageTypes.pairingRequest:
@@ -1356,11 +1580,31 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
   // ---------------------------------------------------------------------
 
   Future<bool> _sendOrQueue(String type, Map<String, dynamic> payload) async {
-    final sent = await _socketManager?.sendMessage(type, payload) ?? false;
-    if (!sent) {
-      await _queue.enqueue(type, jsonEncode(payload));
-      _logger.w('$type queued for later delivery.');
+    final destinationPeerId = _peer?.id;
+    if (destinationPeerId == null) {
+      _logger.w('$type could not be queued without a destination peer.');
+      return false;
     }
+
+    // Persist before transport so a process or socket failure cannot lose the
+    // operation between the send decision and the socket write.
+    final item = await _queue.enqueue(
+      type,
+      jsonEncode(payload),
+      destinationPeerId: destinationPeerId,
+    );
+    final sent =
+        await _socketManager?.sendMessage(
+          type,
+          payload,
+          messageId: item.messageId,
+        ) ??
+        false;
+    if (sent && item.id != null) {
+      await _queue.markSent(item.id!);
+      unawaited(_scheduleOutboxRetry());
+    }
+    if (!sent) _logger.w('$type queued for later delivery.');
     return sent;
   }
 
@@ -1371,6 +1615,38 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
   /// (Dart privacy is per-file). Same underlying implementation either way.
   Future<bool> sendOrQueue(String type, Map<String, dynamic> payload) =>
       _sendOrQueue(type, payload);
+
+  Future<bool> sendOrQueueWithMutation(
+    String type,
+    Map<String, dynamic> payload,
+    DomainMutation mutation,
+  ) async {
+    final destinationPeerId = _peer?.id;
+    if (destinationPeerId == null) return false;
+    final database = await AppDatabase.instance.database;
+    late QueueItem item;
+    await database.transaction((transaction) async {
+      await mutation(transaction);
+      item = await _queue.enqueueOnDatabase(
+        transaction,
+        type,
+        jsonEncode(payload),
+        destinationPeerId: destinationPeerId,
+      );
+    });
+    final sent =
+        await _socketManager?.sendMessage(
+          type,
+          payload,
+          messageId: item.messageId,
+        ) ??
+        false;
+    if (sent && item.id != null) {
+      await _queue.markSent(item.id!);
+      unawaited(_scheduleOutboxRetry());
+    }
+    return sent;
+  }
 
   Future<void> notify({
     required int id,
@@ -1396,61 +1672,96 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
           .sendSmsNotification(address, body, id: id);
 
   Future<void> _flushQueue() async {
-    final items = await _queue.pendingItems();
-    if (items.isEmpty) return;
-    _logger.i('Flushing ${items.length} queued message(s).');
-    for (final item in items) {
-      try {
-        final payload = jsonDecode(item.payload) as Map<String, dynamic>;
-        final sent =
-            await _socketManager?.sendMessage(item.type, payload) ?? false;
-        if (sent) {
-          if (item.id != null) await _queue.markSent(item.id!);
-        } else {
-          if (item.id != null) await _onQueueItemFailed(item, payload);
-          break;
+    await _flushGate.run(_flushQueueWorker);
+  }
+
+  Future<void> _flushQueueWorker() async {
+    final socketManager = _socketManager;
+    final sessionGeneration = socketManager?.sessionGeneration;
+    final destinationPeerId = _peer?.id;
+    if (socketManager == null ||
+        sessionGeneration == null ||
+        destinationPeerId == null) {
+      return;
+    }
+    try {
+      final items = await _queue.pendingItems(destinationPeerId);
+      if (items.isEmpty) return;
+      _logger.i('Flushing ${items.length} queued message(s).');
+      for (final item in items) {
+        if (_socketManager != socketManager ||
+            socketManager.sessionGeneration != sessionGeneration) {
+          _logger.i('Stopping stale Outbox worker after session change.');
+          return;
         }
-      } catch (e) {
-        _logger.e('Failed to flush queue item ${item.id}: $e');
-        if (item.id != null) await _onQueueItemFailed(item, null);
+        // A sent row becoming due means its committed ACK was lost. Count
+        // that delivery attempt before scheduling its backoff-timed resend.
+        if (item.status == 'sent') {
+          if (item.id != null) await _onQueueItemFailed(item);
+          continue;
+        }
+        try {
+          final payload = jsonDecode(item.payload) as Map<String, dynamic>;
+          final sent = await socketManager.sendMessage(
+            item.type,
+            payload,
+            messageId: item.messageId,
+          );
+          if (sent) {
+            if (item.id != null) await _queue.markSent(item.id!);
+          } else {
+            if (item.id != null) await _onQueueItemFailed(item);
+            break;
+          }
+        } catch (e) {
+          _logger.e('Failed to flush queue item ${item.id}: $e');
+          if (item.id != null) await _onQueueItemFailed(item);
+        }
+      }
+    } finally {
+      if (_socketManager == socketManager &&
+          socketManager.sessionGeneration == sessionGeneration) {
+        unawaited(_scheduleOutboxRetry());
       }
     }
   }
 
-  /// Records a failed mirror delivery without changing the authoritative
-  /// telephony outcome of the originating call or SMS.
-  Future<void> _onQueueItemFailed(
-    QueueItem item,
-    Map<String, dynamic>? payload,
-  ) async {
-    final dropped = await _queue.markFailed(item.id!, item.retryCount);
-    if (!dropped) return;
-
-    final decodedPayload = payload ?? _tryDecode(item.payload);
-    final entryId = decodedPayload?['id'] as String?;
-    if (entryId == null) return;
-
-    switch (item.type) {
-      case MessageTypes.smsIncoming:
-      case MessageTypes.smsOutgoing:
-      case MessageTypes.smsStatus:
-        await _ref
-            .read(smsFacadeProvider.notifier)
-            .updateDeliveryStatus(entryId, 'failed');
-        break;
-      case MessageTypes.callIncoming:
-        await _ref
-            .read(callFacadeProvider.notifier)
-            .updateDeliveryStatus(entryId, 'failed');
-        break;
+  Future<void> _scheduleOutboxRetry() async {
+    final socketManager = _socketManager;
+    final sessionGeneration = socketManager?.sessionGeneration;
+    final destinationPeerId = _peer?.id;
+    if (socketManager == null ||
+        sessionGeneration == null ||
+        destinationPeerId == null) {
+      _outboxRetryScheduler.cancel();
+      return;
     }
+    final deadline = await _queue.nextAttemptAt(destinationPeerId);
+    if (_socketManager != socketManager ||
+        socketManager.sessionGeneration != sessionGeneration) {
+      return;
+    }
+    if (deadline == null) {
+      _outboxRetryScheduler.cancel();
+      return;
+    }
+    final session = Object();
+    _outboxRetryScheduler.schedule(
+      session: session,
+      deadline: deadline,
+      now: DateTime.now(),
+      isSessionCurrent: () =>
+          _socketManager == socketManager &&
+          socketManager.sessionGeneration == sessionGeneration,
+      onDue: _flushQueue,
+    );
   }
 
-  Map<String, dynamic>? _tryDecode(String payload) {
-    try {
-      return jsonDecode(payload) as Map<String, dynamic>;
-    } catch (_) {
-      return null;
+  /// Records a failed transport attempt without changing domain state.
+  Future<void> _onQueueItemFailed(QueueItem item) async {
+    final dropped = await _queue.markFailed(item.id!, item.retryCount);
+    if (dropped) {
+      _logger.w('Outbox item ${item.messageId} moved to dead letter.');
     }
   }
 
@@ -1466,6 +1777,7 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
     // for the rest of the app session (it's only ever created once, in
     // _init()).
     _networkingStopped = true;
+    _outboxRetryScheduler.cancel();
     _lifecycleGeneration++;
     _reconnectScheduler.stop();
     _cancelActiveScan();
@@ -1526,11 +1838,13 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
   /// layer stays decoupled from the queue's implementation.
   Future<void> clearQueue() async {
     await _queue.clear();
+    _outboxRetryScheduler.cancel();
     _logger.i('Offline queue cleared.');
   }
 
   Future<void> disconnect() async {
     _networkingStopped = true;
+    _outboxRetryScheduler.cancel();
     _lifecycleGeneration++;
     _reconnectScheduler.stop();
     _cancelActiveScan();
@@ -1544,6 +1858,7 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
   @override
   void dispose() {
     _disposed = true;
+    _outboxRetryScheduler.cancel();
     _lifecycleGeneration++;
     _clearTelephonyHandler?.call();
     _clearTelephonyHandler = null;

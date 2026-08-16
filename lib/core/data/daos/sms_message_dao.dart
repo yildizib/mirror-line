@@ -9,6 +9,10 @@ class SmsMessageDao {
 
   Future<void> insert(SmsMessage message) async {
     final db = await _database;
+    await insertOn(db, message);
+  }
+
+  Future<void> insertOn(DatabaseExecutor db, SmsMessage message) async {
     await db.insert(
       'sms_message',
       message.toJson(),
@@ -147,6 +151,14 @@ class SmsMessageDao {
 
   Future<void> updateStatus(String id, String status) async {
     final db = await _database;
+    await updateStatusOn(db, id, status);
+  }
+
+  Future<void> updateStatusOn(
+    DatabaseExecutor db,
+    String id,
+    String status,
+  ) async {
     await db.update(
       'sms_message',
       {'status': status},
@@ -157,6 +169,14 @@ class SmsMessageDao {
 
   Future<void> updateDeliveryStatus(String id, String status) async {
     final db = await _database;
+    await updateDeliveryStatusOn(db, id, status);
+  }
+
+  Future<void> updateDeliveryStatusOn(
+    DatabaseExecutor db,
+    String id,
+    String status,
+  ) async {
     await db.update(
       'sms_message',
       {'delivery_status': status},

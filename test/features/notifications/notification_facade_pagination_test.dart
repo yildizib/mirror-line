@@ -72,6 +72,7 @@ void main() {
     return NotificationEvent(
       id: id,
       nativeId: id,
+      sourcePeerId: NotificationEvent.localSourcePeerId,
       packageName: packageName,
       appName: 'Test',
       title: 'Title',

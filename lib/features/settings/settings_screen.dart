@@ -3,7 +3,6 @@ import 'package:mirrorline/l10n/app_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mirrorline/core/data/models/peer.dart';
 import 'package:mirrorline/core/security/key_store.dart';
-import 'package:mirrorline/core/services/locale_service.dart';
 import 'package:mirrorline/core/services/permission_service.dart';
 import 'package:mirrorline/core/telephony/telephony_channel.dart';
 import 'package:mirrorline/core/theme/theme.dart';
@@ -767,28 +766,6 @@ class _SystemSection extends ConsumerWidget {
           child: Column(
             children: [
               ListTile(
-                leading: const Icon(Icons.language_rounded),
-                title: Text(l.settingsLanguage),
-                trailing: DropdownButton<Locale?>(
-                  value: ref.watch(localeProvider),
-                  items: [
-                    DropdownMenuItem<Locale?>(
-                      value: null,
-                      child: Text(l.settingsLanguageSystem),
-                    ),
-                    ...LocaleNotifier.supportedLocales.map(
-                      (loc) => DropdownMenuItem<Locale?>(
-                        value: loc,
-                        child: Text(_localeDisplayName(loc)),
-                      ),
-                    ),
-                  ],
-                  onChanged: (loc) =>
-                      ref.read(localeProvider.notifier).set(loc),
-                ),
-              ),
-              const Divider(height: 1, indent: 16, endIndent: 16),
-              ListTile(
                 leading: const Icon(Icons.battery_charging_full_rounded),
                 title: Text(l.settingsRemoveBatteryOpt),
                 subtitle: Text(l.settingsRemoveBatteryOptDesc),
@@ -883,17 +860,6 @@ class _SystemSection extends ConsumerWidget {
         ),
       ],
     );
-  }
-
-  String _localeDisplayName(Locale loc) {
-    switch (loc.languageCode) {
-      case 'tr':
-        return 'Türkçe';
-      case 'en':
-        return 'English';
-      default:
-        return loc.languageCode;
-    }
   }
 }
 

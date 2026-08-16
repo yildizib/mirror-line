@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logger/logger.dart';
 import 'package:mirrorline/core/data/daos/call_event_dao.dart';
+import 'package:mirrorline/core/data/daos/platform_operation_dao.dart';
 import 'package:mirrorline/core/data/models/call_event.dart';
 import 'package:mirrorline/core/network/message_protocol.dart';
 import 'package:mirrorline/core/services/locale_service.dart';
@@ -10,6 +12,7 @@ import 'package:mirrorline/core/services/notification_service.dart';
 import 'package:mirrorline/core/telephony/telephony_channel.dart';
 import 'package:mirrorline/features/connection/connection_facade.dart';
 import 'package:uuid/uuid.dart';
+import 'package:sqflite/sqflite.dart';
 
 final callFacadeProvider = StateNotifierProvider<CallFacade, List<CallEvent>>((
   ref,
@@ -38,12 +41,14 @@ final callEventMapProvider = Provider<Map<String, CallEvent>>((ref) {
 /// callbacks as before.
 class CallFacade extends StateNotifier<List<CallEvent>> {
   final CallEventDao _dao;
+  final PlatformOperationDao _operations;
   final Ref _ref;
   final Logger _logger;
   final bool Function() _isSource;
   final SendOrQueue _sendOrQueue;
   final ShowNotification _notify;
-  final Future<bool> Function() _rejectCall;
+  final Future<bool> Function({required String operationId}) _rejectCall;
+  final Future<bool> Function(String operationId) _hasCallRejection;
   late final Future<void> _initialized;
 
   final Map<String, String> _callIdByNativeSession = {};
@@ -75,7 +80,7 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
   // the Source's MISSED `call_status` was lost/delayed (socket died, queue
   // never flushed, the user swiped the ringing notification with no dismiss
   // callback wired), the timer auto-converts it to `missed` locally so the
-  // notification isn't frozen on "Çalıyor" forever. Per-call timers, keyed
+  // notification isn't frozen on "ringing" forever. Per-call timers, keyed
   // by call id, cancelled on every terminal transition. Local-only: never
   // sends anything to the Source (the Source's MISSED stays authoritative,
   // and a stray `call_rejected` would risk calling `rejectCall` there).
@@ -88,10 +93,15 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
     required this._isSource,
     required this._sendOrQueue,
     required this._notify,
-    Future<bool> Function()? rejectCall,
+    Future<bool> Function({required String operationId})? rejectCall,
+    Future<bool> Function(String operationId)? hasCallRejection,
     CallEventDao? dao,
+    PlatformOperationDao? operations,
   }) : _dao = dao ?? CallEventDao(),
+       _operations = operations ?? PlatformOperationDao(),
        _rejectCall = rejectCall ?? TelephonyChannel.rejectCall,
+       _hasCallRejection =
+           hasCallRejection ?? TelephonyChannel.hasCallRejection,
        super([]) {
     _initialized = load();
   }
@@ -128,7 +138,21 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
   /// repeat from ever showing up as two list entries.
   Future<void> add(CallEvent event) async {
     await initialized;
-    await _dao.insert(event);
+    await _persistEvent(event);
+  }
+
+  Future<void> _persistEvent(
+    CallEvent event, {
+    DatabaseExecutor? transaction,
+    bool write = true,
+  }) async {
+    if (!write) {
+      // The database row was committed with its Inbox record already.
+    } else if (transaction == null) {
+      await _dao.insert(event);
+    } else {
+      await _dao.insertOn(transaction, event);
+    }
     final exists = state.any((e) => e.id == event.id);
     state = exists
         ? state.map((e) => e.id == event.id ? event : e).toList()
@@ -358,8 +382,14 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
     String type,
     Map<String, dynamic> payload,
     MirrorMessage message,
-    DateTime now,
-  ) async {
+    DateTime now, {
+    DatabaseExecutor? transaction,
+    bool alreadyPersisted = false,
+  }) async {
+    if (transaction != null) {
+      await persistIncomingMessageOn(type, payload, message, now, transaction);
+      return true;
+    }
     await initialized;
     switch (type) {
       case MessageTypes.callIncoming:
@@ -384,7 +414,11 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
           status: 'ringing',
           createdAt: now,
         );
-        await add(event);
+        await _persistEvent(
+          event,
+          transaction: transaction,
+          write: !alreadyPersisted,
+        );
         // A `call_status` peer message may have arrived before this
         // `call_incoming` (re-entrancy on the Source side, or queue
         // reorder). If so, it was buffered in `_pendingCallStatuses` --
@@ -396,7 +430,7 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
         // Render the notification from the *current* state (which may now
         // be `missed` after the buffered status above) instead of the
         // immutable local `event` (still `ringing`), so the body shows the
-        // live status, not a stale "Çalıyor".
+        // live status, not a stale "ringing".
         final current = _findCall(id) ?? event;
         await _notifyCall(current);
         // Arm the self-healing watchdog: if the Source's MISSED never
@@ -408,20 +442,11 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
         break;
 
       case MessageTypes.callRejected:
-        final id = payload['id'] as String?;
-        // Only actually end the call if it's still the one ringing --
-        // guards against a reject command arriving after the call was
-        // already answered/missed/ended, which would otherwise hang up
-        // an unrelated live call instead of rejecting a ringing one.
-        if (!_isSource() || id == null || id != _activeCallId) return false;
-        final rejected = await _rejectCall();
-        if (!rejected) return false;
-        _removeNativeSession(_activeNativeCallSessionId, id);
-        await updateStatus(id, 'rejected');
-        await _sendOrQueue(MessageTypes.callStatus, {
-          'id': id,
-          'status': 'rejected',
-        });
+        if (!_isSource()) return false;
+        await _claimCallReject(message.id, payload, transaction: transaction);
+        if (transaction == null && !alreadyPersisted) {
+          return executeCallReject(message.id);
+        }
         return true;
 
       case MessageTypes.callStatus:
@@ -442,8 +467,8 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
         if (existing.status == 'rejected' && status != 'rejected') break;
         await updateStatus(id, status);
         // Update the existing call notification in place (same id) so it
-        // reflects the live status (Cevaplandı/Cevapsız/Sonlandı) instead
-        // of just sitting there saying "Çalıyor" forever.
+        // reflects the live status (answered/missed/ended) instead of just
+        // sitting there saying "ringing" forever.
         final updated = _findCall(id);
         if (updated != null) await _notifyCall(updated);
         break;
@@ -464,6 +489,177 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
         _logger.i('CallFacade: unhandled message type $type');
     }
     return true;
+  }
+
+  /// Persists an Inbox message without native calls, notifications, or state.
+  Future<void> persistIncomingMessageOn(
+    String type,
+    Map<String, dynamic> payload,
+    MirrorMessage message,
+    DateTime now,
+    DatabaseExecutor transaction,
+  ) async {
+    switch (type) {
+      case MessageTypes.callIncoming:
+        final id = payload['id'] as String? ?? message.id;
+        await _dao.insertOn(
+          transaction,
+          CallEvent(
+            id: id,
+            direction: 'incoming',
+            number: payload['number'] as String? ?? '',
+            contactName: payload['contact_name'] as String? ?? '',
+            timestamp: DateTime.fromMillisecondsSinceEpoch(
+              payload['timestamp'] as int? ?? now.millisecondsSinceEpoch,
+            ),
+            encrypted: message.payload,
+            status: 'ringing',
+            createdAt: now,
+          ),
+        );
+        break;
+      case MessageTypes.callRejected:
+        if (!_isSource()) break;
+        await _claimCallReject(message.id, payload, transaction: transaction);
+        break;
+      case MessageTypes.callStatus:
+        final id = payload['id'] as String?;
+        if (id != null) {
+          await _dao.updateStatusOn(
+            transaction,
+            id,
+            payload['status'] as String? ?? 'ended',
+          );
+        }
+        break;
+      case MessageTypes.callInfo:
+        final id = payload['id'] as String?;
+        if (id != null) {
+          await _dao.updateCallerInfoOn(
+            transaction,
+            id,
+            number: payload['number'] as String?,
+            contactName: payload['contact_name'] as String?,
+          );
+        }
+        break;
+    }
+  }
+
+  Future<void> _claimCallReject(
+    String operationId,
+    Map<String, dynamic> payload, {
+    DatabaseExecutor? transaction,
+  }) async {
+    final callId = payload['id'] as String?;
+    if (callId == null) return;
+    final encodedPayload = jsonEncode({
+      'callId': callId,
+      'nativeSessionId': _activeCallId == callId
+          ? _activeNativeCallSessionId
+          : null,
+    });
+    if (transaction == null) {
+      await _operations.claim(
+        operationId: operationId,
+        kind: 'call_reject',
+        payload: encodedPayload,
+      );
+    } else {
+      await _operations.claimOn(
+        transaction,
+        operationId: operationId,
+        kind: 'call_reject',
+        payload: encodedPayload,
+      );
+    }
+  }
+
+  /// Executes a committed command. The message ID, rather than the domain
+  /// call ID, is the idempotency key because commands may be retried.
+  Future<bool> executeCallReject(String operationId, [String? payload]) async {
+    if (!_isSource()) return false;
+    final encodedPayload = payload ?? await _operations.payload(operationId);
+    if (encodedPayload == null) return false;
+    final callId =
+        (jsonDecode(encodedPayload) as Map<String, dynamic>)['callId']
+            as String?;
+    if (callId == null) return false;
+    final nativeSessionId =
+        (jsonDecode(encodedPayload) as Map<String, dynamic>)['nativeSessionId']
+            as String?;
+    if (!await _operations.transition(
+      operationId,
+      from: ['received'],
+      to: 'ready',
+    )) {
+      return false;
+    }
+    // Never reject a different live call when a stale command is recovered.
+    if (_activeCallId != callId ||
+        (nativeSessionId != null &&
+            _activeNativeCallSessionId != nativeSessionId)) {
+      await _operations.transition(operationId, from: ['ready'], to: 'failed');
+      return false;
+    }
+    try {
+      final rejected = await _rejectCall(operationId: operationId);
+      if (!await _operations.transition(
+        operationId,
+        from: ['ready'],
+        to: rejected ? 'submitted' : 'failed',
+      )) {
+        return false;
+      }
+      if (!rejected) return false;
+      _removeNativeSession(_activeNativeCallSessionId, callId);
+      await updateStatus(callId, 'rejected');
+      final rejectedEvent = _findCall(callId);
+      if (rejectedEvent != null) await _notifyCall(rejectedEvent);
+      await _sendOrQueue(MessageTypes.callStatus, {
+        'id': callId,
+        'status': 'rejected',
+      });
+      await _operations.transition(
+        operationId,
+        from: ['submitted'],
+        to: 'succeeded',
+      );
+      return true;
+    } catch (error, stackTrace) {
+      // A new call could replace this one after the platform boundary. Call
+      // APIs cannot correlate an end request, so recovery must not retry it.
+      _logger.e(
+        'Call rejection result is indeterminate: $error',
+        stackTrace: stackTrace,
+      );
+      return false;
+    }
+  }
+
+  Future<void> recoverCallRejects() async {
+    if (!_isSource()) return;
+    await _operations.recoverExecuting(kind: 'call_reject');
+    final uncertain = await _operations.list(
+      kind: 'call_reject',
+      states: ['ready'],
+    );
+    for (final operation in uncertain) {
+      // Android writes this only after accepting endCall. Do not replay local
+      // side effects: its terminal call event remains the source of truth.
+      await _operations.transition(
+        operation.id,
+        from: ['ready'],
+        to: await _hasCallRejection(operation.id) ? 'submitted' : 'failed',
+      );
+    }
+    final pending = await _operations.list(
+      kind: 'call_reject',
+      states: ['received'],
+    );
+    for (final operation in pending) {
+      await executeCallReject(operation.id, operation.payload);
+    }
   }
 
   CallEvent? _findCall(String id) => state.where((e) => e.id == id).firstOrNull;
@@ -489,7 +685,7 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
   /// Arms a one-shot watchdog for a newly created `ringing` call. If the
   /// Source's MISSED `call_status` never arrives within the timeout, the
   /// call is locally converted to `missed` and its notification re-rendered
-  /// so it doesn't sit on "Çalıyor" forever. Cancelled on every terminal
+  /// so it doesn't sit on "ringing" forever. Cancelled on every terminal
   /// transition via [_cancelWatchdog].
   void _armWatchdog(String id) {
     _cancelWatchdog(id);

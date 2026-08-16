@@ -6,7 +6,7 @@ import 'package:sqflite/sqflite.dart';
 class AppDatabase {
   static final AppDatabase instance = AppDatabase._internal();
   static Database? _database;
-  static const int schemaVersion = 7;
+  static const int schemaVersion = 11;
 
   AppDatabase._internal();
 
@@ -100,6 +100,97 @@ class AppDatabase {
         'ON notification_event(package_name, native_id);',
       );
     }
+    if (oldVersion < 8) {
+      await db.execute('''
+        CREATE TABLE outbox (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          message_id TEXT NOT NULL UNIQUE,
+          destination_peer_id TEXT NOT NULL,
+          type TEXT NOT NULL,
+          payload TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT "pending",
+          attempt_count INTEGER NOT NULL DEFAULT 0,
+          next_attempt_at INTEGER,
+          created_at INTEGER NOT NULL
+        )
+      ''');
+      await db.execute('''
+        CREATE TABLE offline_queue_quarantine (
+          id INTEGER PRIMARY KEY,
+          type TEXT NOT NULL,
+          payload TEXT NOT NULL,
+          retry_count INTEGER NOT NULL,
+          created_at INTEGER NOT NULL,
+          reason TEXT NOT NULL
+        )
+      ''');
+      final legacyQueue = await db.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type = 'table' "
+        "AND name = 'offline_queue'",
+      );
+      if (legacyQueue.isNotEmpty) {
+        await db.execute('''
+          INSERT INTO outbox
+            (message_id, destination_peer_id, type, payload, attempt_count,
+             created_at)
+          SELECT 'legacy-' || id, (SELECT id FROM peer), type, payload,
+             retry_count, created_at
+          FROM offline_queue
+          WHERE (SELECT COUNT(*) FROM peer) = 1
+        ''');
+        await db.execute('''
+          INSERT INTO offline_queue_quarantine
+            (id, type, payload, retry_count, created_at, reason)
+          SELECT id, type, payload, retry_count, created_at,
+            'Legacy queue destination was ambiguous or unavailable during migration'
+          FROM offline_queue
+          WHERE (SELECT COUNT(*) FROM peer) != 1
+        ''');
+        await db.execute('DROP TABLE offline_queue');
+      }
+    }
+    if (oldVersion < 9) {
+      await db.execute('''
+        CREATE TABLE inbox (
+          source_peer_id TEXT NOT NULL,
+          message_id TEXT NOT NULL,
+          type TEXT NOT NULL,
+          processing_state TEXT NOT NULL DEFAULT "received",
+          received_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          PRIMARY KEY (source_peer_id, message_id)
+        )
+      ''');
+    }
+    if (oldVersion < 10) {
+      await db.execute('''
+        CREATE TABLE platform_operation (
+          operation_id TEXT PRIMARY KEY,
+          kind TEXT NOT NULL,
+          state TEXT NOT NULL DEFAULT "received",
+          payload TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        )
+      ''');
+    }
+    if (oldVersion < 11) {
+      final notificationTable = await db.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type = 'table' "
+        "AND name = 'notification_event'",
+      );
+      if (notificationTable.isNotEmpty) {
+        await db.execute(
+          'ALTER TABLE notification_event ADD COLUMN source_peer_id '
+          'TEXT NOT NULL DEFAULT "__local__";',
+        );
+        await db.execute('DROP INDEX IF EXISTS notification_event_source_key');
+        await db.execute(
+          'CREATE UNIQUE INDEX notification_event_source_key '
+          'ON notification_event(source_peer_id, package_name, native_id)',
+        );
+      }
+    }
   }
 
   /// Exposed (not private) so tests can create a fresh-install schema
@@ -150,11 +241,15 @@ class AppDatabase {
     ''');
 
     await db.execute('''
-      CREATE TABLE offline_queue (
+      CREATE TABLE outbox (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        message_id TEXT NOT NULL UNIQUE,
+        destination_peer_id TEXT NOT NULL,
         type TEXT NOT NULL,
         payload TEXT NOT NULL,
-        retry_count INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT "pending",
+        attempt_count INTEGER NOT NULL DEFAULT 0,
+        next_attempt_at INTEGER,
         created_at INTEGER NOT NULL
       )
     ''');
@@ -174,6 +269,7 @@ class AppDatabase {
       CREATE TABLE notification_event (
         id TEXT PRIMARY KEY,
         native_id TEXT NOT NULL,
+        source_peer_id TEXT NOT NULL,
         package_name TEXT NOT NULL,
         app_name TEXT NOT NULL DEFAULT "",
         title TEXT NOT NULL DEFAULT "",
@@ -185,8 +281,30 @@ class AppDatabase {
     ''');
     await db.execute(
       'CREATE UNIQUE INDEX notification_event_source_key '
-      'ON notification_event(package_name, native_id)',
+      'ON notification_event(source_peer_id, package_name, native_id)',
     );
+
+    await db.execute('''
+      CREATE TABLE inbox (
+        source_peer_id TEXT NOT NULL,
+        message_id TEXT NOT NULL,
+        type TEXT NOT NULL,
+        processing_state TEXT NOT NULL DEFAULT "received",
+        received_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (source_peer_id, message_id)
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE platform_operation (
+        operation_id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL,
+        state TEXT NOT NULL DEFAULT "received",
+        payload TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    ''');
   }
 
   Future<void> close() async {
@@ -199,8 +317,10 @@ class AppDatabase {
     await db.delete('peer');
     await db.delete('call_event');
     await db.delete('sms_message');
-    await db.delete('offline_queue');
+    await db.delete('outbox');
     await db.delete('known_network');
     await db.delete('notification_event');
+    await db.delete('inbox');
+    await db.delete('platform_operation');
   }
 }

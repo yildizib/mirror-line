@@ -113,6 +113,124 @@ void main() {
     expect(methods, ['nativeEventsReady', 'nativeEventsNotReady']);
   });
 
+  test('sends the stable operation ID with an SMS submission', () async {
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      expect(call.method, 'sendSms');
+      expect(call.arguments, {
+        'address': '+905551112233',
+        'body': 'hello',
+        'operationId': 'message-123',
+      });
+      return null;
+    });
+
+    await TelephonyChannel.sendSms(
+      '+905551112233',
+      'hello',
+      operationId: 'message-123',
+    );
+  });
+
+  test(
+    'checks Android durable SMS submission acceptance by operation ID',
+    () async {
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        expect(call.method, 'hasSmsSubmission');
+        expect(call.arguments, {'operationId': 'message-123'});
+        return true;
+      });
+
+      expect(await TelephonyChannel.hasSmsSubmission('message-123'), isTrue);
+    },
+  );
+
+  test(
+    'consumes and acknowledges durable SMS results after handling',
+    () async {
+      final calls = <MethodCall>[];
+      final handled = <String>[];
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        calls.add(call);
+        if (call.method == 'fetchSmsResults') {
+          return [
+            {'operationId': 'message-123', 'kind': 'sent', 'success': true},
+          ];
+        }
+        return null;
+      });
+      TelephonyChannel.setEventHandler((type, data) {
+        handled.add('$type:${data['success']}');
+      });
+
+      await TelephonyChannel.consumePendingSmsResults();
+
+      expect(handled, ['onSmsSent:true']);
+      expect(calls.map((call) => call.method), [
+        'fetchSmsResults',
+        'ackSmsResult',
+      ]);
+      expect(calls.last.arguments, {
+        'operationId': 'message-123',
+        'kind': 'sent',
+      });
+    },
+  );
+
+  test('retains a durable SMS result when handling fails', () async {
+    final calls = <MethodCall>[];
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      calls.add(call);
+      if (call.method == 'fetchSmsResults') {
+        return [
+          {'operationId': 'message-123', 'kind': 'delivered', 'success': false},
+        ];
+      }
+      return null;
+    });
+    TelephonyChannel.setEventHandler((_, _) => throw StateError('not durable'));
+
+    await expectLater(
+      TelephonyChannel.consumePendingSmsResults(),
+      throwsA(isA<StateError>()),
+    );
+
+    expect(calls.map((call) => call.method), ['fetchSmsResults']);
+  });
+
+  testWidgets('forwards SMS operation result events', (tester) async {
+    final events = <(String, Map<dynamic, dynamic>)>[];
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      expect(call.method, 'ackSmsResult');
+      return null;
+    });
+    TelephonyChannel.setEventHandler((type, data) => events.add((type, data)));
+
+    await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+      channel.name,
+      const StandardMethodCodec().encodeMethodCall(
+        const MethodCall('onSmsSent', {
+          'operationId': 'message-123',
+          'success': true,
+        }),
+      ),
+      (_) {},
+    );
+    await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+      channel.name,
+      const StandardMethodCodec().encodeMethodCall(
+        const MethodCall('onSmsDelivered', {
+          'operationId': 'message-123',
+          'success': false,
+        }),
+      ),
+      (_) {},
+    );
+
+    expect(events.map((event) => event.$1), ['onSmsSent', 'onSmsDelivered']);
+    expect(events[0].$2, {'operationId': 'message-123', 'success': true});
+    expect(events[1].$2, {'operationId': 'message-123', 'success': false});
+  });
+
   testWidgets('native response waits for async Dart event handling', (
     tester,
   ) async {

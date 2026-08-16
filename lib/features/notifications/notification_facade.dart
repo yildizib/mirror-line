@@ -8,6 +8,7 @@ import 'package:mirrorline/core/services/stable_notification_id.dart';
 import 'package:mirrorline/core/services/watched_apps_service.dart';
 import 'package:mirrorline/features/connection/connection_facade.dart';
 import 'package:uuid/uuid.dart';
+import 'package:sqflite/sqflite.dart';
 
 final notificationFacadeProvider =
     StateNotifierProvider<NotificationFacade, List<NotificationEvent>>((ref) {
@@ -72,17 +73,37 @@ class NotificationFacade extends StateNotifier<List<NotificationEvent>> {
 
   Future<void> add(NotificationEvent event) async {
     await initialized;
-    await _dao.insert(event);
+    await _persistEvent(event);
+  }
+
+  Future<void> _persistEvent(
+    NotificationEvent event, {
+    DatabaseExecutor? transaction,
+    bool write = true,
+  }) async {
+    if (!write) {
+      // The database row was committed with its Inbox record already.
+    } else if (transaction == null) {
+      await _dao.insert(event);
+    } else {
+      await _dao.insertOn(transaction, event);
+    }
     final exists = state.any((e) => e.id == event.id);
     state = exists
         ? state.map((e) => e.id == event.id ? event : e).toList()
         : [event, ...state];
   }
 
-  Future<void> removeByNativeId(String packageName, String nativeId) async {
+  Future<void> removeByNativeId(
+    String sourcePeerId,
+    String packageName,
+    String nativeId,
+  ) async {
     await initialized;
     bool matches(NotificationEvent e) =>
-        e.packageName == packageName && e.nativeId == nativeId;
+        e.sourcePeerId == sourcePeerId &&
+        e.packageName == packageName &&
+        e.nativeId == nativeId;
     NotificationEvent? target;
     for (final e in state) {
       if (matches(e)) {
@@ -90,17 +111,17 @@ class NotificationFacade extends StateNotifier<List<NotificationEvent>> {
         break;
       }
     }
-    await _dao.deleteByNativeId(packageName, nativeId);
+    await _dao.deleteByNativeId(sourcePeerId, packageName, nativeId);
     state = state.where((e) => !matches(e)).toList();
     if (target != null) {
       try {
-        // Must match the id _notify() used when showing it (nativeId's
-        // hash, not the local event id) or the wrong OS notification --
+        // Must match the id _notify() used when showing it (the full source
+        // identity, not the local event id) or the wrong OS notification --
         // or none -- gets cancelled.
         await NotificationService.cancel(
           stableNotificationId(
             'mirrored_notification',
-            '$packageName:$nativeId',
+            '$sourcePeerId:$packageName:$nativeId',
           ),
         );
       } catch (e) {
@@ -186,6 +207,7 @@ class NotificationFacade extends StateNotifier<List<NotificationEvent>> {
     final event = NotificationEvent(
       id: id,
       nativeId: nativeId,
+      sourcePeerId: NotificationEvent.localSourcePeerId,
       packageName: packageName,
       appName: appName,
       title: title,
@@ -227,8 +249,14 @@ class NotificationFacade extends StateNotifier<List<NotificationEvent>> {
     String type,
     Map<String, dynamic> payload,
     MirrorMessage message,
-    DateTime now,
-  ) async {
+    DateTime now, {
+    DatabaseExecutor? transaction,
+    bool alreadyPersisted = false,
+  }) async {
+    if (transaction != null) {
+      await persistIncomingMessageOn(type, payload, message, now, transaction);
+      return;
+    }
     await initialized;
     switch (type) {
       case MessageTypes.notificationMirrored:
@@ -237,12 +265,18 @@ class NotificationFacade extends StateNotifier<List<NotificationEvent>> {
         final title = payload['title'] as String? ?? '';
         final text = payload['text'] as String? ?? '';
         final nativeId = payload['nativeId'] as String? ?? message.id;
+        final sourcePeerId = message.sourcePeerId;
+        if (sourcePeerId == null) {
+          _logger.w('Ignoring notification without a source peer identity');
+          return;
+        }
         final event = NotificationEvent(
           id: stableNotificationId(
             'mirrored_notification',
-            '$packageName:$nativeId',
+            '$sourcePeerId:$packageName:$nativeId',
           ).toString(),
           nativeId: nativeId,
+          sourcePeerId: sourcePeerId,
           packageName: packageName,
           appName: appName,
           title: title,
@@ -253,11 +287,15 @@ class NotificationFacade extends StateNotifier<List<NotificationEvent>> {
           ),
           createdAt: now,
         );
-        await add(event);
+        await _persistEvent(
+          event,
+          transaction: transaction,
+          write: !alreadyPersisted,
+        );
         await _notify(
           id: stableNotificationId(
             'mirrored_notification',
-            '$packageName:$nativeId',
+            '$sourcePeerId:$packageName:$nativeId',
           ),
           title: appName,
           body: (title.isNotEmpty && title != appName) ? '$title: $text' : text,
@@ -278,5 +316,41 @@ class NotificationFacade extends StateNotifier<List<NotificationEvent>> {
       default:
         _logger.i('NotificationFacade: unhandled message type $type');
     }
+  }
+
+  /// Persists an Inbox message without publishing Riverpod state or notifying
+  /// the platform, both of which must occur after the Inbox commit.
+  Future<void> persistIncomingMessageOn(
+    String type,
+    Map<String, dynamic> payload,
+    MirrorMessage message,
+    DateTime now,
+    DatabaseExecutor transaction,
+  ) async {
+    if (type != MessageTypes.notificationMirrored) return;
+    final sourcePeerId = message.sourcePeerId;
+    if (sourcePeerId == null) return;
+    final packageName = payload['packageName'] as String? ?? 'unknown';
+    final nativeId = payload['nativeId'] as String? ?? message.id;
+    await _dao.insertOn(
+      transaction,
+      NotificationEvent(
+        id: stableNotificationId(
+          'mirrored_notification',
+          '$sourcePeerId:$packageName:$nativeId',
+        ).toString(),
+        nativeId: nativeId,
+        sourcePeerId: sourcePeerId,
+        packageName: packageName,
+        appName: payload['appName'] as String? ?? packageName,
+        title: payload['title'] as String? ?? '',
+        text: payload['text'] as String? ?? '',
+        encrypted: message.payload,
+        timestamp: DateTime.fromMillisecondsSinceEpoch(
+          payload['timestamp'] as int? ?? now.millisecondsSinceEpoch,
+        ),
+        createdAt: now,
+      ),
+    );
   }
 }
