@@ -155,6 +155,7 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
   // attacker without the identity key can't replay their way into a new
   // session -- this only needs to cover replay within one live session.
   int? _lastAcceptedMessageTimestamp;
+  Future<void>? _flushInFlight;
   bool _disposed = false;
   int _lifecycleGeneration = 0;
 
@@ -1550,21 +1551,45 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
           .sendSmsNotification(address, body, id: id);
 
   Future<void> _flushQueue() async {
+    final running = _flushInFlight;
+    if (running != null) {
+      await running;
+      return;
+    }
+    final future = _flushQueueWorker();
+    _flushInFlight = future;
+    try {
+      await future;
+    } finally {
+      if (identical(_flushInFlight, future)) _flushInFlight = null;
+    }
+  }
+
+  Future<void> _flushQueueWorker() async {
+    final socketManager = _socketManager;
+    final sessionGeneration = socketManager?.sessionGeneration;
     final destinationPeerId = _peer?.id;
-    if (destinationPeerId == null) return;
+    if (socketManager == null ||
+        sessionGeneration == null ||
+        destinationPeerId == null) {
+      return;
+    }
     final items = await _queue.pendingItems(destinationPeerId);
     if (items.isEmpty) return;
     _logger.i('Flushing ${items.length} queued message(s).');
     for (final item in items) {
+      if (_socketManager != socketManager ||
+          socketManager.sessionGeneration != sessionGeneration) {
+        _logger.i('Stopping stale Outbox worker after session change.');
+        return;
+      }
       try {
         final payload = jsonDecode(item.payload) as Map<String, dynamic>;
-        final sent =
-            await _socketManager?.sendMessage(
-              item.type,
-              payload,
-              messageId: item.messageId,
-            ) ??
-            false;
+        final sent = await socketManager.sendMessage(
+          item.type,
+          payload,
+          messageId: item.messageId,
+        );
         if (sent) {
           if (item.id != null) await _queue.markSent(item.id!);
         } else {
