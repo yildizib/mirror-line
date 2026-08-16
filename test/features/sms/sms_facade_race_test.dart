@@ -124,6 +124,7 @@ void main() {
     PlatformOperationDao? operations,
     Future<void> Function(String, String, {required String operationId})?
     sendSms,
+    Future<bool> Function(String operationId)? hasSmsSubmission,
   }) {
     final container = ProviderContainer(
       overrides: [
@@ -143,6 +144,7 @@ void main() {
             dao: dao,
             operations: operations,
             sendSms: sendSms,
+            hasSmsSubmission: hasSmsSubmission,
           ),
         ),
       ],
@@ -309,6 +311,41 @@ void main() {
 
       expect(submissions, ['submitted-operation']);
       expect(operations.operations['submitted-operation']?.state, 'submitted');
+    },
+  );
+
+  test(
+    'recovery promotes a native-accepted ready SMS without resubmitting',
+    () async {
+      final operations = _FakePlatformOperationDao();
+      final submissions = <String>[];
+      final container = buildContainer(
+        dao: _FakeSmsMessageDao(),
+        isSource: () => true,
+        operations: operations,
+        sendOrQueue: (_, _) async => true,
+        hasSmsSubmission: (_) async => true,
+        sendSms: (_, _, {required operationId}) async {
+          submissions.add(operationId);
+        },
+      );
+      final facade = container.read(smsFacadeProvider.notifier);
+      await operations.claim(
+        operationId: 'native-accepted',
+        kind: 'sms_send',
+        payload:
+            '{"messageId":"sms-1","address":"+15555550100","body":"reply"}',
+      );
+      await operations.transition(
+        'native-accepted',
+        from: ['received'],
+        to: 'ready',
+      );
+
+      await facade.recoverOutgoingSms();
+
+      expect(submissions, isEmpty);
+      expect(operations.operations['native-accepted']?.state, 'submitted');
     },
   );
 }

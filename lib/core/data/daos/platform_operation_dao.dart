@@ -132,7 +132,7 @@ class PlatformOperationDao {
         .toList();
   }
 
-  /// Only executions which never reached a platform boundary can be retried.
+  /// Recovers legacy executions which never reached a platform boundary.
   Future<int> recoverExecuting({String? kind}) async {
     final db = await _database;
     final where = kind == null ? 'state = ?' : 'state = ? AND kind = ?';
@@ -145,6 +145,18 @@ class PlatformOperationDao {
       },
       where: where,
       whereArgs: args,
+    );
+  }
+
+  /// Marks pre-boundary commands indeterminate when their platform cannot
+  /// durably identify whether it accepted the command after a process death.
+  Future<int> failReady({required String kind}) async {
+    final db = await _database;
+    return db.update(
+      'platform_operation',
+      {'state': 'failed', 'updated_at': DateTime.now().millisecondsSinceEpoch},
+      where: 'state = ? AND kind = ?',
+      whereArgs: ['ready', kind],
     );
   }
 }

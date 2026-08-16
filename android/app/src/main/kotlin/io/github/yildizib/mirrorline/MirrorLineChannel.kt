@@ -160,6 +160,13 @@ object MirrorLineChannel {
                     }
                     result.success(null)
                 }
+                "hasSmsSubmission" -> {
+                    val operationId = call.argument<String>("operationId") ?: ""
+                    result.success(
+                        operationId.isNotEmpty() &&
+                            SmsResultStore(appContext).hasSubmission(operationId),
+                    )
+                }
                 "rejectCall" -> result.success(rejectCall(appContext))
                 "sendSms" -> {
                     val address = call.argument<String>("address") ?: ""
@@ -402,6 +409,9 @@ object MirrorLineChannel {
         val multipartParts = parts?.takeIf { it.size > 1 }
         val partCount = multipartParts?.size ?: 1
         val resultStore = SmsResultStore(context)
+        // Commit the native acceptance record before the irreversible send.
+        // Dart recovery consults it rather than blindly invoking this again.
+        resultStore.prepareSubmission(operationId)
         fun pendingIntent(kind: String, partIndex: Int): PendingIntent =
             PendingIntent.getBroadcast(
                 context,

@@ -132,6 +132,19 @@ void main() {
   });
 
   test(
+    'checks Android durable SMS submission acceptance by operation ID',
+    () async {
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        expect(call.method, 'hasSmsSubmission');
+        expect(call.arguments, {'operationId': 'message-123'});
+        return true;
+      });
+
+      expect(await TelephonyChannel.hasSmsSubmission('message-123'), isTrue);
+    },
+  );
+
+  test(
     'consumes and acknowledges durable SMS results after handling',
     () async {
       final calls = <MethodCall>[];

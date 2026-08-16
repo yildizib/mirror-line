@@ -10,6 +10,18 @@ import org.robolectric.RuntimeEnvironment
 @RunWith(RobolectricTestRunner::class)
 class SmsResultStoreTest {
     @Test
+    fun `submission acceptance survives recreation until sent result acknowledgement`() {
+        val context = RuntimeEnvironment.getApplication()
+        val operationId = "submission-1"
+
+        SmsResultStore(context).prepareSubmission(operationId)
+
+        assertTrue(SmsResultStore(context).hasSubmission(operationId))
+        SmsResultStore(context).acknowledge(operationId, SmsResultStore.SENT)
+        assertTrue(!SmsResultStore(context).hasSubmission(operationId))
+    }
+
+    @Test
     fun `result survives store recreation until Dart acknowledges it`() {
         val context = RuntimeEnvironment.getApplication()
         val operationId = "operation-1"

@@ -95,4 +95,19 @@ void main() {
     expect(operations.single.id, 'sms');
     expect(operations.single.payload, '{"id":"1"}');
   });
+
+  test(
+    'ready calls can be failed without retrying an uncertain boundary',
+    () async {
+      await dao.claim(
+        operationId: 'call-ready',
+        kind: 'call_reject',
+        payload: '{}',
+      );
+      await dao.transition('call-ready', from: ['received'], to: 'ready');
+
+      expect(await dao.failReady(kind: 'call_reject'), 1);
+      expect(await dao.state('call-ready'), 'failed');
+    },
+  );
 }

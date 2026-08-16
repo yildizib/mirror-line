@@ -549,7 +549,12 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
   }) async {
     final callId = payload['id'] as String?;
     if (callId == null) return;
-    final encodedPayload = jsonEncode({'callId': callId});
+    final encodedPayload = jsonEncode({
+      'callId': callId,
+      'nativeSessionId': _activeCallId == callId
+          ? _activeNativeCallSessionId
+          : null,
+    });
     if (transaction == null) {
       await _operations.claim(
         operationId: operationId,
@@ -576,34 +581,28 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
         (jsonDecode(encodedPayload) as Map<String, dynamic>)['callId']
             as String?;
     if (callId == null) return false;
+    final nativeSessionId =
+        (jsonDecode(encodedPayload) as Map<String, dynamic>)['nativeSessionId']
+            as String?;
     if (!await _operations.transition(
       operationId,
       from: ['received'],
-      to: 'executing',
+      to: 'ready',
     )) {
       return false;
     }
     // Never reject a different live call when a stale command is recovered.
-    if (_activeCallId != callId) {
-      await _operations.transition(
-        operationId,
-        from: ['executing'],
-        to: 'failed',
-      );
+    if (_activeCallId != callId ||
+        (nativeSessionId != null &&
+            _activeNativeCallSessionId != nativeSessionId)) {
+      await _operations.transition(operationId, from: ['ready'], to: 'failed');
       return false;
     }
     try {
-      if (!await _operations.transition(
-        operationId,
-        from: ['executing'],
-        to: 'submitted',
-      )) {
-        return false;
-      }
       final rejected = await _rejectCall();
       if (!await _operations.transition(
         operationId,
-        from: ['submitted'],
+        from: ['ready'],
         to: rejected ? 'succeeded' : 'failed',
       )) {
         return false;
@@ -619,8 +618,8 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
       });
       return true;
     } catch (error, stackTrace) {
-      // The platform may have rejected the call before throwing. Keep this
-      // indeterminate instead of retrying a command that could hit another call.
+      // A new call could replace this one after the platform boundary. Call
+      // APIs cannot correlate an end request, so recovery must not retry it.
       _logger.e(
         'Call rejection result is indeterminate: $error',
         stackTrace: stackTrace,
@@ -632,6 +631,7 @@ class CallFacade extends StateNotifier<List<CallEvent>> {
   Future<void> recoverCallRejects() async {
     if (!_isSource()) return;
     await _operations.recoverExecuting(kind: 'call_reject');
+    await _operations.failReady(kind: 'call_reject');
     final pending = await _operations.list(
       kind: 'call_reject',
       states: ['received'],

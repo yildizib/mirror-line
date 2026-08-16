@@ -35,6 +35,19 @@ class SmsResultStore(context: Context) {
             .commit()
     }
 
+    /** Records Android's acceptance before invoking the irreversible API. */
+    @Synchronized
+    fun prepareSubmission(operationId: String) {
+        val submissions = preferences.getStringSet(SUBMISSIONS, emptySet())!!.toMutableSet()
+        if (submissions.add(token(operationId))) {
+            preferences.edit().putStringSet(SUBMISSIONS, submissions).commit()
+        }
+    }
+
+    @Synchronized
+    fun hasSubmission(operationId: String): Boolean =
+        token(operationId) in preferences.getStringSet(SUBMISSIONS, emptySet())!!
+
     /** Returns a final result only after every distinct part has reported. */
     @Synchronized
     fun record(
@@ -83,6 +96,11 @@ class SmsResultStore(context: Context) {
         for (partIndex in 0 until partCount) {
             editor.remove("$RESULT_PREFIX$key.$partIndex")
         }
+        if (kind == SENT) {
+            val submissions = preferences.getStringSet(SUBMISSIONS, emptySet())!!.toMutableSet()
+            submissions.remove(token(operationId))
+            editor.putStringSet(SUBMISSIONS, submissions)
+        }
         editor.commit()
     }
 
@@ -120,6 +138,7 @@ class SmsResultStore(context: Context) {
         const val SENT = "sent"
         const val DELIVERED = "delivered"
         private const val RECORDS = "records"
+        private const val SUBMISSIONS = "submissions"
         private const val META_PREFIX = "meta."
         private const val RESULT_PREFIX = "result."
     }

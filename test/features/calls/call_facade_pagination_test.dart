@@ -190,6 +190,49 @@ void main() {
     },
   );
 
+  test(
+    'recovery never retries an uncertain call rejection against a new call',
+    () async {
+      var rejections = 0;
+      final container = buildContainer(
+        isSource: () => true,
+        rejectCall: () async {
+          rejections++;
+          return true;
+        },
+      );
+      final facade = container.read(callFacadeProvider.notifier);
+      await facade.initialized;
+      await PlatformOperationDao().claim(
+        operationId: 'uncertain-old-call',
+        kind: 'call_reject',
+        payload: '{"callId":"old-call","nativeSessionId":"old-session"}',
+      );
+      await PlatformOperationDao().transition(
+        'uncertain-old-call',
+        from: ['received'],
+        to: 'ready',
+      );
+      await facade.handleNativeEvent(
+        {
+          'state': 'RINGING',
+          'callSessionId': 'new-session',
+          'number': '+15555550101',
+        },
+        id: 'new-call',
+        now: DateTime(2025, 1, 1, 12),
+      );
+
+      await facade.recoverCallRejects();
+
+      expect(rejections, 0);
+      expect(
+        await PlatformOperationDao().state('uncertain-old-call'),
+        'failed',
+      );
+    },
+  );
+
   test('delayed call A events update A without mutating call B', () async {
     final sentTypes = <String>[];
     final container = buildContainer(

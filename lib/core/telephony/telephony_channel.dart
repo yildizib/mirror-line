@@ -243,6 +243,21 @@ class TelephonyChannel {
     }
   }
 
+  /// Whether Android durably accepted this SMS submission. This closes the
+  /// Dart-to-native crash window without submitting the SMS a second time.
+  static Future<bool> hasSmsSubmission(String operationId) async {
+    try {
+      return await _channel.invokeMethod<bool>('hasSmsSubmission', {
+            'operationId': operationId,
+          }) ??
+          false;
+    } on MissingPluginException {
+      return false;
+    } on PlatformException catch (e) {
+      throw TelephonyChannelException.fromPlatform('hasSmsSubmission', e);
+    }
+  }
+
   /// Replays completed native SMS callbacks retained across process death.
   /// Each result is removed from Android only after [handler] completes.
   static Future<void> consumePendingSmsResults() async {

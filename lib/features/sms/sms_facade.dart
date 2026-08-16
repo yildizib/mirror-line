@@ -42,6 +42,7 @@ class SmsFacade extends StateNotifier<List<SmsMessage>> {
   final ShowNotification _notify;
   final Future<void> Function(String, String, {required String operationId})
   _sendSms;
+  final Future<bool> Function(String) _hasSmsSubmission;
   final Map<String, String> _pendingStatuses = {};
   late final Future<void> _initialized;
 
@@ -56,9 +57,12 @@ class SmsFacade extends StateNotifier<List<SmsMessage>> {
     PlatformOperationDao? operations,
     Future<void> Function(String, String, {required String operationId})?
     sendSms,
+    Future<bool> Function(String operationId)? hasSmsSubmission,
   }) : _dao = dao ?? SmsMessageDao(),
        _operations = operations ?? PlatformOperationDao(),
        _sendSms = sendSms ?? TelephonyChannel.sendSms,
+       _hasSmsSubmission =
+           hasSmsSubmission ?? TelephonyChannel.hasSmsSubmission,
        super([]) {
     _initialized = load();
   }
@@ -494,42 +498,52 @@ class SmsFacade extends StateNotifier<List<SmsMessage>> {
     if (!await _operations.transition(
       operationId,
       from: ['received'],
-      to: 'executing',
+      to: 'ready',
     )) {
       return;
     }
     final operationPayload = jsonDecode(encodedPayload) as Map<String, dynamic>;
     try {
-      // Persist submission before crossing the Android boundary. A crash
-      // after this point is indeterminate and must not trigger a blind retry.
-      if (!await _operations.transition(
-        operationId,
-        from: ['executing'],
-        to: 'submitted',
-      )) {
-        return;
-      }
       await _sendSms(
         operationPayload['address'] as String? ?? '',
         operationPayload['body'] as String? ?? '',
         operationId: operationId,
       );
+      await _operations.transition(
+        operationId,
+        from: ['ready'],
+        to: 'submitted',
+      );
     } catch (error) {
-      // The Android boundary may have accepted the request before throwing.
-      // Keep `submitted` indeterminate rather than risking a duplicate send.
+      // Android's durable submission record decides whether recovery retries.
       _logger.e('SMS submission result is indeterminate: $error');
     }
   }
 
-  /// Replays only operations which did not cross the Android boundary.
+  /// Reconciles Android's durable submission record before retrying a command.
   Future<void> recoverOutgoingSms() async {
     if (!_isSource()) return;
     await _operations.recoverExecuting(kind: 'sms_send');
     final pending = await _operations.list(
       kind: 'sms_send',
-      states: ['received'],
+      states: ['received', 'ready'],
     );
     for (final operation in pending) {
+      if (operation.state == 'ready') {
+        if (await _hasSmsSubmission(operation.id)) {
+          await _operations.transition(
+            operation.id,
+            from: ['ready'],
+            to: 'submitted',
+          );
+          continue;
+        }
+        await _operations.transition(
+          operation.id,
+          from: ['ready'],
+          to: 'received',
+        );
+      }
       await executeOutgoingSms(operation.id, operation.payload);
     }
   }
@@ -548,7 +562,7 @@ class SmsFacade extends StateNotifier<List<SmsMessage>> {
       final status = success ? 'sent' : 'failed';
       if (await _operations.transition(
         operationId,
-        from: ['submitted'],
+        from: ['ready', 'submitted'],
         to: success ? 'succeeded' : 'failed',
       )) {
         await updateStatus(messageId, status);
