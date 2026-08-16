@@ -111,6 +111,49 @@ void main() {
     },
   );
 
+  test('AES-GCM associated data authenticates envelope metadata', () async {
+    final key = CryptoManager.generateKey();
+    final envelope = MirrorMessage(
+      type: MessageTypes.smsIncoming,
+      id: 'message-1',
+      timestamp: DateTime.now().millisecondsSinceEpoch,
+      payload: '',
+      sourcePeerId: 'source',
+      destinationPeerId: 'destination',
+      sessionId: 'session-1',
+      sequence: 1,
+    );
+    final encrypted = await CryptoManager.encrypt(
+      key,
+      '{"body":"secret"}',
+      aad: utf8.encode(envelope.authenticatedData()),
+    );
+
+    final decrypted = await CryptoManager.decrypt(
+      key,
+      encrypted,
+      aad: utf8.encode(envelope.authenticatedData()),
+    );
+    expect(decrypted, '{"body":"secret"}');
+
+    final tamperedEnvelope = MirrorMessage(
+      type: MessageTypes.smsIncoming,
+      id: envelope.id,
+      timestamp: envelope.timestamp,
+      payload: '',
+      sourcePeerId: envelope.sourcePeerId,
+      destinationPeerId: envelope.destinationPeerId,
+      sessionId: envelope.sessionId,
+      sequence: 2,
+    );
+    final tampered = await CryptoManager.decrypt(
+      key,
+      encrypted,
+      aad: utf8.encode(tamperedEnvelope.authenticatedData()),
+    );
+    expect(tampered, isNull);
+  });
+
   test('each encrypted message uses a fresh nonce (no nonce reuse)', () async {
     final key = CryptoManager.generateKey();
     const plaintext = 'aynı mesaj iki kere şifrelenirse';
