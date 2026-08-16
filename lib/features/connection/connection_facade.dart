@@ -245,6 +245,7 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
       }
     };
     _connectivity.startListening();
+    unawaited(_cleanupExpiredInbox());
 
     try {
       final lifecycleGeneration = _lifecycleGeneration;
@@ -283,10 +284,19 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
     if (_disposed) return;
     if (state == AppLifecycleState.resumed) {
       _socketManager?.setBackgroundMode(false);
+      unawaited(_cleanupExpiredInbox());
       _refresh();
       _maybeScheduleReconnect();
     } else if (state == AppLifecycleState.paused) {
       _socketManager?.setBackgroundMode(true);
+    }
+  }
+
+  Future<void> _cleanupExpiredInbox() async {
+    try {
+      await _inbox.deleteExpired();
+    } catch (error) {
+      _logger.w('Inbox retention cleanup failed: $error');
     }
   }
 

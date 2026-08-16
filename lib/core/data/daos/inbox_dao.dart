@@ -4,6 +4,10 @@ import 'package:mirrorline/core/data/models/inbox_record.dart';
 import 'package:sqflite/sqflite.dart';
 
 class InboxDao {
+  /// Must exceed the Outbox's five retry attempts (at most five minutes each)
+  /// so a sender can always receive an Inbox deduplication response.
+  static const retentionPeriod = Duration(days: 7);
+
   final AppDatabase _db = AppDatabase.instance;
   Database? _testDb;
 
@@ -63,5 +67,10 @@ class InboxDao {
       where: 'updated_at < ?',
       whereArgs: [cutoff.millisecondsSinceEpoch],
     );
+  }
+
+  Future<int> deleteExpired({DateTime? now}) {
+    final currentTime = now ?? DateTime.now();
+    return deleteOlderThan(currentTime.subtract(retentionPeriod));
   }
 }

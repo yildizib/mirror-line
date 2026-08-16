@@ -41,7 +41,7 @@ void main() {
     expect(await dao.get('peer-a', 'message-a'), isNotNull);
   });
 
-  test('state updates and retention cleanup are durable', () async {
+  test('state updates and seven-day retention cleanup are durable', () async {
     final record = InboxRecord(
       sourcePeerId: 'peer-a',
       messageId: 'message-a',
@@ -56,8 +56,27 @@ void main() {
       (await dao.get('peer-a', 'message-a'))!.processingState,
       'processed',
     );
-    expect(await dao.deleteOlderThan(DateTime(2027)), 1);
+    expect(
+      await dao.deleteExpired(now: DateTime(2027)),
+      1,
+      reason: 'expired Inbox records cannot outlive sender retries',
+    );
     expect(await dao.get('peer-a', 'message-a'), isNull);
+  });
+
+  test('retention keeps records newer than the documented policy', () async {
+    final now = DateTime(2027, 1, 8);
+    final retained = InboxRecord(
+      sourcePeerId: 'peer-a',
+      messageId: 'recent-message',
+      type: 'sms',
+      receivedAt: now.subtract(InboxDao.retentionPeriod),
+      updatedAt: now.subtract(InboxDao.retentionPeriod),
+    );
+    await dao.insertIfAbsent(retained);
+
+    expect(await dao.deleteExpired(now: now), 0);
+    expect(await dao.get('peer-a', 'recent-message'), isNotNull);
   });
 
   test('Inbox and domain persistence roll back together', () async {
