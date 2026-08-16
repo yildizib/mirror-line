@@ -7,9 +7,10 @@ class QueueDao {
 
   Future<Database> get _database => _db.database;
 
-  Future<void> insert(QueueItem item) async {
+  Future<QueueItem> insert(QueueItem item) async {
     final db = await _database;
-    await db.insert('outbox', item.toJson());
+    final id = await db.insert('outbox', item.toJson());
+    return item.copyWith(id: id);
   }
 
   Future<List<QueueItem>> getAll(String destinationPeerId) async {

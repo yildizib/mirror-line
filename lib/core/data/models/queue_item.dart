@@ -47,8 +47,8 @@ class QueueItem {
     createdAt: DateTime.fromMillisecondsSinceEpoch(json['created_at'] as int),
   );
 
-  QueueItem copyWith({int? retryCount}) => QueueItem(
-    id: id,
+  QueueItem copyWith({int? id, int? retryCount}) => QueueItem(
+    id: id ?? this.id,
     messageId: messageId,
     destinationPeerId: destinationPeerId,
     type: type,

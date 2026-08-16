@@ -1366,20 +1366,22 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
   // ---------------------------------------------------------------------
 
   Future<bool> _sendOrQueue(String type, Map<String, dynamic> payload) async {
-    final sent = await _socketManager?.sendMessage(type, payload) ?? false;
-    if (!sent) {
-      final destinationPeerId = _peer?.id;
-      if (destinationPeerId == null) {
-        _logger.w('$type could not be queued without a destination peer.');
-        return false;
-      }
-      await _queue.enqueue(
-        type,
-        jsonEncode(payload),
-        destinationPeerId: destinationPeerId,
-      );
-      _logger.w('$type queued for later delivery.');
+    final destinationPeerId = _peer?.id;
+    if (destinationPeerId == null) {
+      _logger.w('$type could not be queued without a destination peer.');
+      return false;
     }
+
+    // Persist before transport so a process or socket failure cannot lose the
+    // operation between the send decision and the socket write.
+    final item = await _queue.enqueue(
+      type,
+      jsonEncode(payload),
+      destinationPeerId: destinationPeerId,
+    );
+    final sent = await _socketManager?.sendMessage(type, payload) ?? false;
+    if (sent && item.id != null) await _queue.markSent(item.id!);
+    if (!sent) _logger.w('$type queued for later delivery.');
     return sent;
   }
 

@@ -5,13 +5,13 @@ import 'package:uuid/uuid.dart';
 class QueueService {
   final QueueDao _dao = QueueDao();
 
-  Future<void> enqueue(
+  Future<QueueItem> enqueue(
     String type,
     String payload, {
     required String destinationPeerId,
     String? messageId,
   }) async {
-    await _dao.insert(
+    return _dao.insert(
       QueueItem(
         messageId: messageId ?? const Uuid().v4(),
         destinationPeerId: destinationPeerId,
