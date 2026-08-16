@@ -460,6 +460,7 @@ class SocketManager {
     String type,
     Map<String, dynamic> payload, {
     bool useSessionKey = true,
+    String? messageId,
   }) async {
     final session = _session;
     final key = useSessionKey ? (session?.sessionKey ?? _key) : _key;
@@ -469,7 +470,7 @@ class SocketManager {
 
     try {
       await _localPeerIdReady;
-      final id = const Uuid().v4();
+      final id = messageId ?? const Uuid().v4();
       final timestamp = DateTime.now().millisecondsSinceEpoch;
       final sequence = session.nextSequence++;
       final envelope = MirrorMessage(
