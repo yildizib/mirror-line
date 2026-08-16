@@ -1319,6 +1319,7 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
       if (!isNewMessage) {
         _logger.i('Skipping duplicate Inbox message: ${message.id}');
       }
+      await _sendDeliveryAck(socketManager, message.id);
       return;
     }
 
@@ -1328,6 +1329,19 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
       return;
     }
     await _dispatchIncomingMessage(message, payload, now);
+  }
+
+  Future<void> _sendDeliveryAck(
+    SocketManager socketManager,
+    String messageId,
+  ) async {
+    final sent = await socketManager.sendMessage(MessageTypes.ack, {
+      'message_id': messageId,
+      'result': 'committed',
+    });
+    if (!sent) {
+      _logger.w('Could not send delivery ACK for message $messageId.');
+    }
   }
 
   Future<void> _dispatchIncomingMessage(
