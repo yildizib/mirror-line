@@ -818,6 +818,10 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
     required bool fromScan,
   }) async {
     if (!_online || _networkingStopped || _disposed) return;
+    if (!_isValidIpAddress(ip) || port < 1 || port > 65535) {
+      _logger.w('Ignoring invalid discovered address $ip:$port.');
+      return;
+    }
     if (fromScan) {
       if (state) return;
       _lastDiscoveredIp = ip;
