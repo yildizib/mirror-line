@@ -35,7 +35,7 @@
 
 - [x] 4.1 Run `dart format lib/ test/` and format changed Dart files.
 - [x] 4.2 Run `dart analyze --fatal-infos` and fix all reported issues.
-- [ ] 4.3 Run `flutter analyze` and fix all reported issues.
+- [x] 4.3 Run `flutter analyze` and fix all reported issues.
 - [ ] 4.4 Run targeted pairing, connection, discovery, and peer tests.
 - [ ] 4.5 Run `flutter test` and verify all tests pass.
 - [ ] 4.6 Run `flutter build apk --debug`.
