@@ -1127,7 +1127,10 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
         _logger.i('pairingRequest received from scanner.');
         await _ref
             .read(pairingFacadeProvider.notifier)
-            .handleIncomingRequest(payload);
+            .handleIncomingRequest(
+              payload,
+              liveRemoteAddress: _socketManager?.remoteAddress,
+            );
         break;
 
       case MessageTypes.pairingAck:

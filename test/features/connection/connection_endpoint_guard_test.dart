@@ -80,6 +80,25 @@ void main() {
   });
 
   group('isUsableEndpoint', () {
+    test('classifies locally owned and malformed endpoints', () {
+      expect(
+        validateEndpoint(
+          ip: '192.168.1.10',
+          port: 45678,
+          localIps: const ['192.168.1.10'],
+        ).rejectionReason,
+        EndpointRejectionReason.locallyOwned,
+      );
+      expect(
+        validateEndpoint(
+          ip: 'not-an-ip',
+          port: 45678,
+          localIps: const [],
+        ).rejectionReason,
+        EndpointRejectionReason.malformed,
+      );
+    });
+
     test('rejects invalid addresses and ports', () {
       expect(isUsableEndpoint(ip: '', port: 45678, localIps: const []), false);
       expect(

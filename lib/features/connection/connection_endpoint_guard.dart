@@ -2,6 +2,29 @@ import 'dart:io';
 
 import 'package:mirrorline/core/data/models/peer.dart';
 
+enum EndpointRejectionReason {
+  empty,
+  invalidPort,
+  malformed,
+  unspecified,
+  loopback,
+  locallyOwned,
+}
+
+class EndpointValidationResult {
+  final String? normalizedIp;
+  final EndpointRejectionReason? rejectionReason;
+
+  const EndpointValidationResult.usable(this.normalizedIp)
+    : assert(normalizedIp != null),
+      rejectionReason = null;
+
+  const EndpointValidationResult.rejected(this.rejectionReason)
+    : normalizedIp = null;
+
+  bool get isUsable => normalizedIp != null;
+}
+
 bool hasCompletedRemotePeer(Peer? peer) {
   return peer != null && peer.publicKey.isNotEmpty;
 }
@@ -19,22 +42,59 @@ bool isUsableEndpoint({
   required int port,
   required Iterable<String> localIps,
 }) {
-  if (ip.isEmpty || ip == 'unknown' || port <= 0 || port > 65535) {
-    return false;
+  return validateEndpoint(ip: ip, port: port, localIps: localIps).isUsable;
+}
+
+EndpointValidationResult validateEndpoint({
+  required String ip,
+  required int port,
+  required Iterable<String> localIps,
+}) {
+  if (ip.isEmpty || ip == 'unknown') {
+    return const EndpointValidationResult.rejected(
+      EndpointRejectionReason.empty,
+    );
+  }
+  if (port <= 0 || port > 65535) {
+    return const EndpointValidationResult.rejected(
+      EndpointRejectionReason.invalidPort,
+    );
   }
 
   try {
     final address = InternetAddress(ip);
     final addressBytes = _normalizedAddressBytes(address.rawAddress);
-    if (_isUnspecified(addressBytes) || _isLoopback(addressBytes)) return false;
-    for (final localIp in localIps) {
-      if (_isSameAddress(address, localIp)) return false;
+    if (_isUnspecified(addressBytes)) {
+      return const EndpointValidationResult.rejected(
+        EndpointRejectionReason.unspecified,
+      );
     }
+    if (_isLoopback(addressBytes)) {
+      return const EndpointValidationResult.rejected(
+        EndpointRejectionReason.loopback,
+      );
+    }
+    for (final localIp in localIps) {
+      if (_isSameAddress(address, localIp)) {
+        return const EndpointValidationResult.rejected(
+          EndpointRejectionReason.locallyOwned,
+        );
+      }
+    }
+    return EndpointValidationResult.usable(address.address);
+  } catch (_) {
+    return const EndpointValidationResult.rejected(
+      EndpointRejectionReason.malformed,
+    );
+  }
+}
+
+bool areSameIpAddresses(String left, String right) {
+  try {
+    return _isSameAddress(InternetAddress(left), right);
   } catch (_) {
     return false;
   }
-
-  return true;
 }
 
 bool _isSameAddress(InternetAddress address, String candidate) {

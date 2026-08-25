@@ -57,7 +57,7 @@
 
 - [x] 6.1 Reject QR endpoints that are empty, invalid, loopback, or present in
   the scanner's complete local-IP inventory before opening a socket.
-- [ ] 6.2 Validate claimed request and accept IPs before persisting them and add
+- [x] 6.2 Validate claimed request and accept IPs before persisting them and add
   diagnostics for locally-owned or stale endpoints.
 - [ ] 6.3 Generate QR and pairing response identity from local self identity,
   not the overloaded remote peer record.

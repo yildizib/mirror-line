@@ -14,6 +14,7 @@ import 'package:mirrorline/core/security/security_constants.dart';
 import 'package:mirrorline/features/pairing/peer_facade.dart';
 import 'package:mirrorline/features/pairing/pairing_runtime_state.dart';
 import 'package:mirrorline/features/pairing/pairing_identity_guard.dart';
+import 'package:mirrorline/features/pairing/pairing_endpoint_selector.dart';
 import 'package:mirrorline/features/connection/connection_facade.dart';
 import 'package:mirrorline/features/connection/connection_endpoint_guard.dart';
 import 'package:mirrorline/l10n/app_localizations.dart';
@@ -62,6 +63,7 @@ class PairingState {
   final PairingErrorCode? errorCode;
   final String?
   errorDetail; // extra context for PairingErrorCode.handshakeFailed
+  final PairingEndpointDiagnostic? endpointDiagnostic;
 
   const PairingState({
     this.isWaitingForAccept = false,
@@ -73,6 +75,7 @@ class PairingState {
     this.verificationCode,
     this.errorCode,
     this.errorDetail,
+    this.endpointDiagnostic,
   });
 
   PairingState copyWith({
@@ -85,7 +88,9 @@ class PairingState {
     String? verificationCode,
     PairingErrorCode? errorCode,
     String? errorDetail,
+    PairingEndpointDiagnostic? endpointDiagnostic,
     bool clearError = false,
+    bool clearEndpointDiagnostic = false,
   }) {
     return PairingState(
       isWaitingForAccept: isWaitingForAccept ?? this.isWaitingForAccept,
@@ -97,6 +102,9 @@ class PairingState {
       verificationCode: verificationCode ?? this.verificationCode,
       errorCode: clearError ? null : errorCode ?? this.errorCode,
       errorDetail: clearError ? null : errorDetail ?? this.errorDetail,
+      endpointDiagnostic: clearEndpointDiagnostic
+          ? null
+          : endpointDiagnostic ?? this.endpointDiagnostic,
     );
   }
 
@@ -127,6 +135,8 @@ final pairingFacadeProvider =
 /// If the scanned device rejects, [rejectRequest] sends `pairingReject`
 /// and the scanner shows an error.
 class PairingFacade extends StateNotifier<PairingState> {
+  static const _defaultPairingPort = 45678;
+
   final Logger _logger = Logger();
   final Ref _ref;
 
@@ -141,6 +151,7 @@ class PairingFacade extends StateNotifier<PairingState> {
   /// to overwrite the QR-derived values (which may be stale or wrong on
   /// NAT/VLAN setups) when persisting the peer.
   Map<String, dynamic>? _acceptPayload;
+  String? _acceptRemoteAddress;
 
   /// Scanned side: resolves once the scanner's pairingAck arrives (or times
   /// out). Persisting the paired peer (applyPairedPeer) is gated on this so
@@ -292,9 +303,22 @@ class PairingFacade extends StateNotifier<PairingState> {
         // stale or wrong on NAT/VLAN setups) -- fall back to the QR values
         // if the scanned device didn't claim an IP.
         final accept = _acceptPayload;
-        final peerIp = (accept?['ip'] as String?)?.isNotEmpty == true
-            ? accept!['ip'] as String
-            : scannedIp;
+        final endpoint = await _selectEndpoint(
+          stage: PairingEndpointStage.accept,
+          claimedIp: accept?['ip'],
+          liveIp: _acceptRemoteAddress,
+          fallbackIp: scannedIp,
+          port: scannedPort,
+        );
+        if (!endpoint.isUsable) {
+          _logEndpointDiagnostic(endpoint.diagnostic);
+          state = PairingState(
+            errorCode: PairingErrorCode.handshakeFailed,
+            endpointDiagnostic: endpoint.diagnostic,
+          );
+          return;
+        }
+        _logEndpointDiagnostic(endpoint.diagnostic);
         final peerDeviceName =
             (accept?['deviceName'] as String?)?.isNotEmpty == true
             ? accept!['deviceName'] as String
@@ -303,7 +327,7 @@ class PairingFacade extends StateNotifier<PairingState> {
             .read(peerFacadeProvider.notifier)
             .createPeerFromQr(
               id: scannedId,
-              ip: peerIp,
+              ip: endpoint.ip!,
               port: scannedPort,
               keyBase64: scannedKeyBase64,
               role: myRole,
@@ -326,7 +350,10 @@ class PairingFacade extends StateNotifier<PairingState> {
           );
           return;
         }
-        state = state.copyWith(isComplete: true);
+        state = state.copyWith(
+          isComplete: true,
+          endpointDiagnostic: endpoint.diagnostic,
+        );
       } else {
         _logger.w('Pairing acceptance timed out or was rejected.');
         state = state.copyWith(
@@ -381,6 +408,7 @@ class PairingFacade extends StateNotifier<PairingState> {
         }
         _logger.i('Pairing accepted by remote.');
         _acceptPayload = payload;
+        _acceptRemoteAddress = _handshakeSocket?.remoteAddress;
         state = state.copyWith(isWaitingForAccept: false);
         if (_acceptCompleter != null && !_acceptCompleter!.isCompleted) {
           _acceptCompleter!.complete(true);
@@ -406,7 +434,10 @@ class PairingFacade extends StateNotifier<PairingState> {
 
   /// Called when a `pairingRequest` message arrives on the *scanned* device.
   /// Updates state so the UI can show a confirmation dialog.
-  Future<void> handleIncomingRequest(Map<String, dynamic> payload) async {
+  Future<void> handleIncomingRequest(
+    Map<String, dynamic> payload, {
+    String? liveRemoteAddress,
+  }) async {
     await _ref
         .read(connectionFacadeProvider.notifier)
         .invalidateNormalConnectionWork();
@@ -418,7 +449,6 @@ class PairingFacade extends StateNotifier<PairingState> {
     final peerId = payload['peerId'] as String? ?? '';
     final publicKey = payload['publicKey'] as String? ?? '';
     final role = payload['role'] as String? ?? '';
-    final scannerIp = payload['ip'] as String?;
     final transactionId = payload['transactionId'] as String? ?? '';
     if (transactionId.isEmpty ||
         peerId.isEmpty ||
@@ -442,6 +472,27 @@ class PairingFacade extends StateNotifier<PairingState> {
       return;
     }
 
+    final endpoint = await _selectEndpoint(
+      stage: PairingEndpointStage.request,
+      claimedIp: payload['ip'],
+      liveIp: liveRemoteAddress,
+      fallbackIp: null,
+      port: _defaultPairingPort,
+    );
+    if (!endpoint.isUsable) {
+      _logEndpointDiagnostic(endpoint.diagnostic);
+      if (_pendingScannerInfo != null || _pairAckCompleter != null) {
+        _logger.w('Rejected unsafe request while another pairing is active.');
+        return;
+      }
+      state = PairingState(
+        errorCode: PairingErrorCode.handshakeFailed,
+        endpointDiagnostic: endpoint.diagnostic,
+      );
+      return;
+    }
+    _logEndpointDiagnostic(endpoint.diagnostic);
+
     final peer = _ref.read(peerFacadeProvider);
     final verificationCode = peer == null
         ? ''
@@ -460,9 +511,10 @@ class PairingFacade extends StateNotifier<PairingState> {
       remoteDeviceName: deviceName,
       remotePeerId: peerId,
       verificationCode: verificationCode,
+      endpointDiagnostic: endpoint.diagnostic,
     );
     _logger.i(
-      'Incoming pairing request from $deviceName ($peerId, pubKey=${publicKey.substring(0, publicKey.length > 8 ? 8 : publicKey.length)}..., ip=$scannerIp)',
+      'Incoming pairing request from $deviceName ($peerId, pubKey=${publicKey.substring(0, publicKey.length > 8 ? 8 : publicKey.length)}...)',
     );
 
     // Stash the scanner's info for later use in acceptRequest.
@@ -471,7 +523,7 @@ class PairingFacade extends StateNotifier<PairingState> {
       'peerId': peerId,
       'role': role,
       'publicKey': publicKey,
-      'ip': scannerIp,
+      'ip': endpoint.ip,
       'transactionId': transactionId,
     };
   }
@@ -526,6 +578,25 @@ class PairingFacade extends StateNotifier<PairingState> {
       return;
     }
 
+    final endpoint = await _selectEndpoint(
+      stage: PairingEndpointStage.request,
+      claimedIp: scannerInfo['ip'],
+      liveIp: socketManager.remoteAddress,
+      fallbackIp: null,
+      port: _defaultPairingPort,
+    );
+    if (!endpoint.isUsable) {
+      _logEndpointDiagnostic(endpoint.diagnostic);
+      _clearIncomingTransaction();
+      state = PairingState(
+        errorCode: PairingErrorCode.handshakeFailed,
+        endpointDiagnostic: endpoint.diagnostic,
+      );
+      return;
+    }
+    _logEndpointDiagnostic(endpoint.diagnostic);
+    final endpointDiagnostic = endpoint.diagnostic ?? state.endpointDiagnostic;
+
     _clearIncomingTransaction(clearPendingInfo: false);
     _expectedAckPeerId = scannerId;
     _expectedAckPeerPublicKey = scannerPublicKey;
@@ -573,21 +644,20 @@ class PairingFacade extends StateNotifier<PairingState> {
       // peer_facade.dart's _getDeviceName().
       final scannerDeviceName =
           scannerInfo['deviceName'] as String? ?? 'Unknown Device';
-      final scannerClaimedIp = scannerInfo['ip'] as String?;
-      final scannerIp =
-          (scannerClaimedIp != null && scannerClaimedIp.isNotEmpty)
-          ? scannerClaimedIp
-          : socketManager.remoteAddress;
       await _ref
           .read(peerFacadeProvider.notifier)
           .applyPairedPeer(
             id: scannerId,
             deviceName: scannerDeviceName,
             publicKey: scannerPublicKey,
-            ip: scannerIp,
+            ip: endpoint.ip,
           );
 
-      state = state.copyWith(isFinalizing: false, isComplete: true);
+      state = state.copyWith(
+        isFinalizing: false,
+        isComplete: true,
+        endpointDiagnostic: endpointDiagnostic,
+      );
     } finally {
       _clearIncomingTransaction(owner: ackCompleter);
     }
@@ -649,6 +719,7 @@ class PairingFacade extends StateNotifier<PairingState> {
     _handshakeSocket = null;
     _handshakeKey = null;
     _acceptPayload = null;
+    _acceptRemoteAddress = null;
   }
 
   bool _isMatchingTransaction(Map<String, dynamic>? payload) =>
@@ -667,6 +738,7 @@ class PairingFacade extends StateNotifier<PairingState> {
     _expectedPeerId = null;
     _expectedPeerPublicKey = null;
     _acceptPayload = null;
+    _acceptRemoteAddress = null;
   }
 
   void _clearIncomingTransaction({
@@ -682,6 +754,40 @@ class PairingFacade extends StateNotifier<PairingState> {
     if (clearPendingInfo) _pendingScannerInfo = null;
     _expectedAckPeerId = null;
     _expectedAckPeerPublicKey = null;
+  }
+
+  Future<PairingEndpointSelection> _selectEndpoint({
+    required PairingEndpointStage stage,
+    required Object? claimedIp,
+    required String? liveIp,
+    required String? fallbackIp,
+    required int port,
+  }) async {
+    final localAddresses = await PeerDiscovery().getAllLocalAddresses();
+    if (localAddresses == null || localAddresses.isEmpty) {
+      return PairingEndpointSelection(
+        diagnostic: PairingEndpointDiagnostic(
+          stage: stage,
+          issue: PairingEndpointIssue.localInventoryUnavailable,
+        ),
+      );
+    }
+    return selectPairingEndpoint(
+      stage: stage,
+      claimedIp: claimedIp,
+      liveIp: liveIp,
+      fallbackIp: fallbackIp,
+      port: port,
+      localIps: localAddresses,
+    );
+  }
+
+  void _logEndpointDiagnostic(PairingEndpointDiagnostic? diagnostic) {
+    if (diagnostic == null) return;
+    _logger.w(
+      'Pairing endpoint diagnostic: stage=${diagnostic.stage.name}, '
+      'issue=${diagnostic.issue.name}',
+    );
   }
 
   @override

@@ -96,8 +96,14 @@ and locally-owned endpoints will be rejected. Live TCP remote information will
 be retained as a validated fallback and diagnostic rather than allowing an
 untrusted stale claim to persist the receiver's own address.
 
-Alternative considered: always prefer the claimed IP for NAT/VLAN support.
-Rejected because stale claims can create self-endpoint peer records.
+A valid non-local claim remains preferred so existing VPN and multi-network
+routing continues to work. A difference from the live TCP address is surfaced
+as a stale-candidate diagnostic but is not sufficient by itself to reject the
+claim; unsafe claims fall back to the validated live address.
+
+Alternative considered: persist every claimed IP without validation for
+NAT/VLAN support. Rejected because unsafe claims can create self-endpoint peer
+records.
 
 ### Bind callbacks to socket ownership
 
