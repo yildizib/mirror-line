@@ -175,6 +175,7 @@ class PairingFacade extends StateNotifier<PairingState> {
     final verificationCode = PeerFacade.generateVerificationCode(
       scannedKeyBase64,
       scannedId,
+      expectedPublicKeys: [myPublicKey, scannedPublicKey],
     );
 
     state = PairingState(
@@ -334,7 +335,7 @@ class PairingFacade extends StateNotifier<PairingState> {
 
   /// Called when a `pairingRequest` message arrives on the *scanned* device.
   /// Updates state so the UI can show a confirmation dialog.
-  void handleIncomingRequest(Map<String, dynamic> payload) {
+  Future<void> handleIncomingRequest(Map<String, dynamic> payload) async {
     // Left null (not defaulted here) so the UI's own
     // `remoteDeviceName ?? l.pairingUnknownDevice` fallback -- localized to
     // *this* device's language -- is what actually renders, instead of a
@@ -350,7 +351,16 @@ class PairingFacade extends StateNotifier<PairingState> {
     }
 
     final peer = _ref.read(peerFacadeProvider);
-    final verificationCode = peer?.verificationCode ?? '';
+    final verificationCode = peer == null
+        ? ''
+        : PeerFacade.generateVerificationCode(
+            peer.key,
+            peer.id,
+            expectedPublicKeys: [
+              await _ref.read(peerFacadeProvider.notifier).getMyPublicKey(),
+              publicKey,
+            ],
+          );
 
     state = PairingState(
       isShowingRequest: true,

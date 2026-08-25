@@ -1056,7 +1056,7 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
 
       case MessageTypes.pairingRequest:
         _logger.i('pairingRequest received from scanner.');
-        _ref
+        await _ref
             .read(pairingFacadeProvider.notifier)
             .handleIncomingRequest(payload);
         break;

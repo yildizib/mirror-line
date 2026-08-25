@@ -178,15 +178,23 @@ class CryptoManager {
     return SimplePublicKey(base64Decode(base64), type: KeyPairType.ed25519);
   }
 
-  /// Generates a cryptographically sound 6-digit verification code from a
-  /// shared key and peer ID. Used to derive a code for manual verification
-  /// during pairing that's deterministic and collision-resistant.
-  static String verificationCodeFromKey(String keyBase64, String peerId) {
+  /// Generates a deterministic verification code bound to the pairing
+  /// transaction's expected Ed25519 identities.
+  static String verificationCodeFromKey(
+    String keyBase64,
+    String peerId, {
+    Iterable<String> expectedPublicKeys = const [],
+  }) {
     final keyBytes = base64Decode(keyBase64);
-    final peerBytes = utf8.encode(peerId);
-    final combined = Uint8List(keyBytes.length + peerBytes.length)
+    final identityBytes = utf8.encode(
+      jsonEncode({
+        'peerId': peerId,
+        'publicKeys': expectedPublicKeys.toList()..sort(),
+      }),
+    );
+    final combined = Uint8List(keyBytes.length + identityBytes.length)
       ..setAll(0, keyBytes)
-      ..setAll(keyBytes.length, peerBytes);
+      ..setAll(keyBytes.length, identityBytes);
 
     final hash = crypto.sha256.convert(combined).bytes;
     final value = (hash[0] << 16) | (hash[1] << 8) | hash[2];

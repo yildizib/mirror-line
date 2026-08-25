@@ -88,7 +88,7 @@
 
 - [x] 8.1 Bind QR, pairing request, pairing accept, verification data, and
   final acknowledgement to one peer identity transaction.
-- [ ] 8.2 Include the expected public-key identities in verification value
+- [x] 8.2 Include the expected public-key identities in verification value
   generation.
 - [ ] 8.3 Reject pairing when peer ID, device identity, role, or public key
   changes unexpectedly during the transaction.
