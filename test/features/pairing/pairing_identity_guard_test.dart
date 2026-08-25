@@ -38,5 +38,29 @@ void main() {
         false,
       );
     });
+
+    test('rejects an identity with a mismatched public key', () {
+      expect(
+        isValidRemoteIdentity(
+          remoteId: 'remote-id',
+          remotePublicKey: 'local-key',
+          localId: 'local-id',
+          localPublicKey: 'local-key',
+        ),
+        false,
+      );
+    });
+
+    test('accepts a retry identity after a failed transaction', () {
+      expect(
+        isValidRemoteIdentity(
+          remoteId: 'new-remote-id',
+          remotePublicKey: 'new-remote-key',
+          localId: 'local-id',
+          localPublicKey: 'local-key',
+        ),
+        true,
+      );
+    });
   });
 }
