@@ -72,7 +72,7 @@ class QueueService {
       final identity = value['id'] ?? value['nativeId'];
       if (identity == null || identity.toString().isEmpty) return null;
       final key = await KeyStore.ensureLocalDatabaseKey();
-      return CryptoManager.keyedLookupDigest(
+      return await CryptoManager.keyedLookupDigest(
         key,
         '$type:${identity.toString()}',
       );
