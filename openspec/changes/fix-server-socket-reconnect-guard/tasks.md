@@ -19,7 +19,7 @@
   remote peer and reports the appropriate diagnostic state.
 - [x] 2.3 Test that a server-mode socket is never reused for an outbound client
   connection and that listener/client cleanup remains independent.
-- [ ] 2.4 Test scheduler success/failure callback handling and bounded retry
+- [x] 2.4 Test scheduler success/failure callback handling and bounded retry
   delays, including high-attempt behavior.
 - [ ] 2.5 Run a two-device QR pairing flow followed by reconnect and network
   change verification on Android hardware.

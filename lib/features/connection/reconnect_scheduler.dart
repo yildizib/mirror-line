@@ -3,10 +3,15 @@ import 'package:logger/logger.dart';
 
 typedef OnReconnect = Future<bool> Function(String ip, int port);
 
-class ReconnectScheduler {
-  static const Duration _reconnectInitialDelay = Duration(seconds: 2);
-  static const Duration _reconnectMaxDelay = Duration(seconds: 30);
+Duration reconnectDelayForAttempt(int attempt) {
+  final exponent = attempt.clamp(0, 4);
+  final delay = const Duration(seconds: 2) * (1 << exponent);
+  return delay > const Duration(seconds: 30)
+      ? const Duration(seconds: 30)
+      : delay;
+}
 
+class ReconnectScheduler {
   final Logger _logger;
   final OnReconnect _onReconnect;
   final String? Function() _getPeerIp;
@@ -55,9 +60,7 @@ class ReconnectScheduler {
 
   void scheduleReconnect() {
     _reconnectTimer?.cancel();
-    final exponent = _reconnectAttempts.clamp(0, 4);
-    var delay = _reconnectInitialDelay * (1 << exponent);
-    if (delay > _reconnectMaxDelay) delay = _reconnectMaxDelay;
+    final delay = reconnectDelayForAttempt(_reconnectAttempts);
     _logger.i(
       'Scheduling reconnect in ${delay.inSeconds}s (attempt ${_reconnectAttempts + 1}).',
     );
