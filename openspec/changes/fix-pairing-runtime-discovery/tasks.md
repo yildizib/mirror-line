@@ -1,6 +1,6 @@
 ## 1. Runtime State Guards
 
-- [ ] 1.1 Define the paired, unpaired, pairing-pending, and pairing-complete
+- [x] 1.1 Define the paired, unpaired, pairing-pending, and pairing-complete
   runtime conditions at the facade boundary.
 - [ ] 1.2 Prevent reconnect scheduling and fallback discovery for unpaired
   devices, invalid endpoints, and zero-port scans.
