@@ -543,6 +543,12 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
           detail: 'Connecting to $ip:$port...',
         );
     try {
+      if (_socketManager?.isServerMode == true) {
+        _logger.i('Replacing pairing listener with an outbound client.');
+        await _socketManager!.stopServer();
+        await _socketManager!.disconnectClient();
+        _socketManager = null;
+      }
       _socketManager ??= _createSocketManager();
       await _configureAuth(_socketManager!);
       final ok = await _socketManager!.connect(

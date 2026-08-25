@@ -4,7 +4,7 @@
   force-connect, network-change, and fallback-scan entry points.
 - [x] 1.2 Prevent unpaired network changes and manual reconnect requests from
   touching the temporary pairing listener.
-- [ ] 1.3 Separate outbound client socket ownership from pairing/server socket
+- [x] 1.3 Separate outbound client socket ownership from pairing/server socket
   ownership and guarantee cleanup for both lifecycles.
 - [ ] 1.4 Make reconnect callbacks return explicit success/failure and ensure
   failed connection results cannot be treated as successful completion.

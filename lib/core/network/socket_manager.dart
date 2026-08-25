@@ -73,6 +73,7 @@ class SocketManager {
 
   bool get isConnected => _isConnected;
   bool get isAuthed => _authed;
+  bool get isServerMode => _isServer && _server != null;
 
   /// Extends the heartbeat cadence when the app goes to the background
   /// (screen off) and restores it on resume. A slower ping while the
