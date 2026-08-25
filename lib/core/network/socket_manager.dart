@@ -183,6 +183,7 @@ class SocketManager {
         return false;
       }
       _accept(socket);
+      if (!_isConnected) return false;
       _logger.i('Connected to peer $ip:$port, awaiting auth...');
 
       // Wait for auth to complete (or fail/timeout).

@@ -169,6 +169,59 @@ void main() {
   });
 
   test(
+    'required client identity fails closed when key pair is missing',
+    () async {
+      final key = CryptoManager.generateKey();
+      final server = SocketManager(
+        onMessage: (_) {},
+        onConnected: () {},
+        onDisconnected: () {},
+      );
+      await server.startServer(45907, key);
+
+      final client = SocketManager(
+        onMessage: (_) {},
+        onConnected: () {},
+        onDisconnected: () {},
+      )..requireAuthIdentity();
+
+      expect(await client.connect('127.0.0.1', 45907, key), isFalse);
+      expect(client.isConnected, isFalse);
+      expect(client.isPairingMode, isFalse);
+
+      await client.disconnect();
+      await server.disconnect();
+    },
+  );
+
+  test('required server identity never falls back to pairing mode', () async {
+    final key = CryptoManager.generateKey();
+    final disconnected = Completer<void>();
+    final server = SocketManager(
+      onMessage: (_) {},
+      onConnected: () {},
+      onDisconnected: () {
+        if (!disconnected.isCompleted) disconnected.complete();
+      },
+    )..requireAuthIdentity();
+    await server.startServer(45908, key);
+
+    final client = SocketManager(
+      onMessage: (_) {},
+      onConnected: () {},
+      onDisconnected: () {},
+    );
+    await client.connect('127.0.0.1', 45908, key);
+    await disconnected.future.timeout(const Duration(seconds: 5));
+
+    expect(server.isConnected, isFalse);
+    expect(server.isPairingMode, isFalse);
+
+    await client.disconnect();
+    await server.disconnect();
+  });
+
+  test(
     'authenticated handshake: both sides only report connected after mutual ack',
     () async {
       final key = CryptoManager.generateKey();
