@@ -90,9 +90,9 @@
   final acknowledgement to one peer identity transaction.
 - [x] 8.2 Include the expected public-key identities in verification value
   generation.
-- [ ] 8.3 Reject pairing when peer ID, device identity, role, or public key
+- [x] 8.3 Reject pairing when peer ID, device identity, role, or public key
   changes unexpectedly during the transaction.
-- [ ] 8.4 Keep pairing persistence atomic and prevent incomplete peer records
+- [x] 8.4 Keep pairing persistence atomic and prevent incomplete peer records
   after timeout or acknowledgement loss.
 - [ ] 8.5 Add pairing tests for matching identities, public-key mismatch,
   peer-ID mismatch, verification mismatch, timeout, and atomic persistence.
