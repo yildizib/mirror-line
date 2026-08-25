@@ -139,6 +139,11 @@ class PairingFacade extends StateNotifier<PairingState> {
 
   final Logger _logger;
   final Ref _ref;
+  final Future<Iterable<String>?> Function() _getLocalAddresses;
+  final Future<({String id, String publicKey})> Function() _getLocalIdentity;
+  final Future<void> Function() _invalidateNormalConnectionWork;
+  final Future<bool> Function(SocketManager, String, int, SecretKey)
+  _connectHandshakeSocket;
 
   /// Temporary socket used by the *scanner* side during handshake.
   SocketManager? _handshakeSocket;
@@ -168,9 +173,28 @@ class PairingFacade extends StateNotifier<PairingState> {
   String? _expectedAckPeerId;
   String? _expectedAckPeerPublicKey;
 
-  PairingFacade(this._ref, {Logger? logger})
-    : _logger = logger ?? Logger(),
-      super(const PairingState());
+  PairingFacade(
+    Ref ref, {
+    Logger? logger,
+    Future<Iterable<String>?> Function()? getLocalAddresses,
+    Future<({String id, String publicKey})> Function()? getLocalIdentity,
+    Future<void> Function()? invalidateNormalConnectionWork,
+    Future<bool> Function(SocketManager, String, int, SecretKey)?
+    connectHandshakeSocket,
+  }) : _ref = ref,
+       _logger = logger ?? Logger(),
+       _getLocalAddresses =
+           getLocalAddresses ?? PeerDiscovery().getAllLocalAddresses,
+       _getLocalIdentity = getLocalIdentity ?? _readLocalIdentity,
+       _invalidateNormalConnectionWork =
+           invalidateNormalConnectionWork ??
+           (() => ref
+               .read(connectionFacadeProvider.notifier)
+               .invalidateNormalConnectionWork()),
+       _connectHandshakeSocket =
+           connectHandshakeSocket ??
+           ((socket, ip, port, key) => socket.connect(ip, port, key)),
+       super(const PairingState());
 
   /// Pending scanner info (for UI to pass to acceptRequest).
   Map<String, dynamic>? get pendingScannerInfo => _pendingScannerInfo;
@@ -220,7 +244,7 @@ class PairingFacade extends StateNotifier<PairingState> {
       return;
     }
     _logger.i('Pairing QR identity validated.');
-    final localAddresses = await PeerDiscovery().getAllLocalAddresses();
+    final localAddresses = await _getLocalAddresses();
     if (localAddresses == null ||
         localAddresses.isEmpty ||
         !isUsableEndpoint(
@@ -235,9 +259,7 @@ class PairingFacade extends StateNotifier<PairingState> {
       state = const PairingState(errorCode: PairingErrorCode.handshakeFailed);
       return;
     }
-    await _ref
-        .read(connectionFacadeProvider.notifier)
-        .invalidateNormalConnectionWork();
+    await _invalidateNormalConnectionWork();
     late final SecretKey key;
     try {
       key = SecretKey(base64Decode(scannedKeyBase64));
@@ -285,7 +307,12 @@ class PairingFacade extends StateNotifier<PairingState> {
     );
 
     try {
-      final ok = await _handshakeSocket!.connect(scannedIp, scannedPort, key);
+      final ok = await _connectHandshakeSocket(
+        _handshakeSocket!,
+        scannedIp,
+        scannedPort,
+        key,
+      );
       if (!ok) {
         _logPairingFailure(
           stage: 'bootstrap-connect',
@@ -522,9 +549,7 @@ class PairingFacade extends StateNotifier<PairingState> {
     Map<String, dynamic> payload, {
     String? liveRemoteAddress,
   }) async {
-    await _ref
-        .read(connectionFacadeProvider.notifier)
-        .invalidateNormalConnectionWork();
+    await _invalidateNormalConnectionWork();
     // Left null (not defaulted here) so the UI's own
     // `remoteDeviceName ?? l.pairingUnknownDevice` fallback -- localized to
     // *this* device's language -- is what actually renders, instead of a
@@ -545,8 +570,9 @@ class PairingFacade extends StateNotifier<PairingState> {
       return;
     }
 
-    final localId = await KeyStore.getSelfId() ?? '';
-    final localPublicKey = await KeyStore.ensureDeviceKeyPair();
+    final localIdentity = await _getLocalIdentity();
+    final localId = localIdentity.id;
+    final localPublicKey = localIdentity.publicKey;
     if (localId.isEmpty) {
       _logPairingFailure(
         stage: 'request-validation',
@@ -899,7 +925,7 @@ class PairingFacade extends StateNotifier<PairingState> {
     required String? fallbackIp,
     required int port,
   }) async {
-    final localAddresses = await PeerDiscovery().getAllLocalAddresses();
+    final localAddresses = await _getLocalAddresses();
     if (localAddresses == null || localAddresses.isEmpty) {
       return PairingEndpointSelection(
         diagnostic: PairingEndpointDiagnostic(
@@ -943,3 +969,8 @@ class PairingFacade extends StateNotifier<PairingState> {
     super.dispose();
   }
 }
+
+Future<({String id, String publicKey})> _readLocalIdentity() async => (
+  id: await KeyStore.getSelfId() ?? '',
+  publicKey: await KeyStore.ensureDeviceKeyPair(),
+);

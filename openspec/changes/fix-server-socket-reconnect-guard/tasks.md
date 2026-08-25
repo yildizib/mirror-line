@@ -73,7 +73,7 @@
 
 ## 8. Pairing Regression Coverage
 
-- [ ] 8.1 Test fresh Main-to-Source and Source-to-Main request, accept, ack,
+- [x] 8.1 Test fresh Main-to-Source and Source-to-Main request, accept, ack,
   persistence, and authenticated reconnect flows.
 - [ ] 8.2 Test immediate accept and ack responses, disconnect races, failed
   writes, and stale socket callbacks.
