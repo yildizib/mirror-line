@@ -451,7 +451,12 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
         _peerDiscoveryCoordinator.setThrottle(true);
       },
       onDisconnected: () {
-        if (sm.isPairingMode) return;
+        if (sm.isPairingMode) {
+          _ref
+              .read(pairingFacadeProvider.notifier)
+              .handleSocketDisconnected(sm);
+          return;
+        }
         state = false;
         _peerDiscoveryCoordinator.markDisconnected();
         _logger.w(

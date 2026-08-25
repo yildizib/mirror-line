@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -151,44 +152,67 @@ void main() {
     await server.disconnect();
   });
 
-  test('stale socket completion does not close replacement client', () async {
-    final key = CryptoManager.generateKey();
-    final received = Completer<void>();
-    var disconnectCount = 0;
-    final server = SocketManager(
-      onMessage: (_) {
-        if (!received.isCompleted) received.complete();
-      },
-      onConnected: () {},
-      onDisconnected: () => disconnectCount++,
-    );
-    await server.startServer(45909, key);
+  test(
+    'stale socket data, completion, and error preserve replacement client',
+    () async {
+      final key = CryptoManager.generateKey();
+      final received = Completer<void>();
+      final callbacks =
+          <
+            ({
+              void Function(List<int>) onData,
+              void Function() onDone,
+              void Function(Object) onError,
+            })
+          >[];
+      var disconnectCount = 0;
+      final server = SocketManager(
+        onMessage: (_) {
+          if (!received.isCompleted) received.complete();
+        },
+        onConnected: () {},
+        onDisconnected: () => disconnectCount++,
+        socketStreamListener: (socket, onData, onError, onDone) {
+          callbacks.add((onData: onData, onDone: onDone, onError: onError));
+          return socket.listen(
+            onData,
+            onError: onError,
+            onDone: onDone,
+            cancelOnError: true,
+          );
+        },
+      );
+      await server.startServer(45909, key);
 
-    final c1 = SocketManager(
-      onMessage: (_) {},
-      onConnected: () {},
-      onDisconnected: () {},
-    );
-    expect(await c1.connect('127.0.0.1', 45909, key), isTrue);
+      final c1 = SocketManager(
+        onMessage: (_) {},
+        onConnected: () {},
+        onDisconnected: () {},
+      );
+      expect(await c1.connect('127.0.0.1', 45909, key), isTrue);
 
-    final c2 = SocketManager(
-      onMessage: (_) {},
-      onConnected: () {},
-      onDisconnected: () {},
-    );
-    expect(await c2.connect('127.0.0.1', 45909, key), isTrue);
+      final c2 = SocketManager(
+        onMessage: (_) {},
+        onConnected: () {},
+        onDisconnected: () {},
+      );
+      expect(await c2.connect('127.0.0.1', 45909, key), isTrue);
+      expect(callbacks, hasLength(2));
 
-    final disconnectsAfterReplacement = disconnectCount;
-    await Future<void>.delayed(const Duration(milliseconds: 200));
-    expect(server.isConnected, isTrue);
-    expect(disconnectCount, disconnectsAfterReplacement);
-    expect(await c2.sendMessage('replacement_probe', {}), isTrue);
-    await received.future.timeout(const Duration(seconds: 5));
+      final disconnectsAfterReplacement = disconnectCount;
+      callbacks.first.onData([123]);
+      callbacks.first.onDone();
+      callbacks.first.onError(const SocketException('stale socket error'));
+      expect(server.isConnected, isTrue);
+      expect(disconnectCount, disconnectsAfterReplacement);
+      expect(await c2.sendMessage('replacement_probe', {}), isTrue);
+      await received.future.timeout(const Duration(seconds: 5));
 
-    await c1.disconnect();
-    await c2.disconnect();
-    await server.disconnect();
-  });
+      await c1.disconnect();
+      await c2.disconnect();
+      await server.disconnect();
+    },
+  );
 
   test('socket diagnostics include endpoints and transport mode', () async {
     final key = CryptoManager.generateKey();

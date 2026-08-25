@@ -9,11 +9,20 @@ import 'package:mirrorline/core/security/crypto_manager.dart';
 import 'package:mirrorline/core/security/security_constants.dart';
 import 'package:uuid/uuid.dart';
 
+typedef SocketStreamListener =
+    StreamSubscription<List<int>> Function(
+      Socket socket,
+      void Function(List<int>) onData,
+      void Function(Object) onError,
+      void Function() onDone,
+    );
+
 class SocketManager {
   final Logger _logger;
   final void Function(MirrorMessage) onMessage;
   final void Function()? onConnected;
   final void Function()? onDisconnected;
+  final SocketStreamListener _socketStreamListener;
 
   /// When this device is the *server*, this callback is invoked with the
   /// incoming socket's remote address so the caller can decide whether to
@@ -70,8 +79,17 @@ class SocketManager {
     this.onConnected,
     this.onDisconnected,
     this.onAcceptConnection,
+    SocketStreamListener? socketStreamListener,
     Logger? logger,
-  }) : _logger = logger ?? Logger();
+  }) : _socketStreamListener =
+           socketStreamListener ??
+           ((socket, onData, onError, onDone) => socket.listen(
+             onData,
+             onError: onError,
+             onDone: onDone,
+             cancelOnError: true,
+           )),
+       _logger = logger ?? Logger();
 
   bool get isConnected => _isConnected;
   bool get isAuthed => _authed;
@@ -262,8 +280,10 @@ class SocketManager {
   }
 
   void _listen(Socket socket) {
-    socket.listen(
+    _socketStreamListener(
+      socket,
       (data) {
+        if (!identical(_client, socket)) return;
         _lastDataAt = DateTime.now();
         if (_buffer.length + data.length > SecurityConstants.maxFrameBytes) {
           _logger.w('Rejected oversized transport frame.');
@@ -273,15 +293,14 @@ class SocketManager {
         _buffer.addAll(data);
         _processBuffer();
       },
-      onDone: () {
-        _logger.i('Socket connection closed by peer.');
-        _handleSocketClosed(socket);
-      },
-      onError: (error) {
+      (error) {
         _logger.e('Socket error: $error');
         _handleSocketClosed(socket);
       },
-      cancelOnError: true,
+      () {
+        _logger.i('Socket connection closed by peer.');
+        _handleSocketClosed(socket);
+      },
     );
   }
 

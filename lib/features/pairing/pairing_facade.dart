@@ -120,6 +120,13 @@ final pairingFacadeProvider =
       return PairingFacade(ref);
     });
 
+typedef PairingHandshakeSocketFactory =
+    SocketManager Function({
+      required void Function(MirrorMessage) onMessage,
+      required void Function() onConnected,
+      required void Function() onDisconnected,
+    });
+
 /// Coordinates the two-way QR pairing handshake.
 ///
 /// Flow:
@@ -144,6 +151,7 @@ class PairingFacade extends StateNotifier<PairingState> {
   final Future<void> Function() _invalidateNormalConnectionWork;
   final Future<bool> Function(SocketManager, String, int, SecretKey)
   _connectHandshakeSocket;
+  final PairingHandshakeSocketFactory _createHandshakeSocket;
 
   /// Temporary socket used by the *scanner* side during handshake.
   SocketManager? _handshakeSocket;
@@ -164,6 +172,7 @@ class PairingFacade extends StateNotifier<PairingState> {
   /// paired while the scanner never actually completed its own side --
   /// same reasoning as SocketManager's authOk/authAck two-step commit.
   Completer<bool>? _pairAckCompleter;
+  SocketManager? _pairAckSocket;
 
   /// Stashed scanner info on the *scanned* side (set by handleIncomingRequest).
   Map<String, dynamic>? _pendingScannerInfo;
@@ -172,6 +181,7 @@ class PairingFacade extends StateNotifier<PairingState> {
   String? _expectedPeerPublicKey;
   String? _expectedAckPeerId;
   String? _expectedAckPeerPublicKey;
+  int _incomingRequestGeneration = 0;
 
   PairingFacade(
     Ref ref, {
@@ -181,6 +191,7 @@ class PairingFacade extends StateNotifier<PairingState> {
     Future<void> Function()? invalidateNormalConnectionWork,
     Future<bool> Function(SocketManager, String, int, SecretKey)?
     connectHandshakeSocket,
+    PairingHandshakeSocketFactory? createHandshakeSocket,
   }) : _ref = ref,
        _logger = logger ?? Logger(),
        _getLocalAddresses =
@@ -194,6 +205,17 @@ class PairingFacade extends StateNotifier<PairingState> {
        _connectHandshakeSocket =
            connectHandshakeSocket ??
            ((socket, ip, port, key) => socket.connect(ip, port, key)),
+       _createHandshakeSocket =
+           createHandshakeSocket ??
+           (({
+             required onMessage,
+             required onConnected,
+             required onDisconnected,
+           }) => SocketManager(
+             onMessage: onMessage,
+             onConnected: onConnected,
+             onDisconnected: onDisconnected,
+           )),
        super(const PairingState());
 
   /// Pending scanner info (for UI to pass to acceptRequest).
@@ -276,7 +298,8 @@ class PairingFacade extends StateNotifier<PairingState> {
     _clearOutgoingTransaction();
     final acceptCompleter = Completer<bool>();
     _acceptCompleter = acceptCompleter;
-    _transactionId = const Uuid().v4();
+    final transactionId = const Uuid().v4();
+    _transactionId = transactionId;
     _expectedPeerId = scannedId;
     _expectedPeerPublicKey = scannedPublicKey;
 
@@ -293,26 +316,35 @@ class PairingFacade extends StateNotifier<PairingState> {
       verificationCode: verificationCode,
     );
 
-    _handshakeSocket = SocketManager(
-      onMessage: _handleHandshakeMessage,
+    late final SocketManager handshakeSocket;
+    handshakeSocket = _createHandshakeSocket(
+      onMessage: (message) {
+        if (_ownsOutgoingTransaction(handshakeSocket, acceptCompleter)) {
+          _handleHandshakeMessage(message, handshakeSocket, acceptCompleter);
+        }
+      },
       onConnected: () {
         _logger.i('Handshake socket connected to $scannedIp:$scannedPort');
       },
       onDisconnected: () {
         _logger.w('Handshake socket disconnected.');
-        if (_acceptCompleter != null && !_acceptCompleter!.isCompleted) {
-          _acceptCompleter!.complete(false);
+        if (identical(_handshakeSocket, handshakeSocket) &&
+            identical(_acceptCompleter, acceptCompleter) &&
+            !acceptCompleter.isCompleted) {
+          acceptCompleter.complete(false);
         }
       },
     );
+    _handshakeSocket = handshakeSocket;
 
     try {
       final ok = await _connectHandshakeSocket(
-        _handshakeSocket!,
+        handshakeSocket,
         scannedIp,
         scannedPort,
         key,
       );
+      if (!_ownsOutgoingTransaction(handshakeSocket, acceptCompleter)) return;
       if (!ok) {
         _logPairingFailure(
           stage: 'bootstrap-connect',
@@ -321,19 +353,20 @@ class PairingFacade extends StateNotifier<PairingState> {
         state = const PairingState(
           errorCode: PairingErrorCode.connectionFailed,
         );
-        await _cleanupSocket();
+        await _cleanupSocket(owner: handshakeSocket);
         return;
       }
 
-      final requestSent = await _handshakeSocket!
+      final requestSent = await handshakeSocket
           .sendMessage(MessageTypes.pairingRequest, {
-            'transactionId': _transactionId,
+            'transactionId': transactionId,
             'deviceName': localIdentity.deviceName,
             'peerId': localIdentity.id,
             'role': localIdentity.role,
             'publicKey': localIdentity.publicKey,
             'ip': localIdentity.ip,
           });
+      if (!_ownsOutgoingTransaction(handshakeSocket, acceptCompleter)) return;
       if (!requestSent) {
         _logPairingFailure(
           stage: 'request-write',
@@ -348,6 +381,7 @@ class PairingFacade extends StateNotifier<PairingState> {
         SecurityConstants.pairingTimeout,
         onTimeout: () => false,
       );
+      if (!_ownsOutgoingTransaction(handshakeSocket, acceptCompleter)) return;
 
       if (accepted) {
         // Scanner side: save the scanned device's info as our peer record.
@@ -369,6 +403,7 @@ class PairingFacade extends StateNotifier<PairingState> {
           fallbackIp: scannedIp,
           port: scannedPort,
         );
+        if (!_ownsOutgoingTransaction(handshakeSocket, acceptCompleter)) return;
         if (!endpoint.isUsable) {
           _logEndpointDiagnostic(endpoint.diagnostic);
           _logPairingFailure(
@@ -399,6 +434,9 @@ class PairingFacade extends StateNotifier<PairingState> {
                 publicKey: scannedPublicKey,
               );
         } catch (error) {
+          if (!_ownsOutgoingTransaction(handshakeSocket, acceptCompleter)) {
+            return;
+          }
           _logPairingFailure(
             stage: 'scanner-persist',
             reason: 'persistence-failed',
@@ -410,17 +448,19 @@ class PairingFacade extends StateNotifier<PairingState> {
           );
           return;
         }
+        if (!_ownsOutgoingTransaction(handshakeSocket, acceptCompleter)) return;
         // Tell the scanned side we actually persisted our end -- see
         // pairingAck's doc comment in message_protocol.dart. Sent on the
         // same handshake socket before it's torn down below.
         _logger.i('Sending pairingAck on handshake socket...');
-        final ackSent = await _handshakeSocket
-            ?.sendMessage(MessageTypes.pairingAck, {
-              'transactionId': _transactionId,
+        final ackSent = await handshakeSocket
+            .sendMessage(MessageTypes.pairingAck, {
+              'transactionId': transactionId,
               'peerId': localIdentity.id,
               'publicKey': localIdentity.publicKey,
             });
-        if (ackSent != true) {
+        if (!_ownsOutgoingTransaction(handshakeSocket, acceptCompleter)) return;
+        if (!ackSent) {
           _logPairingFailure(stage: 'ack-write', reason: 'socket-write-failed');
           state = const PairingState(
             errorCode: PairingErrorCode.handshakeFailed,
@@ -444,6 +484,7 @@ class PairingFacade extends StateNotifier<PairingState> {
         );
       }
     } catch (e) {
+      if (!_ownsOutgoingTransaction(handshakeSocket, acceptCompleter)) return;
       _logPairingFailure(
         stage: 'scanner-transaction',
         reason: 'unexpected-failure',
@@ -455,11 +496,15 @@ class PairingFacade extends StateNotifier<PairingState> {
       );
     } finally {
       _clearOutgoingTransaction(owner: acceptCompleter);
-      await _cleanupSocket();
+      await _cleanupSocket(owner: handshakeSocket);
     }
   }
 
-  void _handleHandshakeMessage(MirrorMessage message) async {
+  void _handleHandshakeMessage(
+    MirrorMessage message,
+    SocketManager socket,
+    Completer<bool> completer,
+  ) async {
     final key = _handshakeKey;
     if (key == null) {
       _logPairingFailure(stage: 'handshake-decrypt', reason: 'key-unavailable');
@@ -480,6 +525,7 @@ class PairingFacade extends StateNotifier<PairingState> {
         aad: utf8.encode(metadata),
       );
     } catch (error) {
+      if (!_ownsOutgoingTransaction(socket, completer)) return;
       _logPairingFailure(
         stage: 'handshake-decrypt',
         reason: 'decrypt-failed',
@@ -487,6 +533,7 @@ class PairingFacade extends StateNotifier<PairingState> {
       );
       return;
     }
+    if (!_ownsOutgoingTransaction(socket, completer)) return;
     if (decrypted == null) {
       _logPairingFailure(stage: 'handshake-decrypt', reason: 'decrypt-failed');
       return;
@@ -496,6 +543,7 @@ class PairingFacade extends StateNotifier<PairingState> {
     try {
       payload = jsonDecode(decrypted) as Map<String, dynamic>;
     } catch (error) {
+      if (!_ownsOutgoingTransaction(socket, completer)) return;
       _logPairingFailure(
         stage: 'handshake-decode',
         reason: 'invalid-payload',
@@ -503,6 +551,7 @@ class PairingFacade extends StateNotifier<PairingState> {
       );
       payload = null;
     }
+    if (!_ownsOutgoingTransaction(socket, completer)) return;
     if (payload == null) return;
 
     switch (message.type) {
@@ -521,9 +570,7 @@ class PairingFacade extends StateNotifier<PairingState> {
         _acceptPayload = payload;
         _acceptRemoteAddress = _handshakeSocket?.remoteAddress;
         state = state.copyWith(isWaitingForAccept: false);
-        if (_acceptCompleter != null && !_acceptCompleter!.isCompleted) {
-          _acceptCompleter!.complete(true);
-        }
+        if (!completer.isCompleted) completer.complete(true);
         break;
 
       case MessageTypes.pairingReject:
@@ -532,9 +579,7 @@ class PairingFacade extends StateNotifier<PairingState> {
           isWaitingForAccept: false,
           errorCode: PairingErrorCode.rejected,
         );
-        if (_acceptCompleter != null && !_acceptCompleter!.isCompleted) {
-          _acceptCompleter!.complete(false);
-        }
+        if (!completer.isCompleted) completer.complete(false);
         break;
     }
   }
@@ -591,6 +636,7 @@ class PairingFacade extends StateNotifier<PairingState> {
       state = const PairingState(errorCode: PairingErrorCode.handshakeFailed);
       return;
     }
+    final requestGeneration = ++_incomingRequestGeneration;
 
     final endpoint = await _selectEndpoint(
       stage: PairingEndpointStage.request,
@@ -599,6 +645,7 @@ class PairingFacade extends StateNotifier<PairingState> {
       fallbackIp: null,
       port: _defaultPairingPort,
     );
+    if (requestGeneration != _incomingRequestGeneration) return;
     if (!endpoint.isUsable) {
       _logEndpointDiagnostic(endpoint.diagnostic);
       _logPairingFailure(
@@ -628,6 +675,7 @@ class PairingFacade extends StateNotifier<PairingState> {
               publicKey,
             ],
           );
+    if (requestGeneration != _incomingRequestGeneration) return;
 
     _clearIncomingTransaction();
     state = PairingState(
@@ -721,6 +769,7 @@ class PairingFacade extends StateNotifier<PairingState> {
       fallbackIp: null,
       port: _defaultPairingPort,
     );
+    if (_pendingScannerInfo?['transactionId'] != transactionId) return;
     if (!endpoint.isUsable) {
       _logEndpointDiagnostic(endpoint.diagnostic);
       _logPairingFailure(
@@ -742,6 +791,7 @@ class PairingFacade extends StateNotifier<PairingState> {
     _expectedAckPeerPublicKey = scannerPublicKey;
     final ackCompleter = Completer<bool>();
     _pairAckCompleter = ackCompleter;
+    _pairAckSocket = socketManager;
     state = state.copyWith(isShowingRequest: false, isFinalizing: true);
 
     try {
@@ -759,6 +809,7 @@ class PairingFacade extends StateNotifier<PairingState> {
           'ip': localIdentity.ip,
         },
       );
+      if (!identical(_pairAckCompleter, ackCompleter)) return;
       if (!acceptSent) {
         _logPairingFailure(
           stage: 'accept-write',
@@ -772,6 +823,7 @@ class PairingFacade extends StateNotifier<PairingState> {
         const Duration(seconds: 15),
         onTimeout: () => false,
       );
+      if (!identical(_pairAckCompleter, ackCompleter)) return;
 
       if (!acked) {
         _logPairingFailure(stage: 'ack-wait', reason: 'timeout-or-disconnect');
@@ -798,6 +850,7 @@ class PairingFacade extends StateNotifier<PairingState> {
               ip: endpoint.ip,
             );
       } catch (error) {
+        if (!identical(_pairAckCompleter, ackCompleter)) return;
         _logPairingFailure(
           stage: 'scanned-persist',
           reason: 'persistence-failed',
@@ -809,6 +862,7 @@ class PairingFacade extends StateNotifier<PairingState> {
         );
         return;
       }
+      if (!identical(_pairAckCompleter, ackCompleter)) return;
 
       state = state.copyWith(
         isFinalizing: false,
@@ -842,17 +896,37 @@ class PairingFacade extends StateNotifier<PairingState> {
     }
   }
 
+  void handleSocketDisconnected(SocketManager socketManager) {
+    final completer = _pairAckCompleter;
+    if (!identical(_pairAckSocket, socketManager) ||
+        completer == null ||
+        completer.isCompleted) {
+      return;
+    }
+    state = const PairingState(errorCode: PairingErrorCode.ackTimeout);
+    completer.complete(false);
+  }
+
   /// Called by the UI when the *scanned* device user rejects the request.
   Future<void> rejectRequest({required SocketManager socketManager}) async {
+    final requestGeneration = _incomingRequestGeneration;
+    final pendingRequest = _pendingScannerInfo;
     var rejected = false;
+    var ownsRequest = false;
     try {
       rejected = await socketManager.sendMessage(
         MessageTypes.pairingReject,
         {},
       );
     } finally {
-      _clearIncomingTransaction();
+      ownsRequest =
+          requestGeneration == _incomingRequestGeneration &&
+          identical(_pendingScannerInfo, pendingRequest);
+      if (ownsRequest) {
+        _clearIncomingTransaction();
+      }
     }
+    if (!ownsRequest) return;
     if (!rejected) {
       _logPairingFailure(stage: 'reject-write', reason: 'socket-write-failed');
     }
@@ -863,6 +937,7 @@ class PairingFacade extends StateNotifier<PairingState> {
 
   /// Reset to idle (e.g. dialog dismissed without action).
   void reset() {
+    _incomingRequestGeneration++;
     _ref
         .read(connectionFacadeProvider.notifier)
         .invalidateNormalConnectionWork();
@@ -874,10 +949,12 @@ class PairingFacade extends StateNotifier<PairingState> {
 
   // --------------------------------------------------------------------
 
-  Future<void> _cleanupSocket() async {
+  Future<void> _cleanupSocket({SocketManager? owner}) async {
+    final socket = owner ?? _handshakeSocket;
     try {
-      await _handshakeSocket?.disconnect();
+      await socket?.disconnect();
     } catch (_) {}
+    if (!identical(_handshakeSocket, socket)) return;
     _handshakeSocket = null;
     _handshakeKey = null;
     _acceptPayload = null;
@@ -886,6 +963,13 @@ class PairingFacade extends StateNotifier<PairingState> {
 
   bool _isMatchingTransaction(Map<String, dynamic>? payload) =>
       payload?['transactionId'] == _transactionId;
+
+  bool _ownsOutgoingTransaction(
+    SocketManager socket,
+    Completer<bool> completer,
+  ) =>
+      identical(_handshakeSocket, socket) &&
+      identical(_acceptCompleter, completer);
 
   bool _isSupportedRole(Object? role) => role == 'main' || role == 'source';
 
@@ -913,6 +997,7 @@ class PairingFacade extends StateNotifier<PairingState> {
       completer.complete(false);
     }
     _pairAckCompleter = null;
+    _pairAckSocket = null;
     if (clearPendingInfo) _pendingScannerInfo = null;
     _expectedAckPeerId = null;
     _expectedAckPeerPublicKey = null;
@@ -963,6 +1048,7 @@ class PairingFacade extends StateNotifier<PairingState> {
 
   @override
   void dispose() {
+    _incomingRequestGeneration++;
     _clearOutgoingTransaction();
     _clearIncomingTransaction();
     _cleanupSocket();
