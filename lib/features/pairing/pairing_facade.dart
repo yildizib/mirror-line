@@ -12,6 +12,7 @@ import 'package:mirrorline/core/security/key_store.dart';
 import 'package:mirrorline/core/security/security_constants.dart';
 import 'package:mirrorline/features/pairing/peer_facade.dart';
 import 'package:mirrorline/features/pairing/pairing_runtime_state.dart';
+import 'package:mirrorline/features/connection/connection_facade.dart';
 import 'package:mirrorline/l10n/app_localizations.dart';
 import 'package:uuid/uuid.dart';
 
@@ -183,6 +184,9 @@ class PairingFacade extends StateNotifier<PairingState> {
     required String myPublicKey,
     required String myIp,
   }) async {
+    await _ref
+        .read(connectionFacadeProvider.notifier)
+        .invalidateNormalConnectionWork();
     final keyBytes = base64Decode(scannedKeyBase64);
     final key = SecretKey(keyBytes);
     _handshakeKey = key;
@@ -362,6 +366,9 @@ class PairingFacade extends StateNotifier<PairingState> {
   /// Called when a `pairingRequest` message arrives on the *scanned* device.
   /// Updates state so the UI can show a confirmation dialog.
   Future<void> handleIncomingRequest(Map<String, dynamic> payload) async {
+    await _ref
+        .read(connectionFacadeProvider.notifier)
+        .invalidateNormalConnectionWork();
     // Left null (not defaulted here) so the UI's own
     // `remoteDeviceName ?? l.pairingUnknownDevice` fallback -- localized to
     // *this* device's language -- is what actually renders, instead of a
@@ -526,6 +533,9 @@ class PairingFacade extends StateNotifier<PairingState> {
 
   /// Reset to idle (e.g. dialog dismissed without action).
   void reset() {
+    _ref
+        .read(connectionFacadeProvider.notifier)
+        .invalidateNormalConnectionWork();
     state = const PairingState();
     if (_acceptCompleter != null && !_acceptCompleter!.isCompleted) {
       _acceptCompleter!.complete(false);

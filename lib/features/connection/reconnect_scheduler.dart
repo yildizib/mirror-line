@@ -46,6 +46,13 @@ class ReconnectScheduler {
     scheduleReconnect();
   }
 
+  void invalidate() {
+    _connectGeneration++;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    _disconnectedSince = null;
+  }
+
   void scheduleReconnect() {
     _reconnectTimer?.cancel();
     var delay = _reconnectInitialDelay * (1 << _reconnectAttempts);

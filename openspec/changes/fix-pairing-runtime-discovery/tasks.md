@@ -4,7 +4,7 @@
   runtime conditions at the facade boundary.
 - [x] 1.2 Prevent reconnect scheduling and fallback discovery for unpaired
   devices, invalid endpoints, and zero-port scans.
-- [ ] 1.3 Cancel or invalidate stale reconnect, scan, and network-change work
+- [x] 1.3 Cancel or invalidate stale reconnect, scan, and network-change work
   when pairing starts, resets, times out, or completes.
 - [ ] 1.4 Add tests proving unpaired devices never connect to their own IP or
   invoke subnet discovery with port `0`.

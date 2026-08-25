@@ -33,6 +33,7 @@ class PeerDiscoveryCoordinator {
   DateTime? _disconnectedSince;
   DateTime? _lastScanAt;
   bool _scanning = false;
+  int _scanGeneration = 0;
   final List<String> _beaconIps = [];
 
   PeerDiscoveryCoordinator({
@@ -76,6 +77,12 @@ class PeerDiscoveryCoordinator {
     _disconnectedSince = null;
     _beaconIps.clear();
     _lastScanAt = null;
+  }
+
+  void invalidate() {
+    _scanGeneration++;
+    _lastScanAt = null;
+    _disconnectedSince = null;
   }
 
   void updateBeaconInfo() {
@@ -128,6 +135,7 @@ class PeerDiscoveryCoordinator {
 
     _scanning = true;
     _lastScanAt = DateTime.now();
+    final generation = _scanGeneration;
 
     try {
       final scanIps = _getAllLocalIps().isNotEmpty
@@ -143,7 +151,7 @@ class PeerDiscoveryCoordinator {
         localIps: scanIps,
         port: port,
       );
-      if (found != null) {
+      if (found != null && generation == _scanGeneration) {
         await _onDiscovered(found, port, fromScan: true);
       }
     } catch (e) {

@@ -282,6 +282,17 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
     }
   }
 
+  /// Invalidates normal reconnect/discovery work without closing the socket
+  /// used by the temporary pairing transaction.
+  Future<void> invalidateNormalConnectionWork() async {
+    _connectGeneration++;
+    _connecting = false;
+    _reconnectScheduler.invalidate();
+    _peerDiscoveryCoordinator.invalidate();
+    await _peerDiscoveryCoordinator.stopListening();
+    await _broadcaster.stop();
+  }
+
   /// Refreshes the reported local IP without touching the peer record.
   /// Used when showing the pairing QR, where the address must be current but
   /// must never be written back into the (possibly already-paired) peer row
