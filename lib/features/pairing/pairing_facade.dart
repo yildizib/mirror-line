@@ -12,6 +12,7 @@ import 'package:mirrorline/core/security/key_store.dart';
 import 'package:mirrorline/core/security/security_constants.dart';
 import 'package:mirrorline/features/pairing/peer_facade.dart';
 import 'package:mirrorline/features/pairing/pairing_runtime_state.dart';
+import 'package:mirrorline/features/pairing/pairing_identity_guard.dart';
 import 'package:mirrorline/features/connection/connection_facade.dart';
 import 'package:mirrorline/l10n/app_localizations.dart';
 import 'package:uuid/uuid.dart';
@@ -184,6 +185,16 @@ class PairingFacade extends StateNotifier<PairingState> {
     required String myPublicKey,
     required String myIp,
   }) async {
+    if (!isValidRemoteIdentity(
+      remoteId: scannedId,
+      remotePublicKey: scannedPublicKey,
+      localId: myPeerId,
+      localPublicKey: myPublicKey,
+    )) {
+      _logger.w('Rejecting QR payload with invalid local identity.');
+      state = const PairingState(errorCode: PairingErrorCode.handshakeFailed);
+      return;
+    }
     await _ref
         .read(connectionFacadeProvider.notifier)
         .invalidateNormalConnectionWork();

@@ -11,7 +11,7 @@
 
 ## 2. Pairing Identity Safety
 
-- [ ] 2.1 Validate QR-bound device ID and public key against the local identity
+- [x] 2.1 Validate QR-bound device ID and public key against the local identity
   before starting the pairing transaction.
 - [ ] 2.2 Reject incoming pairing requests and persistence updates that claim
   the local device as the remote peer.
