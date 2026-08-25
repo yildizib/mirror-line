@@ -4,7 +4,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mirrorline/core/data/models/sms_message.dart';
 import 'package:mirrorline/core/theme/theme.dart';
 import 'package:mirrorline/features/connection/connection_facade.dart';
-import 'package:mirrorline/features/sms/sms_facade.dart';
 import 'package:mirrorline/features/sms/sms_thread_provider.dart';
 import 'package:mirrorline/features/sms/widgets/sms_bubble.dart';
 import 'package:mirrorline/shared/widgets/date_grouped_list.dart';
@@ -55,34 +54,21 @@ class _SmsThreadScreenState extends ConsumerState<SmsThreadScreen> {
     }
   }
 
-  void _send(SmsMessage lastMessage) {
+  Future<void> _send(SmsMessage lastMessage) async {
     if (!ref.read(connectionFacadeProvider)) return;
     final text = _controller.text.trim();
     if (text.isEmpty) return;
 
-    final reply = SmsMessage(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
-      threadId: lastMessage.threadId,
-      address: widget.address,
-      contactName: lastMessage.contactName,
-      body: text,
-      encrypted: '',
-      direction: 'outgoing',
-      status: 'pending',
-      timestamp: DateTime.now(),
-      createdAt: DateTime.now(),
-    );
-    ref.read(smsFacadeProvider.notifier).add(reply);
-    ref
+    await ref
         .read(connectionFacadeProvider.notifier)
         .sendReplySms(
           widget.address,
           text,
-          id: reply.id,
           contactName: lastMessage.contactName,
           threadId: lastMessage.threadId,
         );
 
+    if (!mounted) return;
     _controller.clear();
     WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
   }

@@ -8,7 +8,7 @@
 
 ## 2. SMS Sending State
 
-- [ ] 2.1 Add regression coverage for same-identifier `pending` to `sent` and
+- [x] 2.1 Add regression coverage for same-identifier `pending` to `sent` and
   `failed` replacement in both SMS list and detail providers; make fresh SMS
   records authoritative and await optimistic persistence before transmission;
   run the focused SMS state tests and analyzers.

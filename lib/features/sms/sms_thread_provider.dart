@@ -127,16 +127,30 @@ class SmsThreadPaginated
     List<SmsThread> existing,
     List<SmsThread> newGroups,
   ) {
+    final freshIds = newGroups
+        .expand((group) => group.messages)
+        .map((message) => message.id)
+        .toSet();
     final map = <String, SmsThread>{};
     for (final g in existing) {
-      map[g.address] = g;
+      final retained = g.messages
+          .where((message) => !freshIds.contains(message.id))
+          .toList();
+      if (retained.isNotEmpty) {
+        map[g.address] = SmsThread(
+          address: g.address,
+          contactName: g.contactName,
+          messages: retained,
+          displayName: g.displayName,
+        );
+      }
     }
     for (final g in newGroups) {
       final prev = map[g.address];
       if (prev != null) {
         final merged = dedupeById([
-          ...prev.messages,
           ...g.messages,
+          ...prev.messages,
         ], (m) => m.id)..sort((a, b) => a.timestamp.compareTo(b.timestamp));
         map[g.address] = SmsThread(
           address: g.address,
@@ -238,7 +252,7 @@ class SmsThreadDetailPaginated
         limit: kDefaultPageSize,
       );
       if (!mounted) return;
-      final merged = dedupeById([...state.items, ...fresh], (m) => m.id)
+      final merged = dedupeById([...fresh, ...state.items], (m) => m.id)
         ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
       state = PaginatedListState<SmsMessage>(
         items: merged,
