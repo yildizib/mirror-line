@@ -65,7 +65,7 @@
   client to verify the server Ed25519 signature.
 - [x] 6.3 Require both authentication proofs and the final acknowledgement
   before marking a paired connection ready.
-- [ ] 6.4 Fail closed when an already paired connection lacks required identity
+- [x] 6.4 Fail closed when an already paired connection lacks required identity
   material instead of silently skipping authentication.
 - [ ] 6.5 Add authentication tests for valid peers, invalid signatures,
   identity mismatch, stale nonces, missing keys, timeout, and acknowledgement

@@ -461,6 +461,7 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
   Future<void> _configureAuth(SocketManager sm) async {
     final peer = _peer;
     if (peer == null) return;
+    sm.requireAuthIdentity();
     final localKeyPair = await KeyStore.getDeviceKeyPair();
     if (localKeyPair == null) return;
     final localDeviceId = await KeyStore.getSelfId();

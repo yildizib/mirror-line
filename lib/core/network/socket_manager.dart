@@ -35,6 +35,7 @@ class SocketManager {
   /// Whether this socket is acting as server (accepts incoming) or client
   /// (initiates connection).
   bool _isServer = false;
+  bool _identityRequired = false;
 
   /// Completer for the client-side auth challenge.
   Completer<void>? _authCompleter;
@@ -102,6 +103,8 @@ class SocketManager {
     _localDeviceId = localDeviceId;
     _peerDeviceId = peerDeviceId;
   }
+
+  void requireAuthIdentity() => _identityRequired = true;
 
   Future<void> startServer(int port, SecretKey key) async {
     _key = key;
@@ -207,6 +210,11 @@ class SocketManager {
       if (_peerPublicKeyBase64 != null && _peerPublicKeyBase64!.isNotEmpty) {
         unawaited(_startServerAuth(socket));
       } else {
+        if (_identityRequired) {
+          _logger.e('Paired connection is missing authentication identity.');
+          _handleClosed();
+          return;
+        }
         _logger.i(
           'Server: no peer public key set — pairing mode, skipping auth.',
         );
@@ -216,6 +224,11 @@ class SocketManager {
       if (_localKeyPair != null) {
         _startClientAuth();
       } else {
+        if (_identityRequired) {
+          _logger.e('Paired connection is missing authentication identity.');
+          _handleClosed();
+          return;
+        }
         _logger.i(
           'Client: no local key pair set — pairing mode, skipping auth.',
         );
