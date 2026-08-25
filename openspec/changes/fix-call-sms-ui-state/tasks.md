@@ -15,7 +15,7 @@
 
 ## 3. SMS Thread Navigation
 
-- [ ] 3.1 Add regression coverage for initial loading, confirmed-empty
+- [x] 3.1 Add regression coverage for initial loading, confirmed-empty
   handling, and one-tap thread navigation; track initial-load completion and
   revalidate deferred route closure against live provider state; run the
   focused SMS widget and provider tests and analyzers.

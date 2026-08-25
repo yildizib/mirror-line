@@ -1,12 +1,14 @@
 class PaginatedListState<T> {
   final List<T> items;
   final bool isLoading;
+  final bool hasLoadedInitial;
   final bool hasReachedEnd;
   final int pageOffset;
 
   PaginatedListState({
     this.items = const [],
     this.isLoading = false,
+    this.hasLoadedInitial = false,
     this.hasReachedEnd = false,
     this.pageOffset = 0,
   });
@@ -14,12 +16,14 @@ class PaginatedListState<T> {
   PaginatedListState<T> copyWith({
     List<T>? items,
     bool? isLoading,
+    bool? hasLoadedInitial,
     bool? hasReachedEnd,
     int? pageOffset,
   }) {
     return PaginatedListState<T>(
       items: items ?? this.items,
       isLoading: isLoading ?? this.isLoading,
+      hasLoadedInitial: hasLoadedInitial ?? this.hasLoadedInitial,
       hasReachedEnd: hasReachedEnd ?? this.hasReachedEnd,
       pageOffset: pageOffset ?? this.pageOffset,
     );

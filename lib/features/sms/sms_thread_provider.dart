@@ -1,9 +1,14 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mirrorline/core/data/models/sms_message.dart';
 import 'package:mirrorline/core/services/locale_service.dart';
+import 'package:mirrorline/features/connection/connection_facade.dart';
 import 'package:mirrorline/features/sms/sms_facade.dart';
 import 'package:mirrorline/shared/pagination/grouped_paginated_notifier.dart';
 import 'package:mirrorline/shared/pagination/paginated_list_state.dart';
+
+final smsConnectionStatusProvider = Provider<bool>(
+  (ref) => ref.watch(connectionFacadeProvider),
+);
 
 /// Every message exchanged with a single address, grouped so the SMS
 /// screen can read as a normal conversation list instead of one flat,
@@ -207,6 +212,7 @@ class SmsThreadDetailPaginated
       state = PaginatedListState<SmsMessage>(
         items: all,
         isLoading: false,
+        hasLoadedInitial: true,
         hasReachedEnd: all.length < kDefaultPageSize,
         pageOffset: all.length,
       );
@@ -230,6 +236,7 @@ class SmsThreadDetailPaginated
       state = PaginatedListState<SmsMessage>(
         items: merged,
         isLoading: false,
+        hasLoadedInitial: state.hasLoadedInitial,
         hasReachedEnd: older.length < kDefaultPageSize,
         pageOffset: state.pageOffset + older.length,
       );
@@ -257,6 +264,7 @@ class SmsThreadDetailPaginated
       state = PaginatedListState<SmsMessage>(
         items: merged,
         isLoading: false,
+        hasLoadedInitial: true,
         hasReachedEnd: state.hasReachedEnd,
         pageOffset: state.pageOffset,
       );

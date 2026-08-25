@@ -164,6 +164,31 @@ void main() {
     expect(state.items.last.id, 'm9');
   });
 
+  test(
+    'thread detail distinguishes initial loading from confirmed empty',
+    () async {
+      final container = buildContainer();
+      final facade = container.read(smsFacadeProvider.notifier);
+      await facade.load();
+
+      final notifier = container.read(
+        smsThreadDetailPaginatedProvider('+111').notifier,
+      );
+      expect(
+        container
+            .read(smsThreadDetailPaginatedProvider('+111'))
+            .hasLoadedInitial,
+        isFalse,
+      );
+
+      await notifier.loadInitial();
+
+      final state = container.read(smsThreadDetailPaginatedProvider('+111'));
+      expect(state.hasLoadedInitial, isTrue);
+      expect(state.items, isEmpty);
+    },
+  );
+
   test('thread detail loadOlder prepends older messages', () async {
     final container = buildContainer();
     final facade = container.read(smsFacadeProvider.notifier);

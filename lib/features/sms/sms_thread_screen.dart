@@ -75,17 +75,34 @@ class _SmsThreadScreenState extends ConsumerState<SmsThreadScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final connected = ref.watch(connectionFacadeProvider);
+    final connected = ref.watch(smsConnectionStatusProvider);
     final threadState = ref.watch(
       smsThreadDetailPaginatedProvider(widget.address),
     );
     final messages = threadState.items;
 
-    if (messages.isEmpty && !threadState.isLoading) {
+    if (messages.isEmpty &&
+        threadState.hasLoadedInitial &&
+        !threadState.isLoading) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) Navigator.pop(context);
+        if (!mounted) return;
+        final latest = ref.read(
+          smsThreadDetailPaginatedProvider(widget.address),
+        );
+        if (latest.hasLoadedInitial &&
+            !latest.isLoading &&
+            latest.items.isEmpty) {
+          Navigator.maybePop(context);
+        }
       });
       return const Scaffold(body: SizedBox.shrink());
+    }
+
+    if (messages.isEmpty) {
+      return Scaffold(
+        appBar: AppBar(title: Text(widget.address)),
+        body: const Center(child: CircularProgressIndicator()),
+      );
     }
 
     final displayName = messages.reversed
