@@ -1,6 +1,6 @@
 ## 1. Security Foundations
 
-- [ ] 1.1 Add local database encryption key lifecycle management using
+- [x] 1.1 Add local database encryption key lifecycle management using
   Android Keystore-backed secure storage.
 - [ ] 1.2 Define centralized encryption, protocol version, freshness, frame,
   payload, queue, retry, and TTL constants.
