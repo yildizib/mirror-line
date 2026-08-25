@@ -89,7 +89,7 @@
   tests.
 - [x] 9.5 Run `flutter test`.
 - [x] 9.6 Run `flutter build apk --debug`.
-- [ ] 9.7 Run two-way QR pairing, reconnect, and network-change QA on two
+- [x] 9.7 Run two-way QR pairing, reconnect, and network-change QA on two
   Android devices.
 - [ ] 9.8 Run strict OpenSpec validation and update Issue #98 per task commit
   before opening the PR.
