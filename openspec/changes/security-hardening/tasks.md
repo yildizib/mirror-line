@@ -28,7 +28,7 @@
   returning application models or sending queued messages.
 - [x] 3.3 Move address, thread, and package filtering/grouping after decryption
   without adding searchable sensitive columns.
-- [ ] 3.4 Preserve existing facade, provider, pagination, grouping, and UI
+- [x] 3.4 Preserve existing facade, provider, pagination, grouping, and UI
   behavior with decrypted model values.
 - [ ] 3.5 Add DAO regression tests proving plaintext is not persisted and UI
   models still contain the original readable values.
