@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'package:logger/logger.dart';
 
-typedef OnReconnect = Future<void> Function(String ip, int port);
+typedef OnReconnect = Future<bool> Function(String ip, int port);
 
 class ReconnectScheduler {
   static const Duration _reconnectInitialDelay = Duration(seconds: 2);
@@ -81,7 +81,10 @@ class ReconnectScheduler {
     const timeout = Duration(seconds: 15);
     try {
       _logger.i('Attempting connection to $ip:$port (gen=$generation)...');
-      await _onReconnect(ip, port).timeout(timeout);
+      final connected = await _onReconnect(ip, port).timeout(timeout);
+      if (!connected) {
+        throw StateError('Reconnect callback reported failure.');
+      }
       // Connection succeeded; markConnected() is called by ConnectionFacade
     } catch (e) {
       if (generation != _connectGeneration) {

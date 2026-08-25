@@ -132,18 +132,7 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
   ConnectionFacade(this._ref) : super(false) {
     _reconnectScheduler = ReconnectScheduler(
       logger: _logger,
-      onReconnect: (ip, port) async {
-        final ok = await _connectTo(ip, port);
-        if (!ok) {
-          // _connectTo already re-armed a guarded retry via
-          // _maybeScheduleReconnect() below; throwing here additionally
-          // lets the scheduler's own catch block increment its attempt
-          // counter so backoff actually grows across scheduler-driven
-          // retries (harmless redundant reschedule for this one path --
-          // scheduleReconnect() always cancels+replaces the pending timer).
-          throw StateError('Scheduled reconnect to $ip:$port failed');
-        }
-      },
+      onReconnect: (ip, port) => _connectTo(ip, port),
       getPeerIp: () => _lastDiscoveredIp ?? _peer?.ip,
       getPeerPort: () => _peer?.port ?? 0,
     );

@@ -8,7 +8,7 @@ void main() {
       var generation = 0;
       final scheduler = ReconnectScheduler(
         logger: Logger(),
-        onReconnect: (ip, port) async {},
+        onReconnect: (ip, port) async => true,
         getPeerIp: () => '192.168.1.100',
         getPeerPort: () => 45678,
       );
@@ -26,7 +26,7 @@ void main() {
     test('Disconnection state management', () {
       final scheduler = ReconnectScheduler(
         logger: Logger(),
-        onReconnect: (ip, port) async {},
+        onReconnect: (ip, port) async => true,
         getPeerIp: () => '192.168.1.100',
         getPeerPort: () => 45678,
       );
@@ -43,7 +43,7 @@ void main() {
     test('Force reconnect resets attempt counter and bumps generation', () {
       final scheduler = ReconnectScheduler(
         logger: Logger(),
-        onReconnect: (ip, port) async {},
+        onReconnect: (ip, port) async => true,
         getPeerIp: () => '192.168.1.100',
         getPeerPort: () => 45678,
       );
@@ -59,7 +59,7 @@ void main() {
     test('Reconnect scheduler disposes resources', () {
       final scheduler = ReconnectScheduler(
         logger: Logger(),
-        onReconnect: (ip, port) async {},
+        onReconnect: (ip, port) async => true,
         getPeerIp: () => '192.168.1.100',
         getPeerPort: () => 45678,
       );

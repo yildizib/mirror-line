@@ -6,7 +6,7 @@
   touching the temporary pairing listener.
 - [x] 1.3 Separate outbound client socket ownership from pairing/server socket
   ownership and guarantee cleanup for both lifecycles.
-- [ ] 1.4 Make reconnect callbacks return explicit success/failure and ensure
+- [x] 1.4 Make reconnect callbacks return explicit success/failure and ensure
   failed connection results cannot be treated as successful completion.
 - [ ] 1.5 Clamp exponential reconnect backoff before duration arithmetic so
   repeated failures never schedule a zero-second retry loop.
