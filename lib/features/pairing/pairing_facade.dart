@@ -137,7 +137,7 @@ final pairingFacadeProvider =
 class PairingFacade extends StateNotifier<PairingState> {
   static const _defaultPairingPort = 45678;
 
-  final Logger _logger = Logger();
+  final Logger _logger;
   final Ref _ref;
 
   /// Temporary socket used by the *scanner* side during handshake.
@@ -168,7 +168,9 @@ class PairingFacade extends StateNotifier<PairingState> {
   String? _expectedAckPeerId;
   String? _expectedAckPeerPublicKey;
 
-  PairingFacade(this._ref) : super(const PairingState());
+  PairingFacade(this._ref, {Logger? logger})
+    : _logger = logger ?? Logger(),
+      super(const PairingState());
 
   /// Pending scanner info (for UI to pass to acceptRequest).
   Map<String, dynamic>? get pendingScannerInfo => _pendingScannerInfo;
@@ -197,6 +199,10 @@ class PairingFacade extends StateNotifier<PairingState> {
         .read(peerFacadeProvider.notifier)
         .getLocalPairingIdentity(ip: myIp);
     if (localIdentity == null) {
+      _logPairingFailure(
+        stage: 'qr-validation',
+        reason: 'local-identity-unavailable',
+      );
       state = const PairingState(errorCode: PairingErrorCode.handshakeFailed);
       return;
     }
@@ -206,7 +212,10 @@ class PairingFacade extends StateNotifier<PairingState> {
       localId: localIdentity.id,
       localPublicKey: localIdentity.publicKey,
     )) {
-      _logger.w('Rejecting QR payload with invalid local identity.');
+      _logPairingFailure(
+        stage: 'qr-validation',
+        reason: 'invalid-remote-identity',
+      );
       state = const PairingState(errorCode: PairingErrorCode.handshakeFailed);
       return;
     }
@@ -219,15 +228,28 @@ class PairingFacade extends StateNotifier<PairingState> {
           port: scannedPort,
           localIps: localAddresses,
         )) {
-      _logger.w('Rejecting invalid or locally owned QR endpoint.');
+      _logPairingFailure(
+        stage: 'qr-validation',
+        reason: 'invalid-remote-endpoint',
+      );
       state = const PairingState(errorCode: PairingErrorCode.handshakeFailed);
       return;
     }
     await _ref
         .read(connectionFacadeProvider.notifier)
         .invalidateNormalConnectionWork();
-    final keyBytes = base64Decode(scannedKeyBase64);
-    final key = SecretKey(keyBytes);
+    late final SecretKey key;
+    try {
+      key = SecretKey(base64Decode(scannedKeyBase64));
+    } on FormatException catch (error) {
+      _logPairingFailure(
+        stage: 'qr-validation',
+        reason: 'invalid-key-encoding',
+        error: error,
+      );
+      state = const PairingState(errorCode: PairingErrorCode.handshakeFailed);
+      return;
+    }
     _handshakeKey = key;
     _clearOutgoingTransaction();
     final acceptCompleter = Completer<bool>();
@@ -265,6 +287,10 @@ class PairingFacade extends StateNotifier<PairingState> {
     try {
       final ok = await _handshakeSocket!.connect(scannedIp, scannedPort, key);
       if (!ok) {
+        _logPairingFailure(
+          stage: 'bootstrap-connect',
+          reason: 'connection-failed',
+        );
         state = const PairingState(
           errorCode: PairingErrorCode.connectionFailed,
         );
@@ -282,6 +308,10 @@ class PairingFacade extends StateNotifier<PairingState> {
             'ip': localIdentity.ip,
           });
       if (!requestSent) {
+        _logPairingFailure(
+          stage: 'request-write',
+          reason: 'socket-write-failed',
+        );
         state = const PairingState(errorCode: PairingErrorCode.handshakeFailed);
         return;
       }
@@ -314,6 +344,10 @@ class PairingFacade extends StateNotifier<PairingState> {
         );
         if (!endpoint.isUsable) {
           _logEndpointDiagnostic(endpoint.diagnostic);
+          _logPairingFailure(
+            stage: 'accept-endpoint-selection',
+            reason: endpoint.diagnostic?.issue.name ?? 'no-usable-endpoint',
+          );
           state = PairingState(
             errorCode: PairingErrorCode.handshakeFailed,
             endpointDiagnostic: endpoint.diagnostic,
@@ -325,17 +359,30 @@ class PairingFacade extends StateNotifier<PairingState> {
             (accept?['deviceName'] as String?)?.isNotEmpty == true
             ? accept!['deviceName'] as String
             : scannedDeviceName;
-        await _ref
-            .read(peerFacadeProvider.notifier)
-            .createPeerFromQr(
-              id: scannedId,
-              ip: endpoint.ip!,
-              port: scannedPort,
-              keyBase64: scannedKeyBase64,
-              role: localIdentity.role,
-              deviceName: peerDeviceName,
-              publicKey: scannedPublicKey,
-            );
+        try {
+          await _ref
+              .read(peerFacadeProvider.notifier)
+              .createPeerFromQr(
+                id: scannedId,
+                ip: endpoint.ip!,
+                port: scannedPort,
+                keyBase64: scannedKeyBase64,
+                role: localIdentity.role,
+                deviceName: peerDeviceName,
+                publicKey: scannedPublicKey,
+              );
+        } catch (error) {
+          _logPairingFailure(
+            stage: 'scanner-persist',
+            reason: 'persistence-failed',
+            error: error,
+          );
+          state = PairingState(
+            errorCode: PairingErrorCode.handshakeFailed,
+            errorDetail: error.runtimeType.toString(),
+          );
+          return;
+        }
         // Tell the scanned side we actually persisted our end -- see
         // pairingAck's doc comment in message_protocol.dart. Sent on the
         // same handshake socket before it's torn down below.
@@ -347,6 +394,7 @@ class PairingFacade extends StateNotifier<PairingState> {
               'publicKey': localIdentity.publicKey,
             });
         if (ackSent != true) {
+          _logPairingFailure(stage: 'ack-write', reason: 'socket-write-failed');
           state = const PairingState(
             errorCode: PairingErrorCode.handshakeFailed,
           );
@@ -357,17 +405,26 @@ class PairingFacade extends StateNotifier<PairingState> {
           endpointDiagnostic: endpoint.diagnostic,
         );
       } else {
-        _logger.w('Pairing acceptance timed out or was rejected.');
+        if (state.errorCode != PairingErrorCode.rejected) {
+          _logPairingFailure(
+            stage: 'accept-wait',
+            reason: 'timeout-or-disconnect',
+          );
+        }
         state = state.copyWith(
           isWaitingForAccept: false,
           errorCode: PairingErrorCode.rejectedOrTimedOut,
         );
       }
     } catch (e) {
-      _logger.e('Pairing sendRequest failed: $e');
+      _logPairingFailure(
+        stage: 'scanner-transaction',
+        reason: 'unexpected-failure',
+        error: e,
+      );
       state = PairingState(
         errorCode: PairingErrorCode.handshakeFailed,
-        errorDetail: '$e',
+        errorDetail: e.runtimeType.toString(),
       );
     } finally {
       _clearOutgoingTransaction(owner: acceptCompleter);
@@ -377,7 +434,10 @@ class PairingFacade extends StateNotifier<PairingState> {
 
   void _handleHandshakeMessage(MirrorMessage message) async {
     final key = _handshakeKey;
-    if (key == null) return;
+    if (key == null) {
+      _logPairingFailure(stage: 'handshake-decrypt', reason: 'key-unavailable');
+      return;
+    }
 
     final metadata = CryptoManager.canonicalMessageMetadata(
       version: message.protocolVersion,
@@ -385,27 +445,49 @@ class PairingFacade extends StateNotifier<PairingState> {
       id: message.id,
       timestamp: message.timestamp,
     );
-    final decrypted = await CryptoManager.decryptWithAad(
-      key,
-      message.payload,
-      aad: utf8.encode(metadata),
-    );
-    if (decrypted == null) return;
+    String? decrypted;
+    try {
+      decrypted = await CryptoManager.decryptWithAad(
+        key,
+        message.payload,
+        aad: utf8.encode(metadata),
+      );
+    } catch (error) {
+      _logPairingFailure(
+        stage: 'handshake-decrypt',
+        reason: 'decrypt-failed',
+        error: error,
+      );
+      return;
+    }
+    if (decrypted == null) {
+      _logPairingFailure(stage: 'handshake-decrypt', reason: 'decrypt-failed');
+      return;
+    }
 
     Map<String, dynamic>? payload;
     try {
       payload = jsonDecode(decrypted) as Map<String, dynamic>;
-    } catch (_) {
+    } catch (error) {
+      _logPairingFailure(
+        stage: 'handshake-decode',
+        reason: 'invalid-payload',
+        error: error,
+      );
       payload = null;
     }
+    if (payload == null) return;
 
     switch (message.type) {
       case MessageTypes.pairingAccept:
         if (!_isMatchingTransaction(payload) ||
-            payload?['peerId'] != _expectedPeerId ||
-            payload?['publicKey'] != _expectedPeerPublicKey ||
-            !_isSupportedRole(payload?['role'])) {
-          _logger.w('Ignoring pairingAccept from another transaction.');
+            payload['peerId'] != _expectedPeerId ||
+            payload['publicKey'] != _expectedPeerPublicKey ||
+            !_isSupportedRole(payload['role'])) {
+          _logPairingFailure(
+            stage: 'accept-validation',
+            reason: 'transaction-or-identity-mismatch',
+          );
           break;
         }
         _logger.i('Pairing accepted by remote.');
@@ -418,7 +500,7 @@ class PairingFacade extends StateNotifier<PairingState> {
         break;
 
       case MessageTypes.pairingReject:
-        _logger.i('Pairing rejected by remote.');
+        _logPairingFailure(stage: 'accept-wait', reason: 'remote-rejected');
         state = state.copyWith(
           isWaitingForAccept: false,
           errorCode: PairingErrorCode.rejected,
@@ -456,14 +538,20 @@ class PairingFacade extends StateNotifier<PairingState> {
         peerId.isEmpty ||
         publicKey.isEmpty ||
         !_isSupportedRole(role)) {
-      _logger.w('Ignoring pairing request without transaction ID.');
+      _logPairingFailure(
+        stage: 'request-validation',
+        reason: 'invalid-transaction-or-identity',
+      );
       return;
     }
 
     final localId = await KeyStore.getSelfId() ?? '';
     final localPublicKey = await KeyStore.ensureDeviceKeyPair();
     if (localId.isEmpty) {
-      _logger.w('Rejecting pairing request without local self identity.');
+      _logPairingFailure(
+        stage: 'request-validation',
+        reason: 'local-identity-unavailable',
+      );
       state = const PairingState(errorCode: PairingErrorCode.handshakeFailed);
       return;
     }
@@ -473,7 +561,7 @@ class PairingFacade extends StateNotifier<PairingState> {
       localId: localId,
       localPublicKey: localPublicKey,
     )) {
-      _logger.w('Rejecting pairing request that identifies this device.');
+      _logPairingFailure(stage: 'request-validation', reason: 'self-identity');
       state = const PairingState(errorCode: PairingErrorCode.handshakeFailed);
       return;
     }
@@ -487,6 +575,10 @@ class PairingFacade extends StateNotifier<PairingState> {
     );
     if (!endpoint.isUsable) {
       _logEndpointDiagnostic(endpoint.diagnostic);
+      _logPairingFailure(
+        stage: 'request-endpoint-selection',
+        reason: endpoint.diagnostic?.issue.name ?? 'no-usable-endpoint',
+      );
       if (_pendingScannerInfo != null || _pairAckCompleter != null) {
         _logger.w('Rejected unsafe request while another pairing is active.');
         return;
@@ -519,9 +611,7 @@ class PairingFacade extends StateNotifier<PairingState> {
       verificationCode: verificationCode,
       endpointDiagnostic: endpoint.diagnostic,
     );
-    _logger.i(
-      'Incoming pairing request from $deviceName ($peerId, pubKey=${publicKey.substring(0, publicKey.length > 8 ? 8 : publicKey.length)}...)',
-    );
+    _logger.i('Incoming pairing request validated: transport=qr-bootstrap');
 
     // Stash the scanner's info for later use in acceptRequest.
     _pendingScannerInfo = {
@@ -560,6 +650,10 @@ class PairingFacade extends StateNotifier<PairingState> {
         .read(peerFacadeProvider.notifier)
         .getLocalPairingIdentity(ip: myIp);
     if (localIdentity == null) {
+      _logPairingFailure(
+        stage: 'accept-validation',
+        reason: 'local-identity-unavailable',
+      );
       _clearIncomingTransaction();
       state = const PairingState(errorCode: PairingErrorCode.handshakeFailed);
       return;
@@ -573,6 +667,10 @@ class PairingFacade extends StateNotifier<PairingState> {
         scannerId.isEmpty ||
         scannerPublicKey.isEmpty ||
         !_isSupportedRole(scannerRole)) {
+      _logPairingFailure(
+        stage: 'accept-validation',
+        reason: 'invalid-transaction-or-identity',
+      );
       _clearIncomingTransaction();
       state = const PairingState(errorCode: PairingErrorCode.handshakeFailed);
       return;
@@ -584,7 +682,7 @@ class PairingFacade extends StateNotifier<PairingState> {
       localId: localId,
       localPublicKey: localIdentity.publicKey,
     )) {
-      _logger.w('Rejecting self identity during pairing acceptance.');
+      _logPairingFailure(stage: 'accept-validation', reason: 'self-identity');
       _clearIncomingTransaction();
       state = const PairingState(errorCode: PairingErrorCode.handshakeFailed);
       return;
@@ -599,6 +697,10 @@ class PairingFacade extends StateNotifier<PairingState> {
     );
     if (!endpoint.isUsable) {
       _logEndpointDiagnostic(endpoint.diagnostic);
+      _logPairingFailure(
+        stage: 'request-endpoint-selection',
+        reason: endpoint.diagnostic?.issue.name ?? 'no-usable-endpoint',
+      );
       _clearIncomingTransaction();
       state = PairingState(
         errorCode: PairingErrorCode.handshakeFailed,
@@ -632,6 +734,10 @@ class PairingFacade extends StateNotifier<PairingState> {
         },
       );
       if (!acceptSent) {
+        _logPairingFailure(
+          stage: 'accept-write',
+          reason: 'socket-write-failed',
+        );
         state = const PairingState(errorCode: PairingErrorCode.handshakeFailed);
         return;
       }
@@ -642,7 +748,7 @@ class PairingFacade extends StateNotifier<PairingState> {
       );
 
       if (!acked) {
-        _logger.w('Pairing acknowledgement timed out.');
+        _logPairingFailure(stage: 'ack-wait', reason: 'timeout-or-disconnect');
         state = const PairingState(errorCode: PairingErrorCode.ackTimeout);
         return;
       }
@@ -656,14 +762,27 @@ class PairingFacade extends StateNotifier<PairingState> {
       // peer_facade.dart's _getDeviceName().
       final scannerDeviceName =
           scannerInfo['deviceName'] as String? ?? 'Unknown Device';
-      await _ref
-          .read(peerFacadeProvider.notifier)
-          .applyPairedPeer(
-            id: scannerId,
-            deviceName: scannerDeviceName,
-            publicKey: scannerPublicKey,
-            ip: endpoint.ip,
-          );
+      try {
+        await _ref
+            .read(peerFacadeProvider.notifier)
+            .applyPairedPeer(
+              id: scannerId,
+              deviceName: scannerDeviceName,
+              publicKey: scannerPublicKey,
+              ip: endpoint.ip,
+            );
+      } catch (error) {
+        _logPairingFailure(
+          stage: 'scanned-persist',
+          reason: 'persistence-failed',
+          error: error,
+        );
+        state = PairingState(
+          errorCode: PairingErrorCode.handshakeFailed,
+          errorDetail: error.runtimeType.toString(),
+        );
+        return;
+      }
 
       state = state.copyWith(
         isFinalizing: false,
@@ -678,7 +797,6 @@ class PairingFacade extends StateNotifier<PairingState> {
   /// Scanned side: the scanner confirmed it persisted its own end. Safe to
   /// commit our side now (see acceptRequest).
   void handlePairingAck(Map<String, dynamic> payload) {
-    _logger.i('handlePairingAck called — completing _pairAckCompleter.');
     if (!isExpectedPairingAck(
       transactionId: payload['transactionId'],
       peerId: payload['peerId'],
@@ -687,7 +805,10 @@ class PairingFacade extends StateNotifier<PairingState> {
       expectedPeerId: _expectedAckPeerId,
       expectedPeerPublicKey: _expectedAckPeerPublicKey,
     )) {
-      _logger.w('Ignoring pairingAck from another transaction.');
+      _logPairingFailure(
+        stage: 'ack-validation',
+        reason: 'transaction-or-identity-mismatch',
+      );
       return;
     }
     if (_pairAckCompleter != null && !_pairAckCompleter!.isCompleted) {
@@ -705,6 +826,9 @@ class PairingFacade extends StateNotifier<PairingState> {
       );
     } finally {
       _clearIncomingTransaction();
+    }
+    if (!rejected) {
+      _logPairingFailure(stage: 'reject-write', reason: 'socket-write-failed');
     }
     state = rejected
         ? const PairingState()
@@ -800,6 +924,15 @@ class PairingFacade extends StateNotifier<PairingState> {
       'Pairing endpoint diagnostic: stage=${diagnostic.stage.name}, '
       'issue=${diagnostic.issue.name}',
     );
+  }
+
+  void _logPairingFailure({
+    required String stage,
+    required String reason,
+    Object? error,
+  }) {
+    final errorType = error == null ? '' : ', errorType=${error.runtimeType}';
+    _logger.w('Pairing failure: stage=$stage, reason=$reason$errorType');
   }
 
   @override

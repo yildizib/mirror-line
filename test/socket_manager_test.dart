@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logger/logger.dart';
 import 'package:mirrorline/core/network/message_protocol.dart';
 import 'package:mirrorline/core/network/socket_manager.dart';
 import 'package:mirrorline/core/security/crypto_manager.dart';
@@ -189,6 +190,37 @@ void main() {
     await server.disconnect();
   });
 
+  test('socket diagnostics include endpoints and transport mode', () async {
+    final key = CryptoManager.generateKey();
+    final output = _TestLogOutput();
+    final logger = Logger(printer: SimplePrinter(), output: output);
+    final serverConnected = Completer<void>();
+    final server = SocketManager(
+      onMessage: (_) {},
+      onConnected: serverConnected.complete,
+      logger: logger,
+    );
+    await server.startServer(45910, key);
+
+    final client = SocketManager(onMessage: (_) {}, logger: logger);
+    expect(await client.connect('127.0.0.1', 45910, key), isTrue);
+    await serverConnected.future.timeout(const Duration(seconds: 5));
+
+    final logs = output.lines.join('\n');
+    expect(
+      logs,
+      contains(
+        'Outgoing socket: target=127.0.0.1:45910, '
+        'transport=qr-bootstrap',
+      ),
+    );
+    expect(logs, contains('Incoming socket: remote=127.0.0.1:'));
+    expect(logs, contains('transport=qr-bootstrap'));
+
+    await client.disconnect();
+    await server.disconnect();
+  });
+
   test('server-mode manager is not reused for outbound connections', () async {
     final key = CryptoManager.generateKey();
     final manager = SocketManager(
@@ -323,4 +355,11 @@ void main() {
       await server.disconnect();
     },
   );
+}
+
+class _TestLogOutput extends LogOutput {
+  final lines = <String>[];
+
+  @override
+  void output(OutputEvent event) => lines.addAll(event.lines);
 }

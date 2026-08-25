@@ -10,7 +10,7 @@ import 'package:mirrorline/core/security/security_constants.dart';
 import 'package:uuid/uuid.dart';
 
 class SocketManager {
-  final Logger _logger = Logger();
+  final Logger _logger;
   final void Function(MirrorMessage) onMessage;
   final void Function()? onConnected;
   final void Function()? onDisconnected;
@@ -70,7 +70,8 @@ class SocketManager {
     this.onConnected,
     this.onDisconnected,
     this.onAcceptConnection,
-  });
+    Logger? logger,
+  }) : _logger = logger ?? Logger();
 
   bool get isConnected => _isConnected;
   bool get isAuthed => _authed;
@@ -123,6 +124,10 @@ class SocketManager {
       _logger.i('Socket server listening on port $port');
 
       _server!.listen((socket) {
+        _logger.i(
+          'Incoming socket: remote=${socket.remoteAddress.address}:'
+          '${socket.remotePort}, transport=$_transportMode',
+        );
         if (_client != null) {
           // A previous connection is still registered. It may be a genuine
           // second peer, but in this app's 1:1 pairing model it is far more
@@ -169,6 +174,7 @@ class SocketManager {
     _isServer = false;
     final generation = ++_connectGeneration;
     try {
+      _logger.i('Outgoing socket: target=$ip:$port, transport=$_transportMode');
       final socket = await Socket.connect(
         ip,
         port,
@@ -283,6 +289,13 @@ class SocketManager {
     _handleClosed();
   }
 
+  String get _transportMode =>
+      _identityRequired ||
+          (_peerPublicKeyBase64?.isNotEmpty ?? false) ||
+          _localKeyPair != null
+      ? 'authenticated-peer'
+      : 'qr-bootstrap';
+
   void _handleClosed() {
     if (!_isConnected && _client == null) return;
     _isConnected = false;
@@ -392,7 +405,7 @@ class SocketManager {
         _logger.i('Received: ${message.type}');
         onMessage(message);
       } catch (e) {
-        _logger.e('Invalid message received: $e');
+        _logger.e('Invalid message received: ${e.runtimeType}');
         _invalidMessageCount++;
         if (_invalidMessageCount >= SecurityConstants.maxInvalidMessages) {
           _logger.w('Too many invalid messages; closing connection.');
