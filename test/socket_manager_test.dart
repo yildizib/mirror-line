@@ -150,6 +150,45 @@ void main() {
     await server.disconnect();
   });
 
+  test('stale socket completion does not close replacement client', () async {
+    final key = CryptoManager.generateKey();
+    final received = Completer<void>();
+    var disconnectCount = 0;
+    final server = SocketManager(
+      onMessage: (_) {
+        if (!received.isCompleted) received.complete();
+      },
+      onConnected: () {},
+      onDisconnected: () => disconnectCount++,
+    );
+    await server.startServer(45909, key);
+
+    final c1 = SocketManager(
+      onMessage: (_) {},
+      onConnected: () {},
+      onDisconnected: () {},
+    );
+    expect(await c1.connect('127.0.0.1', 45909, key), isTrue);
+
+    final c2 = SocketManager(
+      onMessage: (_) {},
+      onConnected: () {},
+      onDisconnected: () {},
+    );
+    expect(await c2.connect('127.0.0.1', 45909, key), isTrue);
+
+    final disconnectsAfterReplacement = disconnectCount;
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+    expect(server.isConnected, isTrue);
+    expect(disconnectCount, disconnectsAfterReplacement);
+    expect(await c2.sendMessage('replacement_probe', {}), isTrue);
+    await received.future.timeout(const Duration(seconds: 5));
+
+    await c1.disconnect();
+    await c2.disconnect();
+    await server.disconnect();
+  });
+
   test('server-mode manager is not reused for outbound connections', () async {
     final key = CryptoManager.generateKey();
     final manager = SocketManager(

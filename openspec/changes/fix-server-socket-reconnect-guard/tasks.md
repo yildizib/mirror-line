@@ -66,7 +66,7 @@
 
 ## 7. Socket Lifecycle and Diagnostics
 
-- [ ] 7.1 Bind socket completion and error handling to the socket instance so
+- [x] 7.1 Bind socket completion and error handling to the socket instance so
   stale callbacks cannot close a replacement socket.
 - [ ] 7.2 Log incoming remote address, outgoing target, transport mode, and
   stage-specific pairing failures without logging secrets.

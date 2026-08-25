@@ -268,14 +268,19 @@ class SocketManager {
       },
       onDone: () {
         _logger.i('Socket connection closed by peer.');
-        _handleClosed();
+        _handleSocketClosed(socket);
       },
       onError: (error) {
         _logger.e('Socket error: $error');
-        _handleClosed();
+        _handleSocketClosed(socket);
       },
       cancelOnError: true,
     );
+  }
+
+  void _handleSocketClosed(Socket socket) {
+    if (!identical(_client, socket)) return;
+    _handleClosed();
   }
 
   void _handleClosed() {
