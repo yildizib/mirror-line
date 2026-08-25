@@ -55,7 +55,8 @@ class ReconnectScheduler {
 
   void scheduleReconnect() {
     _reconnectTimer?.cancel();
-    var delay = _reconnectInitialDelay * (1 << _reconnectAttempts);
+    final exponent = _reconnectAttempts.clamp(0, 4);
+    var delay = _reconnectInitialDelay * (1 << exponent);
     if (delay > _reconnectMaxDelay) delay = _reconnectMaxDelay;
     _logger.i(
       'Scheduling reconnect in ${delay.inSeconds}s (attempt ${_reconnectAttempts + 1}).',
