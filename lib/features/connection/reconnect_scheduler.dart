@@ -1,12 +1,17 @@
 import 'dart:async';
 import 'package:logger/logger.dart';
 
-typedef OnReconnect = Future<void> Function(String ip, int port);
+typedef OnReconnect = Future<bool> Function(String ip, int port);
+
+Duration reconnectDelayForAttempt(int attempt) {
+  final exponent = attempt.clamp(0, 4);
+  final delay = const Duration(seconds: 2) * (1 << exponent);
+  return delay > const Duration(seconds: 30)
+      ? const Duration(seconds: 30)
+      : delay;
+}
 
 class ReconnectScheduler {
-  static const Duration _reconnectInitialDelay = Duration(seconds: 2);
-  static const Duration _reconnectMaxDelay = Duration(seconds: 30);
-
   final Logger _logger;
   final OnReconnect _onReconnect;
   final String? Function() _getPeerIp;
@@ -46,10 +51,16 @@ class ReconnectScheduler {
     scheduleReconnect();
   }
 
+  void invalidate() {
+    _connectGeneration++;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    _disconnectedSince = null;
+  }
+
   void scheduleReconnect() {
     _reconnectTimer?.cancel();
-    var delay = _reconnectInitialDelay * (1 << _reconnectAttempts);
-    if (delay > _reconnectMaxDelay) delay = _reconnectMaxDelay;
+    final delay = reconnectDelayForAttempt(_reconnectAttempts);
     _logger.i(
       'Scheduling reconnect in ${delay.inSeconds}s (attempt ${_reconnectAttempts + 1}).',
     );
@@ -61,8 +72,8 @@ class ReconnectScheduler {
   Future<void> _tryConnect() async {
     final ip = _getPeerIp();
     final port = _getPeerPort();
-    if (ip == null || ip.isEmpty) {
-      _logger.w('No peer IP available for reconnect.');
+    if (ip == null || ip.isEmpty || port <= 0 || port > 65535) {
+      _logger.w('No usable peer endpoint available for reconnect.');
       scheduleReconnect();
       return;
     }
@@ -74,7 +85,10 @@ class ReconnectScheduler {
     const timeout = Duration(seconds: 15);
     try {
       _logger.i('Attempting connection to $ip:$port (gen=$generation)...');
-      await _onReconnect(ip, port).timeout(timeout);
+      final connected = await _onReconnect(ip, port).timeout(timeout);
+      if (!connected) {
+        throw StateError('Reconnect callback reported failure.');
+      }
       // Connection succeeded; markConnected() is called by ConnectionFacade
     } catch (e) {
       if (generation != _connectGeneration) {

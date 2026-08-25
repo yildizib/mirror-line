@@ -2,12 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:mirrorline/l10n/app_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mirrorline/core/data/models/peer.dart';
-import 'package:mirrorline/core/security/key_store.dart';
 import 'package:mirrorline/core/theme/theme.dart';
 import 'package:mirrorline/features/connection/connection_facade.dart';
 import 'package:mirrorline/features/connection/connection_status_provider.dart';
 import 'package:mirrorline/features/pairing/pairing_controller.dart';
 import 'package:mirrorline/features/pairing/pairing_facade.dart';
+import 'package:mirrorline/features/pairing/local_pairing_identity.dart';
 import 'package:mirrorline/features/pairing/peer_facade.dart';
 import 'package:mirrorline/features/pairing/role_selection_screen.dart';
 import 'package:mirrorline/features/pairing/widgets/qr_display.dart';
@@ -24,14 +24,11 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
   bool _isScanning = false;
   bool _isProcessing = false;
   Peer? _cachedPeerForQr;
-  String? _myPublicKey;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      final pub = await KeyStore.ensureDeviceKeyPair();
-      if (mounted) setState(() => _myPublicKey = pub);
       // The QR encodes this device's current IP. Refresh it into the
       // connection status (never into the peer record -- after pairing that
       // row belongs to the *other* device, and overwriting it with our own
@@ -45,6 +42,9 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
     final peer = ref.watch(peerFacadeProvider);
     final pairingState = ref.watch(pairingFacadeProvider);
     final status = ref.watch(connectionStatusProvider);
+    final localIdentity = ref
+        .watch(localPairingIdentityProvider(status.localIp ?? 'unknown'))
+        .valueOrNull;
     final l = AppLocalizations.of(context);
 
     // Re-sync on any identity-relevant change so the QR always reflects the
@@ -81,7 +81,7 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
         ),
         body: TabBarView(
           children: [
-            _buildShowQrTab(_cachedPeerForQr, pairingState, status.localIp),
+            _buildShowQrTab(_cachedPeerForQr, localIdentity, pairingState),
             _buildScanTab(pairingState),
           ],
         ),
@@ -91,8 +91,8 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
 
   Widget _buildShowQrTab(
     Peer? peer,
+    LocalPairingIdentity? localIdentity,
     PairingState pairingState,
-    String? localIp,
   ) {
     final theme = Theme.of(context);
     final l = AppLocalizations.of(context);
@@ -124,6 +124,10 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
       );
     }
 
+    if (localIdentity == null) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
     // QR format: id|ip|port|key|deviceName|role|publicKey
     // publicKey here is THIS device's Ed25519 public key (from KeyStore),
     // NOT the peer's publicKey field (which is the other device's key).
@@ -131,25 +135,15 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
     // connection status), never peer.ip -- after pairing that field holds
     // the *other* device's address, and encoding it here would break the
     // scanner's connect attempt.
-    final myPub = _myPublicKey ?? '';
-    // If localIp is null, don't encode a stale/wrong IP (peer.ip may be
-    // this device's own IP after pairing, which would create a loop).
-    // Prefer VPN IP (tun0) if available -- it's reachable from any device
-    // on the same VPN, unlike a WiFi IP that's only reachable on the same
-    // LAN. Fall back to WiFi/local IP, then 'unknown'.
-    final qrIp = localIp ?? 'unknown';
-    final qrData =
-        '${peer.id}|$qrIp|${peer.port}|${peer.key}|${peer.deviceName}|${peer.role}|$myPub';
-
     return Center(
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(AppSpacing.lg),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            QrDisplay(data: qrData),
+            QrDisplay(data: localIdentity.qrData),
             const SizedBox(height: AppSpacing.lg),
-            _verificationCodeBadge(context, peer.verificationCode),
+            _verificationCodeBadge(context, localIdentity.verificationCode),
             const SizedBox(height: AppSpacing.sm),
             Text(
               l.pairingOtherScanHint,
@@ -504,7 +498,7 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
 
     final scannedId = parts[0];
     final scannedIp = parts[1];
-    final scannedPort = int.tryParse(parts[2]) ?? 45678;
+    final scannedPort = int.tryParse(parts[2]) ?? 0;
     final scannedKey = parts[3];
 
     final hasRole =
@@ -531,8 +525,6 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
       ).showSnackBar(SnackBar(content: Text(l.pairingSelectRoleFirst)));
       return;
     }
-
-    final myRole = myPeer.role; // 'main' or 'source'
 
     final verificationCode = PeerFacade.generateVerificationCode(
       scannedKey,
@@ -587,7 +579,6 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
     }
 
     // Send pairing request via PairingController.
-    final myPublicKey = await KeyStore.ensureDeviceKeyPair();
     final status = ref.read(connectionStatusProvider);
     final myIp = status.localIp ?? '';
 
@@ -600,10 +591,6 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
           scannedKeyBase64: scannedKey,
           scannedDeviceName: scannedName,
           scannedPublicKey: scannedPublicKey,
-          myDeviceName: myPeer.deviceName,
-          myPeerId: myPeer.id,
-          myRole: myRole,
-          myPublicKey: myPublicKey,
           myIp: myIp,
         );
 

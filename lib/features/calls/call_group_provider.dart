@@ -33,9 +33,12 @@ class CallGroup {
 
   int get count => calls.length;
 
-  /// True when there's still a ringing call in the group -- the calls list
-  /// uses this to keep showing the reject button on the grouped row.
-  bool get hasActive => calls.any((c) => c.status == 'ringing');
+  /// The currently ringing call, if any. The UI uses the same event both to
+  /// decide whether Reject is available and to target that action.
+  CallEvent? get activeCall =>
+      calls.where((c) => c.status == 'ringing').firstOrNull;
+
+  bool get hasActive => activeCall != null;
 
   /// Aggregated status label for the group row: if any call is still
   /// ringing, that; otherwise the most recent call's status.
@@ -132,14 +135,27 @@ class CallGroupPaginated
     List<CallGroup> existing,
     List<CallGroup> newGroups,
   ) {
+    final freshIds = newGroups
+        .expand((group) => group.calls)
+        .map((call) => call.id)
+        .toSet();
     final map = <String, CallGroup>{};
     for (final g in existing) {
-      map[g.key] = g;
+      final retained = g.calls
+          .where((call) => !freshIds.contains(call.id))
+          .toList();
+      if (retained.isNotEmpty) {
+        map[g.key] = CallGroup(
+          key: g.key,
+          displayName: g.displayName,
+          calls: retained,
+        );
+      }
     }
     for (final g in newGroups) {
       final prev = map[g.key];
       if (prev != null) {
-        final merged = dedupeById([...prev.calls, ...g.calls], (c) => c.id)
+        final merged = dedupeById([...g.calls, ...prev.calls], (c) => c.id)
           ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
         map[g.key] = CallGroup(
           key: g.key,

@@ -1,10 +1,12 @@
 import 'dart:io';
 
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logger/logger.dart';
 import 'package:mirrorline/core/data/database.dart';
 import 'package:mirrorline/core/data/models/sms_message.dart';
+import 'package:mirrorline/core/network/message_protocol.dart';
 import 'package:mirrorline/core/services/notification_service.dart';
 import 'package:mirrorline/features/sms/sms_facade.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
@@ -30,6 +32,7 @@ void main() {
   });
 
   setUp(() async {
+    FlutterSecureStorage.setMockInitialValues({});
     tempDir = await Directory.systemTemp.createTemp(
       'mirrorline_sms_facade_test',
     );
@@ -189,4 +192,54 @@ void main() {
     expect(older.first.id, 'm0');
     expect(older.last.id, 'm4');
   });
+
+  test(
+    'sendReplySms persists pending before requesting transmission',
+    () async {
+      late SmsFacade facade;
+      final container = ProviderContainer(
+        overrides: [
+          smsFacadeProvider.overrideWith((ref) {
+            facade = SmsFacade(
+              ref: ref,
+              logger: Logger(),
+              isSource: () => false,
+              sendOrQueue: (type, payload) async {
+                expect(type, MessageTypes.smsOutgoing);
+                expect(facade.state.single.id, 'reply');
+                expect(facade.state.single.status, 'pending');
+                final stored = await facade.loadRecentByAddress(
+                  address: '+111',
+                  limit: 1,
+                );
+                expect(stored.single.status, 'pending');
+                return true;
+              },
+              notify:
+                  ({
+                    required int id,
+                    required String title,
+                    required String body,
+                    NotificationPayload? payload,
+                  }) async {},
+            );
+            return facade;
+          }),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      final result = await container
+          .read(smsFacadeProvider.notifier)
+          .sendReplySms(
+            '+111',
+            'hello',
+            id: 'reply',
+            contactName: 'Alice',
+            threadId: 'thread-alice',
+          );
+
+      expect(result, isTrue);
+    },
+  );
 }

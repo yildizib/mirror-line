@@ -6,7 +6,7 @@ import 'package:sqflite/sqflite.dart';
 class AppDatabase {
   static final AppDatabase instance = AppDatabase._internal();
   static Database? _database;
-  static const int schemaVersion = 6;
+  static const int schemaVersion = 7;
 
   AppDatabase._internal();
 
@@ -81,6 +81,17 @@ class AppDatabase {
         )
       ''');
     }
+    if (oldVersion < 7) {
+      final queueTable = await db.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type = 'table' "
+        "AND name = 'offline_queue'",
+      );
+      if (queueTable.isNotEmpty) {
+        await db.execute(
+          'ALTER TABLE offline_queue ADD COLUMN dedupe_key TEXT',
+        );
+      }
+    }
   }
 
   /// Exposed (not private) so tests can create a fresh-install schema
@@ -133,6 +144,7 @@ class AppDatabase {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         type TEXT NOT NULL,
         payload TEXT NOT NULL,
+        dedupe_key TEXT,
         retry_count INTEGER NOT NULL DEFAULT 0,
         created_at INTEGER NOT NULL
       )

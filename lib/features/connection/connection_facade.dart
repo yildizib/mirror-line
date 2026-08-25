@@ -16,12 +16,14 @@ import 'package:mirrorline/core/network/socket_manager.dart';
 import 'package:mirrorline/core/network/subnet_scanner.dart';
 import 'package:mirrorline/core/security/crypto_manager.dart';
 import 'package:mirrorline/core/security/key_store.dart';
+import 'package:mirrorline/core/security/security_constants.dart';
 import 'package:mirrorline/core/services/connectivity_service.dart';
 import 'package:mirrorline/core/services/notification_service.dart';
 import 'package:mirrorline/core/services/queue_service.dart';
 import 'package:mirrorline/core/telephony/telephony_channel.dart';
 import 'package:mirrorline/features/calls/call_facade.dart';
 import 'package:mirrorline/features/connection/connection_status_provider.dart';
+import 'package:mirrorline/features/connection/connection_endpoint_guard.dart';
 import 'package:mirrorline/features/connection/force_connect_strategy.dart';
 import 'package:mirrorline/features/connection/peer_discovery_coordinator.dart';
 import 'package:mirrorline/features/connection/reconnect_scheduler.dart';
@@ -59,15 +61,12 @@ final connectionConnectingProvider = Provider<bool>((ref) {
 });
 
 class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
-  static const Duration _retryInterval = Duration(seconds: 30);
   // How long an outgoing SMS may sit on 'pending' before it's given up on
   // and shown as 'failed'. The queue's own 5-attempt retry only advances
   // when the connection actually comes back up (see _flushQueue), so if
   // the peer never reconnects a queued sms_status ack would otherwise
   // never get marked either way -- this is a connection-state-independent
   // backstop so "Gönderiliyor" doesn't linger forever.
-  static const Duration _pendingSmsTimeout = Duration(minutes: 2);
-
   final Logger _logger = Logger();
   final Ref _ref;
   final ConnectivityService _connectivity = ConnectivityService();
@@ -133,18 +132,7 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
   ConnectionFacade(this._ref) : super(false) {
     _reconnectScheduler = ReconnectScheduler(
       logger: _logger,
-      onReconnect: (ip, port) async {
-        final ok = await _connectTo(ip, port);
-        if (!ok) {
-          // _connectTo already re-armed a guarded retry via
-          // _maybeScheduleReconnect() below; throwing here additionally
-          // lets the scheduler's own catch block increment its attempt
-          // counter so backoff actually grows across scheduler-driven
-          // retries (harmless redundant reschedule for this one path --
-          // scheduleReconnect() always cancels+replaces the pending timer).
-          throw StateError('Scheduled reconnect to $ip:$port failed');
-        }
-      },
+      onReconnect: (ip, port) => _connectTo(ip, port),
       getPeerIp: () => _lastDiscoveredIp ?? _peer?.ip,
       getPeerPort: () => _peer?.port ?? 0,
     );
@@ -219,10 +207,10 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
     // the same full (re)initialization that happens on a fresh app start,
     // so devices recover on their own instead of requiring the app to be
     // killed and reopened.
-    _healthTimer ??= Timer.periodic(_retryInterval, (_) {
+    _healthTimer ??= Timer.periodic(SecurityConstants.reconnectInterval, (_) {
       _ref
           .read(smsFacadeProvider.notifier)
-          .failStalePending(_pendingSmsTimeout);
+          .failStalePending(SecurityConstants.pendingSmsTimeout);
       if (_connecting || state) return;
       refresh();
       _maybeRunFallbackScan();
@@ -281,6 +269,17 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
     } finally {
       _refreshing = false;
     }
+  }
+
+  /// Invalidates normal reconnect/discovery work without closing the socket
+  /// used by the temporary pairing transaction.
+  Future<void> invalidateNormalConnectionWork() async {
+    _connectGeneration++;
+    _connecting = false;
+    _reconnectScheduler.invalidate();
+    _peerDiscoveryCoordinator.invalidate();
+    await _peerDiscoveryCoordinator.stopListening();
+    await _broadcaster.stop();
   }
 
   /// Refreshes the reported local IP without touching the peer record.
@@ -384,6 +383,12 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
       return;
     }
 
+    if (!isUsablePeerEndpoint(peer: peer, localIps: _allLocalIps)) {
+      _logger.w('Paired peer has no usable remote endpoint. Waiting.');
+      await _stopMachinery();
+      return;
+    }
+
     // Paired: pure client role. Tear down any leftover pairing-time server.
     await _socketManager?.stopServer();
     _ref.read(connectionStatusProvider.notifier).setServer(0, false);
@@ -419,9 +424,11 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
   }
 
   SocketManager _createSocketManager() {
-    final sm = SocketManager(
+    late final SocketManager sm;
+    sm = SocketManager(
       onMessage: _handleIncomingMessage,
       onConnected: () {
+        if (sm.isPairingMode) return;
         state = true;
         _reconnectScheduler.markConnected();
         _peerDiscoveryCoordinator.markConnected();
@@ -444,6 +451,12 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
         _peerDiscoveryCoordinator.setThrottle(true);
       },
       onDisconnected: () {
+        if (sm.isPairingMode) {
+          _ref
+              .read(pairingFacadeProvider.notifier)
+              .handleSocketDisconnected(sm);
+          return;
+        }
         state = false;
         _peerDiscoveryCoordinator.markDisconnected();
         _logger.w(
@@ -462,12 +475,16 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
   /// the socket so challenge-response authentication can run.
   Future<void> _configureAuth(SocketManager sm) async {
     final peer = _peer;
-    if (peer == null) return;
+    if (peer == null || !hasCompletedRemotePeer(peer)) return;
+    sm.requireAuthIdentity();
     final localKeyPair = await KeyStore.getDeviceKeyPair();
     if (localKeyPair == null) return;
+    final localDeviceId = await KeyStore.getSelfId();
     sm.setAuthIdentity(
       peerPublicKeyBase64: peer.publicKey,
       localKeyPair: localKeyPair,
+      localDeviceId: localDeviceId ?? '',
+      peerDeviceId: peer.id,
     );
   }
 
@@ -488,11 +505,16 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
   /// broke Source's server, and only the next incoming connection from
   /// Main eventually revived it.
   void _maybeScheduleReconnect() {
-    if (_peer == null || _key == null) return;
+    if (_key == null ||
+        !isUsablePeerEndpoint(peer: _peer, localIps: _allLocalIps)) {
+      return;
+    }
     if (isSource) return; // Source never dials out
     if (state || _connecting) return;
     _reconnectScheduler.scheduleReconnect();
   }
+
+  bool get _hasCompletedRemotePeer => hasCompletedRemotePeer(_peer);
 
   Future<bool> _connectTo(
     String ip,
@@ -500,7 +522,13 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
     Duration? connectTimeout,
   }) async {
     final key = _key;
-    if (key == null || _connecting || state) return false;
+    if (key == null ||
+        !isUsableEndpoint(ip: ip, port: port, localIps: _allLocalIps) ||
+        !isUsablePeerEndpoint(peer: _peer, localIps: _allLocalIps) ||
+        _connecting ||
+        state) {
+      return false;
+    }
 
     final generation = ++_connectGeneration;
     _connecting = true;
@@ -511,6 +539,12 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
           detail: 'Connecting to $ip:$port...',
         );
     try {
+      if (_socketManager?.isServerMode == true) {
+        _logger.i('Replacing pairing listener with an outbound client.');
+        await _socketManager!.stopServer();
+        await _socketManager!.disconnectClient();
+        _socketManager = null;
+      }
       _socketManager ??= _createSocketManager();
       await _configureAuth(_socketManager!);
       final ok = await _socketManager!.connect(
@@ -588,7 +622,11 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
     bool force = false,
   }) async {
     if (isSource) return; // only Main ever dials out
-    if (state || _connecting) return;
+    if (state ||
+        _connecting ||
+        !isUsablePeerEndpoint(peer: _peer, localIps: _allLocalIps)) {
+      return;
+    }
 
     if (await _tryKnownNetworkFastPath()) return;
     if (state || _connecting) return;
@@ -610,6 +648,11 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
     int port, {
     required bool fromScan,
   }) async {
+    if (!isUsablePeerEndpoint(peer: _peer, localIps: _allLocalIps) ||
+        !isUsableEndpoint(ip: ip, port: port, localIps: _allLocalIps)) {
+      _logger.w('Ignoring discovery result with unusable endpoint $ip:$port.');
+      return;
+    }
     if (fromScan) {
       if (state) return;
       _lastDiscoveredIp = ip;
@@ -683,6 +726,12 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
       }
     }
 
+    if (!isSource && !_hasCompletedRemotePeer) {
+      _reconnectScheduler.invalidate();
+      _peerDiscoveryCoordinator.invalidate();
+      return;
+    }
+
     // Abandon any connect attempt that's in flight on the old network so
     // the guards (_connecting) don't silently swallow the fast reconnect
     // below -- same pattern forceReconnect()/_maybeRunFallbackScan use.
@@ -737,7 +786,10 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
   Future<bool> _tryKnownNetworkFastPath() async {
     if (isSource || state || _connecting) return false;
     final peer = _peer;
-    if (peer == null) return false;
+    if (peer == null ||
+        !isUsablePeerEndpoint(peer: peer, localIps: _allLocalIps)) {
+      return false;
+    }
     final localIp = await PeerDiscovery().getLocalIp();
     final prefix = subnetPrefixOf(localIp ?? '');
     if (prefix == null) return false;
@@ -745,7 +797,16 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
       peerId: peer.id,
       subnetPrefix: prefix,
     );
-    if (cachedIp == null || state || _connecting) return false;
+    if (cachedIp == null ||
+        !isUsableEndpoint(
+          ip: cachedIp,
+          port: peer.port,
+          localIps: _allLocalIps,
+        ) ||
+        state ||
+        _connecting) {
+      return false;
+    }
     _logger.i(
       'Known-network cache hit for $prefix.0/24 -> $cachedIp; trying fast reconnect.',
     );
@@ -799,6 +860,18 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
       return;
     }
 
+    if (!_hasCompletedRemotePeer ||
+        !isUsablePeerEndpoint(peer: _peer, localIps: _allLocalIps)) {
+      statusNotifier.logDiscovery(
+        'No completed remote peer is available for reconnect.',
+        isError: true,
+      );
+      statusNotifier.endForceConnect();
+      _reconnectScheduler.invalidate();
+      _peerDiscoveryCoordinator.invalidate();
+      return;
+    }
+
     // Abandon any in-flight attempt so the parallel race below owns the
     // generation and the busy guards.
     if (_connecting) {
@@ -830,7 +903,10 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
   ) async {
     final peer = _peer;
     final key = _key;
-    if (peer == null || key == null) {
+    if (peer == null ||
+        key == null ||
+        !_hasCompletedRemotePeer ||
+        !isUsablePeerEndpoint(peer: peer, localIps: _allLocalIps)) {
       statusNotifier.logDiscovery('No peer configured.', isError: true);
       return;
     }
@@ -988,7 +1064,17 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
     final key = _key;
     if (key == null) return;
 
-    final decrypted = await CryptoManager.decrypt(key, message.payload);
+    final metadata = CryptoManager.canonicalMessageMetadata(
+      version: message.protocolVersion,
+      type: message.type,
+      id: message.id,
+      timestamp: message.timestamp,
+    );
+    final decrypted = await CryptoManager.decryptWithAad(
+      key,
+      message.payload,
+      aad: utf8.encode(metadata),
+    );
     if (decrypted == null) {
       _logger.e('Decryption failed for message: ${message.id}');
       return;
@@ -1044,9 +1130,12 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
 
       case MessageTypes.pairingRequest:
         _logger.i('pairingRequest received from scanner.');
-        _ref
+        await _ref
             .read(pairingFacadeProvider.notifier)
-            .handleIncomingRequest(payload);
+            .handleIncomingRequest(
+              payload,
+              liveRemoteAddress: _socketManager?.remoteAddress,
+            );
         break;
 
       case MessageTypes.pairingAck:
@@ -1055,7 +1144,7 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
         // arrives on this device's regular socket (unlike pairingAccept/
         // pairingReject below, which the *scanner* receives on its own
         // separate handshake socket, never here).
-        _ref.read(pairingFacadeProvider.notifier).handlePairingAck();
+        _ref.read(pairingFacadeProvider.notifier).handlePairingAck(payload);
         break;
 
       case MessageTypes.pairingAccept:

@@ -329,8 +329,23 @@ class SmsFacade extends StateNotifier<List<SmsMessage>> {
     String? id,
     String? contactName,
     String? threadId,
-  }) {
+  }) async {
     final smsId = id ?? const Uuid().v4();
+    final now = DateTime.now();
+    await add(
+      SmsMessage(
+        id: smsId,
+        threadId: threadId ?? '',
+        address: address,
+        contactName: contactName ?? '',
+        body: body,
+        encrypted: '',
+        direction: 'outgoing',
+        status: 'pending',
+        timestamp: now,
+        createdAt: now,
+      ),
+    );
     return _sendOrQueue(MessageTypes.smsOutgoing, {
       'id': smsId,
       'address': address,
@@ -338,7 +353,7 @@ class SmsFacade extends StateNotifier<List<SmsMessage>> {
       if (contactName != null && contactName.isNotEmpty)
         'contact_name': contactName,
       if (threadId != null && threadId.isNotEmpty) 'thread_id': threadId,
-      'timestamp': DateTime.now().millisecondsSinceEpoch,
+      'timestamp': now.millisecondsSinceEpoch,
     });
   }
 }

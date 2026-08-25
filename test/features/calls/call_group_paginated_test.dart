@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logger/logger.dart';
@@ -32,6 +33,7 @@ void main() {
   });
 
   setUp(() async {
+    FlutterSecureStorage.setMockInitialValues({});
     SharedPreferences.setMockInitialValues({});
     tempDir = await Directory.systemTemp.createTemp(
       'mirrorline_call_group_test',
@@ -73,6 +75,7 @@ void main() {
     required DateTime timestamp,
     String number = '+15555550100',
     String contactName = 'Alice',
+    String status = 'missed',
   }) {
     return CallEvent(
       id: id,
@@ -81,7 +84,7 @@ void main() {
       contactName: contactName,
       timestamp: timestamp,
       encrypted: '',
-      status: 'missed',
+      status: status,
       createdAt: timestamp,
     );
   }
@@ -252,5 +255,90 @@ void main() {
     expect(alice.calls.map((c) => c.id).toList(), ['call2', 'call1']);
     expect(bob.calls.map((c) => c.id).toList(), ['call3']);
     expect(state.items.first.key, 'Bob');
+  });
+
+  test('refresh replaces a stale status for the same call', () async {
+    final container = buildContainer();
+    final facade = container.read(callFacadeProvider.notifier);
+    await facade.load();
+
+    final now = DateTime.now();
+    await facade.add(makeEvent(id: 'call1', timestamp: now, status: 'ringing'));
+
+    final notifier = container.read(callGroupsPaginatedProvider.notifier);
+    await notifier.loadInitial();
+    expect(
+      container.read(callGroupsPaginatedProvider).items.single.hasActive,
+      isTrue,
+    );
+
+    await facade.updateStatus('call1', 'missed');
+    await notifier.refresh();
+
+    final group = container.read(callGroupsPaginatedProvider).items.single;
+    expect(group.calls, hasLength(1));
+    expect(group.calls.single.status, 'missed');
+    expect(group.hasActive, isFalse);
+  });
+
+  test(
+    'refresh moves an updated call without retaining its old group',
+    () async {
+      final container = buildContainer();
+      final facade = container.read(callFacadeProvider.notifier);
+      await facade.load();
+
+      final now = DateTime.now();
+      await facade.add(
+        makeEvent(
+          id: 'call1',
+          timestamp: now,
+          number: '+15555550100',
+          contactName: '',
+          status: 'ringing',
+        ),
+      );
+
+      final notifier = container.read(callGroupsPaginatedProvider.notifier);
+      await notifier.loadInitial();
+
+      await facade.add(
+        makeEvent(
+          id: 'call1',
+          timestamp: now,
+          number: '+15555550100',
+          contactName: 'Alice',
+        ),
+      );
+      await notifier.refresh();
+
+      final groups = container.read(callGroupsPaginatedProvider).items;
+      expect(groups.map((group) => group.key), ['Alice']);
+      expect(
+        groups
+            .expand((group) => group.calls)
+            .where((call) => call.id == 'call1'),
+        hasLength(1),
+      );
+    },
+  );
+
+  test('activeCall identifies the ringing call in a mixed group', () {
+    final now = DateTime.now();
+    final group = CallGroup(
+      key: 'Alice',
+      displayName: 'Alice',
+      calls: [
+        makeEvent(id: 'newer', timestamp: now),
+        makeEvent(
+          id: 'ringing',
+          timestamp: now.subtract(const Duration(minutes: 1)),
+          status: 'ringing',
+        ),
+      ],
+    );
+
+    expect(group.hasActive, isTrue);
+    expect(group.activeCall?.id, 'ringing');
   });
 }

@@ -131,6 +131,41 @@ class PeerDiscovery {
     return result;
   }
 
+  /// Returns every non-loopback IP owned by a local network interface.
+  ///
+  /// Unlike [getAllLocalIps], this includes public IPv4 and IPv6 addresses.
+  /// It is intended for self-endpoint checks, not subnet discovery.
+  Future<Set<String>?> getAllLocalAddresses() async {
+    final result = <String>{};
+
+    try {
+      final native = await TelephonyChannel.getLocalIp();
+      if (native != null && native.isNotEmpty) {
+        final address = InternetAddress(native);
+        if (!address.isLoopback) result.add(address.address);
+      }
+    } catch (e) {
+      _logger.w('Native getLocalIp failed: $e');
+    }
+
+    try {
+      final interfaces = await NetworkInterface.list(
+        type: InternetAddressType.any,
+      );
+      for (final interface in interfaces) {
+        for (final address in interface.addresses) {
+          if (!address.isLoopback) result.add(address.address);
+        }
+      }
+    } catch (e) {
+      _logger.e('Failed to enumerate all local addresses: $e');
+      return null;
+    }
+
+    _logger.d('getAllLocalAddresses: ${result.join(', ')}');
+    return result;
+  }
+
   static bool _isPrivateIp(String ip) {
     if (ip.startsWith('192.168.')) return true;
     if (ip.startsWith('10.')) return true;

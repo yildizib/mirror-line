@@ -54,7 +54,7 @@ void main() {
         var facadeGeneration = 0;
         final scheduler = ReconnectScheduler(
           logger: Logger(),
-          onReconnect: (ip, port) async {},
+          onReconnect: (ip, port) async => true,
           getPeerIp: () => '192.168.1.100',
           getPeerPort: () => 45678,
         );
@@ -75,6 +75,26 @@ void main() {
   });
 
   group('PeerDiscoveryCoordinator.maybeRunFallbackScan', () {
+    test('does not scan when the peer port is zero', () async {
+      var discoveredCalls = 0;
+      final coordinator = PeerDiscoveryCoordinator(
+        logger: Logger(),
+        onDiscovered: (ip, port, {required fromScan}) async {
+          discoveredCalls++;
+        },
+        getPeerId: () => 'self-id',
+        getPeerPort: () => 0,
+        getDeviceName: () => 'Test Device',
+        getAllLocalIps: () => ['192.168.1.10'],
+        getExpectedPeerId: () => 'peer-id',
+      );
+
+      coordinator.markDisconnected();
+      await coordinator.maybeRunFallbackScan(immediate: true, force: true);
+
+      expect(discoveredCalls, 0);
+    });
+
     test(
       'accepts immediate/force parameters and no-ops with no local IPs',
       () async {
