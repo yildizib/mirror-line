@@ -2,6 +2,10 @@ import 'dart:io';
 
 import 'package:mirrorline/core/data/models/peer.dart';
 
+bool hasCompletedRemotePeer(Peer? peer) {
+  return peer != null && peer.publicKey.isNotEmpty;
+}
+
 bool isUsablePeerEndpoint({
   required Peer? peer,
   required Iterable<String> localIps,

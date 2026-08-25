@@ -15,6 +15,12 @@ void main() {
   );
 
   group('isUsablePeerEndpoint', () {
+    test('completed remote peer guard rejects self-only setup records', () {
+      expect(hasCompletedRemotePeer(null), false);
+      expect(hasCompletedRemotePeer(pairedPeer.copyWith(publicKey: '')), false);
+      expect(hasCompletedRemotePeer(pairedPeer), true);
+    });
+
     test('rejects an unpaired peer', () {
       expect(
         isUsablePeerEndpoint(

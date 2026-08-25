@@ -506,8 +506,7 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
     _reconnectScheduler.scheduleReconnect();
   }
 
-  bool get _hasCompletedRemotePeer =>
-      _peer != null && _peer!.publicKey.isNotEmpty;
+  bool get _hasCompletedRemotePeer => hasCompletedRemotePeer(_peer);
 
   Future<bool> _connectTo(
     String ip,
