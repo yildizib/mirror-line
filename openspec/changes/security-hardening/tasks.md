@@ -61,7 +61,7 @@
 
 - [x] 6.1 Extend the authentication transcript to include both device IDs,
   both expected public keys, fresh nonces, and the protocol version.
-- [ ] 6.2 Require the server to verify the client Ed25519 signature and the
+- [x] 6.2 Require the server to verify the client Ed25519 signature and the
   client to verify the server Ed25519 signature.
 - [ ] 6.3 Require both authentication proofs and the final acknowledgement
   before marking a paired connection ready.

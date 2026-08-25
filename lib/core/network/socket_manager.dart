@@ -26,6 +26,7 @@ class SocketManager {
   String? _localDeviceId;
   String? _peerDeviceId;
   String? _localPublicKeyBase64;
+  String? _clientAuthTranscript;
 
   /// This device's Ed25519 keypair, used to sign challenges when acting as
   /// the *client*.  Set via [setAuthIdentity].
@@ -315,7 +316,7 @@ class SocketManager {
           continue;
         }
         if (message.type == MessageTypes.authOk) {
-          _onClientAuthOk();
+          _onClientAuthOk(message);
           continue;
         }
         if (message.type == MessageTypes.authAck) {
@@ -487,6 +488,7 @@ class SocketManager {
       return;
     }
     final transcript = _authTranscript(payload);
+    _clientAuthTranscript = transcript;
     final signature = await CryptoManager.sign(localKeyPair, transcript);
     _logger.i('Client sending auth response (signed nonce).');
     await sendMessage(MessageTypes.authResponse, {
@@ -538,7 +540,16 @@ class SocketManager {
       _logger.i(
         'Client authenticated successfully. Sent authOk, awaiting ack.',
       );
-      await sendMessage(MessageTypes.authOk, {});
+      final localKey = _localKeyPair;
+      if (localKey == null) {
+        _onAuthFail();
+        return;
+      }
+      final serverSignature = await CryptoManager.sign(localKey, transcript);
+      await sendMessage(MessageTypes.authOk, {
+        'transcript': transcript,
+        'signature': serverSignature,
+      });
       // Don't call _onAuthSuccess() yet: if this authOk never reaches the
       // client (dropped packet, client already gave up), we'd otherwise
       // believe the connection is live -- start heartbeating, report
@@ -565,7 +576,30 @@ class SocketManager {
   /// Client side: server accepted our signed challenge. Ack it so the
   /// server knows we actually received this before either side considers
   /// the connection established (see _handleAuthResponse above).
-  void _onClientAuthOk() async {
+  void _onClientAuthOk(MirrorMessage message) async {
+    final key = _key;
+    final peerKey = _peerPublicKeyBase64;
+    if (key == null || peerKey == null || _clientAuthTranscript == null) {
+      _onAuthFail();
+      return;
+    }
+    final decrypted = await CryptoManager.decrypt(key, message.payload);
+    if (decrypted == null) {
+      _onAuthFail();
+      return;
+    }
+    final payload = jsonDecode(decrypted) as Map<String, dynamic>;
+    final valid =
+        payload['transcript'] == _clientAuthTranscript &&
+        await CryptoManager.verifySignature(
+          signatureBase64: payload['signature'] as String? ?? '',
+          message: _clientAuthTranscript!,
+          publicKeyBase64: peerKey,
+        );
+    if (!valid) {
+      _onAuthFail();
+      return;
+    }
     await sendMessage(MessageTypes.authAck, {});
     _onAuthSuccess();
   }
