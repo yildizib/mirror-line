@@ -67,7 +67,7 @@
   before marking a paired connection ready.
 - [x] 6.4 Fail closed when an already paired connection lacks required identity
   material instead of silently skipping authentication.
-- [ ] 6.5 Add authentication tests for valid peers, invalid signatures,
+- [x] 6.5 Add authentication tests for valid peers, invalid signatures,
   identity mismatch, stale nonces, missing keys, timeout, and acknowledgement
   failure.
 
