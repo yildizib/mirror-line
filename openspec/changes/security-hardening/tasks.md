@@ -48,7 +48,7 @@
 
 - [x] 5.1 Add a versioned wire envelope without breaking controlled pairing
   compatibility.
-- [ ] 5.2 Implement canonical authenticated metadata for protocol version,
+- [x] 5.2 Implement canonical authenticated metadata for protocol version,
   message type, message ID, and timestamp.
 - [ ] 5.3 Include the canonical metadata as AES-GCM associated authenticated
   data for every encrypted normal message.
