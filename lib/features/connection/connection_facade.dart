@@ -16,6 +16,7 @@ import 'package:mirrorline/core/network/socket_manager.dart';
 import 'package:mirrorline/core/network/subnet_scanner.dart';
 import 'package:mirrorline/core/security/crypto_manager.dart';
 import 'package:mirrorline/core/security/key_store.dart';
+import 'package:mirrorline/core/security/security_constants.dart';
 import 'package:mirrorline/core/services/connectivity_service.dart';
 import 'package:mirrorline/core/services/notification_service.dart';
 import 'package:mirrorline/core/services/queue_service.dart';
@@ -59,15 +60,12 @@ final connectionConnectingProvider = Provider<bool>((ref) {
 });
 
 class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
-  static const Duration _retryInterval = Duration(seconds: 30);
   // How long an outgoing SMS may sit on 'pending' before it's given up on
   // and shown as 'failed'. The queue's own 5-attempt retry only advances
   // when the connection actually comes back up (see _flushQueue), so if
   // the peer never reconnects a queued sms_status ack would otherwise
   // never get marked either way -- this is a connection-state-independent
   // backstop so "Gönderiliyor" doesn't linger forever.
-  static const Duration _pendingSmsTimeout = Duration(minutes: 2);
-
   final Logger _logger = Logger();
   final Ref _ref;
   final ConnectivityService _connectivity = ConnectivityService();
@@ -219,10 +217,10 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
     // the same full (re)initialization that happens on a fresh app start,
     // so devices recover on their own instead of requiring the app to be
     // killed and reopened.
-    _healthTimer ??= Timer.periodic(_retryInterval, (_) {
+    _healthTimer ??= Timer.periodic(SecurityConstants.reconnectInterval, (_) {
       _ref
           .read(smsFacadeProvider.notifier)
-          .failStalePending(_pendingSmsTimeout);
+          .failStalePending(SecurityConstants.pendingSmsTimeout);
       if (_connecting || state) return;
       refresh();
       _maybeRunFallbackScan();

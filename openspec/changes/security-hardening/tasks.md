@@ -2,7 +2,7 @@
 
 - [x] 1.1 Add local database encryption key lifecycle management using
   Android Keystore-backed secure storage.
-- [ ] 1.2 Define centralized encryption, protocol version, freshness, frame,
+- [x] 1.2 Define centralized encryption, protocol version, freshness, frame,
   payload, queue, retry, and TTL constants.
 - [ ] 1.3 Add shared cryptographic helpers for local encryption, keyed lookup
   digests, canonical authenticated metadata, and safe failure handling.

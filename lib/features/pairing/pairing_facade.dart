@@ -8,6 +8,7 @@ import 'package:mirrorline/core/network/message_protocol.dart';
 import 'package:mirrorline/core/network/socket_manager.dart';
 import 'package:mirrorline/core/security/crypto_manager.dart';
 import 'package:mirrorline/core/security/key_store.dart';
+import 'package:mirrorline/core/security/security_constants.dart';
 import 'package:mirrorline/features/pairing/peer_facade.dart';
 import 'package:mirrorline/l10n/app_localizations.dart';
 
@@ -213,7 +214,7 @@ class PairingFacade extends StateNotifier<PairingState> {
 
       _acceptCompleter = Completer<bool>();
       final accepted = await _acceptCompleter!.future.timeout(
-        const Duration(seconds: 30),
+        SecurityConstants.pairingTimeout,
         onTimeout: () => false,
       );
 

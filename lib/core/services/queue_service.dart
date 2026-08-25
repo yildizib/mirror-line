@@ -1,5 +1,6 @@
 import 'package:mirrorline/core/data/daos/queue_dao.dart';
 import 'package:mirrorline/core/data/models/queue_item.dart';
+import 'package:mirrorline/core/security/security_constants.dart';
 
 class QueueService {
   final QueueDao _dao = QueueDao();
@@ -20,7 +21,7 @@ class QueueService {
   /// (never silently -- the caller is expected to reflect that back to the
   /// user, e.g. by marking the originating SMS/call entry as 'failed').
   Future<bool> markFailed(int id, int retryCount) async {
-    if (retryCount >= 5) {
+    if (retryCount >= SecurityConstants.maxQueueRetryCount) {
       await _dao.delete(id);
       return true;
     }

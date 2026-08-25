@@ -6,14 +6,10 @@ import 'package:cryptography/cryptography.dart';
 import 'package:logger/logger.dart';
 import 'package:mirrorline/core/network/message_protocol.dart';
 import 'package:mirrorline/core/security/crypto_manager.dart';
+import 'package:mirrorline/core/security/security_constants.dart';
 import 'package:uuid/uuid.dart';
 
 class SocketManager {
-  static const Duration _heartbeatInterval = Duration(seconds: 30);
-  static const Duration _heartbeatIntervalBackground = Duration(seconds: 60);
-  static const Duration _receiveTimeout = Duration(seconds: 90);
-  static const Duration _authTimeout = Duration(seconds: 10);
-
   final Logger _logger = Logger();
   final void Function(MirrorMessage) onMessage;
   final void Function()? onConnected;
@@ -172,7 +168,9 @@ class SocketManager {
 
       // Wait for auth to complete (or fail/timeout).
       try {
-        await _authCompleter?.future.timeout(_authTimeout);
+        await _authCompleter?.future.timeout(
+          SecurityConstants.authenticationTimeout,
+        );
         return true;
       } catch (e) {
         _logger.w('Auth failed during connect: $e');
@@ -252,13 +250,15 @@ class SocketManager {
   void _startHeartbeat() {
     _stopHeartbeat();
     final interval = _backgroundMode
-        ? _heartbeatIntervalBackground
-        : _heartbeatInterval;
+        ? SecurityConstants.backgroundHeartbeatInterval
+        : SecurityConstants.heartbeatInterval;
     _heartbeatTimer = Timer.periodic(interval, (_) async {
       if (!_isConnected) return;
-      if (DateTime.now().difference(_lastDataAt) > _receiveTimeout) {
+      if (DateTime.now().difference(_lastDataAt) >
+          SecurityConstants.receiveTimeout) {
         _logger.w(
-          'Peer unresponsive (no data for ${_receiveTimeout.inSeconds}s). Closing.',
+          'Peer unresponsive (no data for '
+          '${SecurityConstants.receiveTimeout.inSeconds}s). Closing.',
         );
         _handleClosed();
         return;
@@ -379,7 +379,7 @@ class SocketManager {
     // If the client never responds (e.g. it silently died), don't hold this
     // connection slot forever — close it so a real reconnect can get through.
     _stopServerAuthTimer();
-    _serverAuthTimer = Timer(_authTimeout, () {
+    _serverAuthTimer = Timer(SecurityConstants.authenticationTimeout, () {
       if (!_authed) {
         _logger.w(
           'Server auth timeout: client never completed authentication.',
@@ -399,7 +399,7 @@ class SocketManager {
     _authCompleter = Completer<void>();
     // Start heartbeat only after auth completes (in _onAuthSuccess).
     // Timeout: if server never challenges us, drop the connection.
-    Future.delayed(_authTimeout, () {
+    Future.delayed(SecurityConstants.authenticationTimeout, () {
       if (_authCompleter != null && !_authCompleter!.isCompleted) {
         _logger.w('Auth timeout (no challenge from server).');
         _authCompleter!.completeError('timeout');
