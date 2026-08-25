@@ -15,7 +15,7 @@
   before starting the pairing transaction.
 - [x] 2.2 Reject incoming pairing requests and persistence updates that claim
   the local device as the remote peer.
-- [ ] 2.3 Preserve the dedicated temporary pairing socket while pausing normal
+- [x] 2.3 Preserve the dedicated temporary pairing socket while pausing normal
   connection machinery during the transaction.
 - [ ] 2.4 Add pairing tests for valid remote identities, self identity, identity
   mismatch, timeout, and retry after reset.
