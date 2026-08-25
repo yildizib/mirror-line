@@ -26,7 +26,7 @@
   sensitive fields in their existing columns before database writes.
 - [x] 3.2 Update DAOs and queue handling to decrypt protected fields before
   returning application models or sending queued messages.
-- [ ] 3.3 Move address, thread, and package filtering/grouping after decryption
+- [x] 3.3 Move address, thread, and package filtering/grouping after decryption
   without adding searchable sensitive columns.
 - [ ] 3.4 Preserve existing facade, provider, pagination, grouping, and UI
   behavior with decrypted model values.
