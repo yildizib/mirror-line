@@ -115,9 +115,9 @@
 - [x] 10.2 Add or update security tests covering raw wire confidentiality,
   local storage protection, migration, authentication, replay, pairing, and
   resource limits.
-- [ ] 10.3 Run `dart format lib/ test/` and format any changed Dart files.
-- [ ] 10.4 Run `dart analyze --fatal-infos` and fix all reported issues.
-- [ ] 10.5 Run `flutter analyze` and fix all reported issues.
-- [ ] 10.6 Run `flutter test` and verify all tests pass.
-- [ ] 10.7 Run `flutter build apk --debug` and verify the debug APK builds.
-- [ ] 10.8 Run OpenSpec validation and confirm all requirements have coverage.
+- [x] 10.3 Run `dart format lib/ test/` and format any changed Dart files.
+- [x] 10.4 Run `dart analyze --fatal-infos` and fix all reported issues.
+- [x] 10.5 Run `flutter analyze` and fix all reported issues.
+- [x] 10.6 Run `flutter test` and verify all tests pass.
+- [x] 10.7 Run `flutter build apk --debug` and verify the debug APK builds.
+- [x] 10.8 Run OpenSpec validation and confirm all requirements have coverage.

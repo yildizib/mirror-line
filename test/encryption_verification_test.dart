@@ -142,7 +142,7 @@ void main() {
       type: MessageTypes.smsIncoming,
       id: 'message-1',
       timestamp: DateTime.now().millisecondsSinceEpoch,
-      payload: 'ciphertext',
+      payload: 'Y2lwaGVydGV4dA==',
       sessionId: 'session-1',
       sequence: 4,
     );
