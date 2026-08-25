@@ -63,4 +63,76 @@ void main() {
       );
     });
   });
+
+  group('isExpectedPairingAck', () {
+    test('accepts an ack matching the active transaction and peer', () {
+      expect(
+        isExpectedPairingAck(
+          transactionId: 'transaction-id',
+          peerId: 'peer-id',
+          peerPublicKey: 'peer-key',
+          expectedTransactionId: 'transaction-id',
+          expectedPeerId: 'peer-id',
+          expectedPeerPublicKey: 'peer-key',
+        ),
+        true,
+      );
+    });
+
+    test('rejects an ack when no transaction is active', () {
+      expect(
+        isExpectedPairingAck(
+          transactionId: 'transaction-id',
+          peerId: 'peer-id',
+          peerPublicKey: 'peer-key',
+          expectedTransactionId: null,
+          expectedPeerId: null,
+          expectedPeerPublicKey: null,
+        ),
+        false,
+      );
+    });
+
+    test('rejects an ack for another transaction', () {
+      expect(
+        isExpectedPairingAck(
+          transactionId: 'stale-transaction-id',
+          peerId: 'peer-id',
+          peerPublicKey: 'peer-key',
+          expectedTransactionId: 'transaction-id',
+          expectedPeerId: 'peer-id',
+          expectedPeerPublicKey: 'peer-key',
+        ),
+        false,
+      );
+    });
+
+    test('rejects an ack from another peer identity', () {
+      expect(
+        isExpectedPairingAck(
+          transactionId: 'transaction-id',
+          peerId: 'other-peer-id',
+          peerPublicKey: 'other-peer-key',
+          expectedTransactionId: 'transaction-id',
+          expectedPeerId: 'peer-id',
+          expectedPeerPublicKey: 'peer-key',
+        ),
+        false,
+      );
+    });
+
+    test('rejects malformed ack identity fields', () {
+      expect(
+        isExpectedPairingAck(
+          transactionId: 42,
+          peerId: ['peer-id'],
+          peerPublicKey: {'value': 'peer-key'},
+          expectedTransactionId: 'transaction-id',
+          expectedPeerId: 'peer-id',
+          expectedPeerPublicKey: 'peer-key',
+        ),
+        false,
+      );
+    });
+  });
 }

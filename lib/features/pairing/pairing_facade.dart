@@ -202,6 +202,9 @@ class PairingFacade extends StateNotifier<PairingState> {
     final keyBytes = base64Decode(scannedKeyBase64);
     final key = SecretKey(keyBytes);
     _handshakeKey = key;
+    _clearOutgoingTransaction();
+    final acceptCompleter = Completer<bool>();
+    _acceptCompleter = acceptCompleter;
     _transactionId = const Uuid().v4();
     _expectedPeerId = scannedId;
     _expectedPeerPublicKey = scannedPublicKey;
@@ -242,8 +245,6 @@ class PairingFacade extends StateNotifier<PairingState> {
         return;
       }
 
-      _acceptPayload = null;
-      _acceptCompleter = Completer<bool>();
       final requestSent = await _handshakeSocket!
           .sendMessage(MessageTypes.pairingRequest, {
             'transactionId': _transactionId,
@@ -259,7 +260,7 @@ class PairingFacade extends StateNotifier<PairingState> {
       }
       _logger.i('Pairing request delivered.');
 
-      final accepted = await _acceptCompleter!.future.timeout(
+      final accepted = await acceptCompleter.future.timeout(
         SecurityConstants.pairingTimeout,
         onTimeout: () => false,
       );
@@ -326,6 +327,7 @@ class PairingFacade extends StateNotifier<PairingState> {
         errorDetail: '$e',
       );
     } finally {
+      _clearOutgoingTransaction(owner: acceptCompleter);
       await _cleanupSocket();
     }
   }
@@ -438,6 +440,7 @@ class PairingFacade extends StateNotifier<PairingState> {
             ],
           );
 
+    _clearIncomingTransaction();
     state = PairingState(
       isShowingRequest: true,
       remoteDeviceName: deviceName,
@@ -492,6 +495,7 @@ class PairingFacade extends StateNotifier<PairingState> {
         scannerId.isEmpty ||
         scannerPublicKey.isEmpty ||
         !_isSupportedRole(scannerRole)) {
+      _clearIncomingTransaction();
       state = const PairingState(errorCode: PairingErrorCode.handshakeFailed);
       return;
     }
@@ -503,60 +507,63 @@ class PairingFacade extends StateNotifier<PairingState> {
       localPublicKey: myPublicKey,
     )) {
       _logger.w('Rejecting self identity during pairing acceptance.');
+      _clearIncomingTransaction();
       state = const PairingState(errorCode: PairingErrorCode.handshakeFailed);
       return;
     }
 
+    _clearIncomingTransaction(clearPendingInfo: false);
     _expectedAckPeerId = scannerId;
     _expectedAckPeerPublicKey = scannerPublicKey;
-    _pairAckCompleter = Completer<bool>();
+    final ackCompleter = Completer<bool>();
+    _pairAckCompleter = ackCompleter;
     state = state.copyWith(isShowingRequest: false, isFinalizing: true);
 
-    _logger.i('Sending pairingAccept to scanner...');
-    final acceptSent = await socketManager.sendMessage(
-      MessageTypes.pairingAccept,
-      {
-        'transactionId': transactionId,
-        // Sent to the other device as identity data -- locale-neutral
-        // fallback, same reasoning as peer_facade.dart's _getDeviceName().
-        'deviceName': myPeer?.deviceName ?? 'Unknown Device',
-        'peerId': myPeer?.id ?? '',
-        'publicKey': myPublicKey,
-        'role': myPeer?.role ?? 'main',
-        'ip': myIp,
-      },
-    );
-    if (!acceptSent) {
-      state = const PairingState(errorCode: PairingErrorCode.handshakeFailed);
-      return;
-    }
+    try {
+      _logger.i('Sending pairingAccept to scanner...');
+      final acceptSent = await socketManager.sendMessage(
+        MessageTypes.pairingAccept,
+        {
+          'transactionId': transactionId,
+          // Sent to the other device as identity data -- locale-neutral
+          // fallback, same reasoning as peer_facade.dart's _getDeviceName().
+          'deviceName': myPeer?.deviceName ?? 'Unknown Device',
+          'peerId': myPeer?.id ?? '',
+          'publicKey': myPublicKey,
+          'role': myPeer?.role ?? 'main',
+          'ip': myIp,
+        },
+      );
+      if (!acceptSent) {
+        state = const PairingState(errorCode: PairingErrorCode.handshakeFailed);
+        return;
+      }
 
-    final acked = await _pairAckCompleter!.future.timeout(
-      const Duration(seconds: 15),
-      onTimeout: () => false,
-    );
+      final acked = await ackCompleter.future.timeout(
+        const Duration(seconds: 15),
+        onTimeout: () => false,
+      );
 
-    if (!acked) {
-      _logger.w('Pairing acknowledgement timed out.');
-      state = const PairingState(errorCode: PairingErrorCode.ackTimeout);
-      _pendingScannerInfo = null;
-      return;
-    }
+      if (!acked) {
+        _logger.w('Pairing acknowledgement timed out.');
+        state = const PairingState(errorCode: PairingErrorCode.ackTimeout);
+        return;
+      }
 
-    // Persist the scanner's full identity (id, name, public key), and its
-    // real IP. Prefer the IP the scanner itself claimed in its
-    // pairingRequest (more reliable than the TCP remote address, which can
-    // be wrong on NAT/VLAN setups) -- fall back to the TCP remote address
-    // if the scanner didn't claim an IP.
-    // Persisted identity data -- locale-neutral fallback, same reasoning as
-    // peer_facade.dart's _getDeviceName().
-    final scannerDeviceName =
-        scannerInfo['deviceName'] as String? ?? 'Unknown Device';
-    final scannerClaimedIp = scannerInfo['ip'] as String?;
-    final scannerIp = (scannerClaimedIp != null && scannerClaimedIp.isNotEmpty)
-        ? scannerClaimedIp
-        : socketManager.remoteAddress;
-    if (scannerId.isNotEmpty && scannerPublicKey.isNotEmpty) {
+      // Persist the scanner's full identity (id, name, public key), and its
+      // real IP. Prefer the IP the scanner itself claimed in its
+      // pairingRequest (more reliable than the TCP remote address, which can
+      // be wrong on NAT/VLAN setups) -- fall back to the TCP remote address
+      // if the scanner didn't claim an IP.
+      // Persisted identity data -- locale-neutral fallback, same reasoning as
+      // peer_facade.dart's _getDeviceName().
+      final scannerDeviceName =
+          scannerInfo['deviceName'] as String? ?? 'Unknown Device';
+      final scannerClaimedIp = scannerInfo['ip'] as String?;
+      final scannerIp =
+          (scannerClaimedIp != null && scannerClaimedIp.isNotEmpty)
+          ? scannerClaimedIp
+          : socketManager.remoteAddress;
       await _ref
           .read(peerFacadeProvider.notifier)
           .applyPairedPeer(
@@ -565,18 +572,25 @@ class PairingFacade extends StateNotifier<PairingState> {
             publicKey: scannerPublicKey,
             ip: scannerIp,
           );
-    }
 
-    state = state.copyWith(isFinalizing: false, isComplete: true);
+      state = state.copyWith(isFinalizing: false, isComplete: true);
+    } finally {
+      _clearIncomingTransaction(owner: ackCompleter);
+    }
   }
 
   /// Scanned side: the scanner confirmed it persisted its own end. Safe to
   /// commit our side now (see acceptRequest).
   void handlePairingAck(Map<String, dynamic> payload) {
     _logger.i('handlePairingAck called — completing _pairAckCompleter.');
-    if (payload['transactionId'] != _pendingScannerInfo?['transactionId'] ||
-        payload['peerId'] != _expectedAckPeerId ||
-        payload['publicKey'] != _expectedAckPeerPublicKey) {
+    if (!isExpectedPairingAck(
+      transactionId: payload['transactionId'],
+      peerId: payload['peerId'],
+      peerPublicKey: payload['publicKey'],
+      expectedTransactionId: _pendingScannerInfo?['transactionId'] as String?,
+      expectedPeerId: _expectedAckPeerId,
+      expectedPeerPublicKey: _expectedAckPeerPublicKey,
+    )) {
       _logger.w('Ignoring pairingAck from another transaction.');
       return;
     }
@@ -587,10 +601,15 @@ class PairingFacade extends StateNotifier<PairingState> {
 
   /// Called by the UI when the *scanned* device user rejects the request.
   Future<void> rejectRequest({required SocketManager socketManager}) async {
-    final rejected = await socketManager.sendMessage(
-      MessageTypes.pairingReject,
-      {},
-    );
+    var rejected = false;
+    try {
+      rejected = await socketManager.sendMessage(
+        MessageTypes.pairingReject,
+        {},
+      );
+    } finally {
+      _clearIncomingTransaction();
+    }
     state = rejected
         ? const PairingState()
         : const PairingState(errorCode: PairingErrorCode.handshakeFailed);
@@ -602,13 +621,8 @@ class PairingFacade extends StateNotifier<PairingState> {
         .read(connectionFacadeProvider.notifier)
         .invalidateNormalConnectionWork();
     state = const PairingState();
-    if (_acceptCompleter != null && !_acceptCompleter!.isCompleted) {
-      _acceptCompleter!.complete(false);
-    }
-    if (_pairAckCompleter != null && !_pairAckCompleter!.isCompleted) {
-      _pairAckCompleter!.complete(false);
-    }
-    _pendingScannerInfo = null;
+    _clearOutgoingTransaction();
+    _clearIncomingTransaction();
     _cleanupSocket();
   }
 
@@ -628,8 +642,38 @@ class PairingFacade extends StateNotifier<PairingState> {
 
   bool _isSupportedRole(Object? role) => role == 'main' || role == 'source';
 
+  void _clearOutgoingTransaction({Completer<bool>? owner}) {
+    if (owner != null && !identical(_acceptCompleter, owner)) return;
+    final completer = _acceptCompleter;
+    if (completer != null && !completer.isCompleted) {
+      completer.complete(false);
+    }
+    _acceptCompleter = null;
+    _transactionId = null;
+    _expectedPeerId = null;
+    _expectedPeerPublicKey = null;
+    _acceptPayload = null;
+  }
+
+  void _clearIncomingTransaction({
+    Completer<bool>? owner,
+    bool clearPendingInfo = true,
+  }) {
+    if (owner != null && !identical(_pairAckCompleter, owner)) return;
+    final completer = _pairAckCompleter;
+    if (completer != null && !completer.isCompleted) {
+      completer.complete(false);
+    }
+    _pairAckCompleter = null;
+    if (clearPendingInfo) _pendingScannerInfo = null;
+    _expectedAckPeerId = null;
+    _expectedAckPeerPublicKey = null;
+  }
+
   @override
   void dispose() {
+    _clearOutgoingTransaction();
+    _clearIncomingTransaction();
     _cleanupSocket();
     super.dispose();
   }
