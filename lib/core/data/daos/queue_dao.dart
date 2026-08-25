@@ -32,6 +32,32 @@ class QueueDao {
     return Future.wait(maps.map(_fromStorage));
   }
 
+  Future<int> count() async {
+    final db = await _database;
+    final result = await db.rawQuery(
+      'SELECT COUNT(*) AS count FROM offline_queue',
+    );
+    return (result.single['count'] as int?) ?? 0;
+  }
+
+  Future<void> deleteExpired(DateTime cutoff) async {
+    final db = await _database;
+    await db.delete(
+      'offline_queue',
+      where: 'created_at < ?',
+      whereArgs: [cutoff.millisecondsSinceEpoch],
+    );
+  }
+
+  Future<void> deleteRetryExceeded(int maxRetryCount) async {
+    final db = await _database;
+    await db.delete(
+      'offline_queue',
+      where: 'retry_count >= ?',
+      whereArgs: [maxRetryCount],
+    );
+  }
+
   Future<void> updateRetryCount(int id, int retryCount) async {
     final db = await _database;
     await db.update(

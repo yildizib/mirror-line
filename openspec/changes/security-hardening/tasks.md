@@ -37,7 +37,7 @@
 
 - [x] 4.1 Encrypt queue payloads with the local storage key before persistence
   and decrypt them only for network delivery.
-- [ ] 4.2 Enforce queue item count, item size, retry count, and retention TTL
+- [x] 4.2 Enforce queue item count, item size, retry count, and retention TTL
   limits with a defined overflow and expiration policy.
 - [ ] 4.3 Prevent duplicate queue delivery using the originating message
   identity where applicable.
