@@ -31,6 +31,6 @@
 - [x] 3.3 Run `flutter analyze` and fix all reported issues.
 - [x] 3.4 Run targeted connection, pairing, discovery, and scheduler tests.
 - [x] 3.5 Run `flutter test` and verify all tests pass.
-- [ ] 3.6 Run `flutter build apk --debug`.
+- [x] 3.6 Run `flutter build apk --debug`.
 - [ ] 3.7 Run strict OpenSpec validation and update the issue with each
   completed task commit before opening the PR.
