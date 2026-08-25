@@ -2,7 +2,7 @@
 
 - [x] 1.1 Define the paired, unpaired, pairing-pending, and pairing-complete
   runtime conditions at the facade boundary.
-- [ ] 1.2 Prevent reconnect scheduling and fallback discovery for unpaired
+- [x] 1.2 Prevent reconnect scheduling and fallback discovery for unpaired
   devices, invalid endpoints, and zero-port scans.
 - [ ] 1.3 Cancel or invalidate stale reconnect, scan, and network-change work
   when pairing starts, resets, times out, or completes.

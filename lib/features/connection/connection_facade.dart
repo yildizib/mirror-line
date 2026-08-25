@@ -23,6 +23,7 @@ import 'package:mirrorline/core/services/queue_service.dart';
 import 'package:mirrorline/core/telephony/telephony_channel.dart';
 import 'package:mirrorline/features/calls/call_facade.dart';
 import 'package:mirrorline/features/connection/connection_status_provider.dart';
+import 'package:mirrorline/features/connection/connection_endpoint_guard.dart';
 import 'package:mirrorline/features/connection/force_connect_strategy.dart';
 import 'package:mirrorline/features/connection/peer_discovery_coordinator.dart';
 import 'package:mirrorline/features/connection/reconnect_scheduler.dart';
@@ -382,6 +383,12 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
       return;
     }
 
+    if (!isUsablePeerEndpoint(peer: peer, localIps: _allLocalIps)) {
+      _logger.w('Paired peer has no usable remote endpoint. Waiting.');
+      await _stopMachinery();
+      return;
+    }
+
     // Paired: pure client role. Tear down any leftover pairing-time server.
     await _socketManager?.stopServer();
     _ref.read(connectionStatusProvider.notifier).setServer(0, false);
@@ -490,7 +497,10 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
   /// broke Source's server, and only the next incoming connection from
   /// Main eventually revived it.
   void _maybeScheduleReconnect() {
-    if (_peer == null || _key == null) return;
+    if (_key == null ||
+        !isUsablePeerEndpoint(peer: _peer, localIps: _allLocalIps)) {
+      return;
+    }
     if (isSource) return; // Source never dials out
     if (state || _connecting) return;
     _reconnectScheduler.scheduleReconnect();
@@ -502,7 +512,13 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
     Duration? connectTimeout,
   }) async {
     final key = _key;
-    if (key == null || _connecting || state) return false;
+    if (key == null ||
+        !isUsableEndpoint(ip: ip, port: port, localIps: _allLocalIps) ||
+        !isUsablePeerEndpoint(peer: _peer, localIps: _allLocalIps) ||
+        _connecting ||
+        state) {
+      return false;
+    }
 
     final generation = ++_connectGeneration;
     _connecting = true;
@@ -590,7 +606,11 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
     bool force = false,
   }) async {
     if (isSource) return; // only Main ever dials out
-    if (state || _connecting) return;
+    if (state ||
+        _connecting ||
+        !isUsablePeerEndpoint(peer: _peer, localIps: _allLocalIps)) {
+      return;
+    }
 
     if (await _tryKnownNetworkFastPath()) return;
     if (state || _connecting) return;
@@ -612,6 +632,11 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
     int port, {
     required bool fromScan,
   }) async {
+    if (!isUsablePeerEndpoint(peer: _peer, localIps: _allLocalIps) ||
+        !isUsableEndpoint(ip: ip, port: port, localIps: _allLocalIps)) {
+      _logger.w('Ignoring discovery result with unusable endpoint $ip:$port.');
+      return;
+    }
     if (fromScan) {
       if (state) return;
       _lastDiscoveredIp = ip;
@@ -739,7 +764,10 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
   Future<bool> _tryKnownNetworkFastPath() async {
     if (isSource || state || _connecting) return false;
     final peer = _peer;
-    if (peer == null) return false;
+    if (peer == null ||
+        !isUsablePeerEndpoint(peer: peer, localIps: _allLocalIps)) {
+      return false;
+    }
     final localIp = await PeerDiscovery().getLocalIp();
     final prefix = subnetPrefixOf(localIp ?? '');
     if (prefix == null) return false;
@@ -747,7 +775,16 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
       peerId: peer.id,
       subnetPrefix: prefix,
     );
-    if (cachedIp == null || state || _connecting) return false;
+    if (cachedIp == null ||
+        !isUsableEndpoint(
+          ip: cachedIp,
+          port: peer.port,
+          localIps: _allLocalIps,
+        ) ||
+        state ||
+        _connecting) {
+      return false;
+    }
     _logger.i(
       'Known-network cache hit for $prefix.0/24 -> $cachedIp; trying fast reconnect.',
     );

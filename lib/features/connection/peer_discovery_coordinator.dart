@@ -104,6 +104,12 @@ class PeerDiscoveryCoordinator {
   }) async {
     if (_scanning) return;
 
+    final port = _getPeerPort();
+    if (port <= 0 || port > 65535) {
+      _logger.w('Skipping subnet scan with unusable peer port $port.');
+      return;
+    }
+
     if (!immediate) {
       final disconnectedSince = _disconnectedSince;
       if (disconnectedSince == null) return;
@@ -135,10 +141,10 @@ class PeerDiscoveryCoordinator {
       _logger.i('Running fallback subnet scan...');
       final found = await _scanner.findHostWithOpenPortMulti(
         localIps: scanIps,
-        port: _getPeerPort(),
+        port: port,
       );
       if (found != null) {
-        await _onDiscovered(found, _getPeerPort(), fromScan: true);
+        await _onDiscovered(found, port, fromScan: true);
       }
     } catch (e) {
       _logger.e('Subnet scan failed: $e');
