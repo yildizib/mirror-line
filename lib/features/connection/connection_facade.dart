@@ -467,7 +467,7 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
   /// the socket so challenge-response authentication can run.
   Future<void> _configureAuth(SocketManager sm) async {
     final peer = _peer;
-    if (peer == null) return;
+    if (peer == null || !hasCompletedRemotePeer(peer)) return;
     sm.requireAuthIdentity();
     final localKeyPair = await KeyStore.getDeviceKeyPair();
     if (localKeyPair == null) return;
