@@ -1,6 +1,6 @@
 ## 1. Reconnect and Socket Guards
 
-- [ ] 1.1 Add a single completed-remote-peer guard to all normal reconnect,
+- [x] 1.1 Add a single completed-remote-peer guard to all normal reconnect,
   force-connect, network-change, and fallback-scan entry points.
 - [ ] 1.2 Prevent unpaired network changes and manual reconnect requests from
   touching the temporary pairing listener.

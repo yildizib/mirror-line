@@ -517,6 +517,9 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
     _reconnectScheduler.scheduleReconnect();
   }
 
+  bool get _hasCompletedRemotePeer =>
+      _peer != null && _peer!.publicKey.isNotEmpty;
+
   Future<bool> _connectTo(
     String ip,
     int port, {
@@ -752,6 +755,11 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
       _broadcaster.updateBroadcastInfo(ips: _allLocalIps);
       return; // server role: fast beacon is all there is to do
     }
+    if (!_hasCompletedRemotePeer) {
+      _reconnectScheduler.invalidate();
+      _peerDiscoveryCoordinator.invalidate();
+      return;
+    }
     // Force the fallback scan immediately: bypass both the 25s grace and
     // the 60s scan backoff, since we have a concrete reason to believe the
     // network changed. The scan runs in parallel with the scheduled
@@ -849,6 +857,18 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
       return;
     }
 
+    if (!_hasCompletedRemotePeer ||
+        !isUsablePeerEndpoint(peer: _peer, localIps: _allLocalIps)) {
+      statusNotifier.logDiscovery(
+        'No completed remote peer is available for reconnect.',
+        isError: true,
+      );
+      statusNotifier.endForceConnect();
+      _reconnectScheduler.invalidate();
+      _peerDiscoveryCoordinator.invalidate();
+      return;
+    }
+
     // Abandon any in-flight attempt so the parallel race below owns the
     // generation and the busy guards.
     if (_connecting) {
@@ -880,7 +900,10 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
   ) async {
     final peer = _peer;
     final key = _key;
-    if (peer == null || key == null) {
+    if (peer == null ||
+        key == null ||
+        !_hasCompletedRemotePeer ||
+        !isUsablePeerEndpoint(peer: peer, localIps: _allLocalIps)) {
       statusNotifier.logDiscovery('No peer configured.', isError: true);
       return;
     }
