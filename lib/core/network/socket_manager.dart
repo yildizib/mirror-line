@@ -23,6 +23,9 @@ class SocketManager {
   /// Public key (base64) of the paired peer — used for challenge-response
   /// authentication after the TCP connection is established.
   String? _peerPublicKeyBase64;
+  String? _localDeviceId;
+  String? _peerDeviceId;
+  String? _localPublicKeyBase64;
 
   /// This device's Ed25519 keypair, used to sign challenges when acting as
   /// the *client*.  Set via [setAuthIdentity].
@@ -90,9 +93,13 @@ class SocketManager {
   void setAuthIdentity({
     required String peerPublicKeyBase64,
     required SimpleKeyPair localKeyPair,
+    String? localDeviceId,
+    String? peerDeviceId,
   }) {
     _peerPublicKeyBase64 = peerPublicKeyBase64;
     _localKeyPair = localKeyPair;
+    _localDeviceId = localDeviceId;
+    _peerDeviceId = peerDeviceId;
   }
 
   Future<void> startServer(int port, SecretKey key) async {
@@ -197,7 +204,7 @@ class SocketManager {
     // Skip auth if no peer public key is configured (pairing mode).
     if (_isServer) {
       if (_peerPublicKeyBase64 != null && _peerPublicKeyBase64!.isNotEmpty) {
-        _startServerAuth(socket);
+        unawaited(_startServerAuth(socket));
       } else {
         _logger.i(
           'Server: no peer public key set — pairing mode, skipping auth.',
@@ -399,10 +406,22 @@ class SocketManager {
   // --------------------------------------------------------------------
 
   /// Server side: send a random nonce to the client.
-  void _startServerAuth(Socket socket) {
+  Future<void> _startServerAuth(Socket socket) async {
     final nonce = CryptoManager.generateNonce();
+    final localKey = _localKeyPair;
+    final localPublicKey = localKey == null
+        ? ''
+        : base64Encode((await localKey.extractPublicKey()).bytes);
+    _localPublicKeyBase64 = localPublicKey;
     _logger.i('Server sending auth challenge.');
-    sendMessage(MessageTypes.authChallenge, {'nonce': nonce});
+    sendMessage(MessageTypes.authChallenge, {
+      'nonce': nonce,
+      'protocol_version': SecurityConstants.protocolVersion,
+      'server_device_id': _localDeviceId,
+      'client_device_id': _peerDeviceId,
+      'server_public_key': localPublicKey,
+      'client_public_key': _peerPublicKeyBase64,
+    });
 
     // If the client never responds (e.g. it silently died), don't hold this
     // connection slot forever — close it so a real reconnect can get through.
@@ -460,11 +479,20 @@ class SocketManager {
       return;
     }
 
-    final signature = await CryptoManager.sign(localKeyPair, nonce);
+    if (payload['protocol_version'] != SecurityConstants.protocolVersion ||
+        payload['server_device_id'] != _peerDeviceId ||
+        payload['client_device_id'] != _localDeviceId ||
+        payload['server_public_key'] != _peerPublicKeyBase64) {
+      _handleClosed();
+      return;
+    }
+    final transcript = _authTranscript(payload);
+    final signature = await CryptoManager.sign(localKeyPair, transcript);
     _logger.i('Client sending auth response (signed nonce).');
     await sendMessage(MessageTypes.authResponse, {
       'nonce': nonce,
       'signature': signature,
+      'transcript': transcript,
     });
   }
 
@@ -487,13 +515,24 @@ class SocketManager {
     final payload = jsonDecode(decrypted) as Map<String, dynamic>;
     final nonce = payload['nonce'] as String? ?? '';
     final signature = payload['signature'] as String? ?? '';
+    final transcript = payload['transcript'] as String? ?? '';
 
     // Verify the signature against the nonce using the peer's public key.
-    final ok = await CryptoManager.verifySignature(
-      signatureBase64: signature,
-      message: nonce,
-      publicKeyBase64: peerPubKey,
-    );
+    final expectedTranscript = _authTranscript({
+      'nonce': nonce,
+      'protocol_version': SecurityConstants.protocolVersion,
+      'server_device_id': _localDeviceId,
+      'client_device_id': _peerDeviceId,
+      'server_public_key': _localPublicKeyBase64,
+      'client_public_key': peerPubKey,
+    });
+    final ok =
+        transcript == expectedTranscript &&
+        await CryptoManager.verifySignature(
+          signatureBase64: signature,
+          message: transcript,
+          publicKeyBase64: peerPubKey,
+        );
 
     if (ok) {
       _logger.i(
@@ -513,6 +552,15 @@ class SocketManager {
       _onAuthFail();
     }
   }
+
+  String _authTranscript(Map<String, dynamic> payload) => jsonEncode({
+    'protocol_version': payload['protocol_version'],
+    'nonce': payload['nonce'],
+    'server_device_id': payload['server_device_id'],
+    'client_device_id': payload['client_device_id'],
+    'server_public_key': payload['server_public_key'],
+    'client_public_key': payload['client_public_key'],
+  });
 
   /// Client side: server accepted our signed challenge. Ack it so the
   /// server knows we actually received this before either side considers

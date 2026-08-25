@@ -463,9 +463,12 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
     if (peer == null) return;
     final localKeyPair = await KeyStore.getDeviceKeyPair();
     if (localKeyPair == null) return;
+    final localDeviceId = await KeyStore.getSelfId();
     sm.setAuthIdentity(
       peerPublicKeyBase64: peer.publicKey,
       localKeyPair: localKeyPair,
+      localDeviceId: localDeviceId ?? '',
+      peerDeviceId: peer.id,
     );
   }
 
