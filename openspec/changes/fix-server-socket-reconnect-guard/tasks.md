@@ -26,7 +26,7 @@
 
 ## 3. Verification and Delivery
 
-- [ ] 3.1 Run `dart format lib/ test/` and format all changed Dart files.
+- [x] 3.1 Run `dart format lib/ test/` and format all changed Dart files.
 - [ ] 3.2 Run `dart analyze --fatal-infos` and fix all reported issues.
 - [ ] 3.3 Run `flutter analyze` and fix all reported issues.
 - [ ] 3.4 Run targeted connection, pairing, discovery, and scheduler tests.
