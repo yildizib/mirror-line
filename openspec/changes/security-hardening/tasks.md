@@ -24,7 +24,7 @@
 
 - [x] 3.1 Update peer, call, SMS, notification, and queue persistence to encrypt
   sensitive fields in their existing columns before database writes.
-- [ ] 3.2 Update DAOs and queue handling to decrypt protected fields before
+- [x] 3.2 Update DAOs and queue handling to decrypt protected fields before
   returning application models or sending queued messages.
 - [ ] 3.3 Move address, thread, and package filtering/grouping after decryption
   without adding searchable sensitive columns.
