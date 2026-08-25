@@ -22,7 +22,7 @@
 
 ## 3. Peer Presentation and Diagnostics
 
-- [ ] 3.1 Ensure self-only setup records are not presented as paired remote
+- [x] 3.1 Ensure self-only setup records are not presented as paired remote
   devices in Settings or connection status.
 - [ ] 3.2 Ensure completed pairing persists the other device's identity and
   endpoint on both devices without replacing it with local identity data.

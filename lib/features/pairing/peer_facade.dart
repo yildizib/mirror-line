@@ -24,7 +24,8 @@ final pairedPeersProvider = FutureProvider<List<Peer>>((ref) async {
   // Depend on peerFacadeProvider so any state change (applyPairedPeer,
   // deletePeer, reset, ...) invalidates this provider.
   ref.watch(peerFacadeProvider);
-  return PeerDao().getAllPeers();
+  final peers = await PeerDao().getAllPeers();
+  return peers.where((peer) => peer.publicKey.isNotEmpty).toList();
 });
 
 class PeerFacade extends StateNotifier<Peer?> {
