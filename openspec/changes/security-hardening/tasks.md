@@ -4,7 +4,7 @@
   Android Keystore-backed secure storage.
 - [x] 1.2 Define centralized encryption, protocol version, freshness, frame,
   payload, queue, retry, and TTL constants.
-- [ ] 1.3 Add shared cryptographic helpers for local encryption, keyed lookup
+- [x] 1.3 Add shared cryptographic helpers for local encryption, keyed lookup
   digests, canonical authenticated metadata, and safe failure handling.
 
 ## 2. Local Storage Migration

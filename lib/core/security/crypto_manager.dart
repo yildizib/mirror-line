@@ -22,12 +22,23 @@ class CryptoManager {
   }
 
   static Future<String> encrypt(SecretKey key, String plainText) async {
+    return encryptWithAad(key, plainText, aad: const []);
+  }
+
+  /// Encrypts [plainText] with AES-GCM and authenticates [aad] without
+  /// encrypting it. The returned value contains nonce, ciphertext, and tag.
+  static Future<String> encryptWithAad(
+    SecretKey key,
+    String plainText, {
+    required List<int> aad,
+  }) async {
     final nonceBytes = _randomBytes(12);
 
     final secretBox = await _algorithm.encrypt(
       utf8.encode(plainText),
       secretKey: key,
       nonce: nonceBytes,
+      aad: aad,
     );
 
     final combined = Uint8List(
@@ -46,6 +57,16 @@ class CryptoManager {
   }
 
   static Future<String?> decrypt(SecretKey key, String encryptedBase64) async {
+    return decryptWithAad(key, encryptedBase64, aad: const []);
+  }
+
+  /// Decrypts an AES-GCM value and verifies its associated authenticated data.
+  /// Returns null for malformed, unauthenticated, or undecryptable input.
+  static Future<String?> decryptWithAad(
+    SecretKey key,
+    String encryptedBase64, {
+    required List<int> aad,
+  }) async {
     try {
       final combined = base64Decode(encryptedBase64);
       if (combined.length < 28) return null;
@@ -57,11 +78,60 @@ class CryptoManager {
 
       final secretBox = SecretBox(cipherText, nonce: nonce, mac: Mac(macBytes));
 
-      final decrypted = await _algorithm.decrypt(secretBox, secretKey: key);
+      final decrypted = await _algorithm.decrypt(
+        secretBox,
+        secretKey: key,
+        aad: aad,
+      );
       return utf8.decode(decrypted);
     } catch (e) {
       return null;
     }
+  }
+
+  /// Returns a keyed digest for equality lookups without storing the original
+  /// value in the database. Callers should normalize values before hashing
+  /// when their lookup semantics are case- or whitespace-insensitive.
+  static Future<String> keyedLookupDigest(
+    SecretKey key,
+    String normalizedValue,
+  ) async {
+    final keyBytes = await key.extractBytes();
+    final hmac = crypto.Hmac(crypto.sha256, keyBytes);
+    return hmac.convert(utf8.encode(normalizedValue)).toString();
+  }
+
+  /// Creates the canonical metadata representation used as AES-GCM AAD.
+  /// Map insertion order is deliberate: both peers must authenticate the same
+  /// bytes for the same envelope values.
+  static String canonicalMessageMetadata({
+    required int version,
+    required String type,
+    required String id,
+    required int timestamp,
+  }) {
+    return jsonEncode({
+      'version': version,
+      'type': type,
+      'id': id,
+      'timestamp': timestamp,
+    });
+  }
+
+  static List<int> messageMetadataAad({
+    required int version,
+    required String type,
+    required String id,
+    required int timestamp,
+  }) {
+    return utf8.encode(
+      canonicalMessageMetadata(
+        version: version,
+        type: type,
+        id: id,
+        timestamp: timestamp,
+      ),
+    );
   }
 
   // ---- Ed25519 signing ------------------------------------------------
