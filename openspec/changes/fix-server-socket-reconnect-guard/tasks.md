@@ -83,7 +83,7 @@
 ## 9. Verification and Delivery
 
 - [x] 9.1 Run `dart format lib/ test/`.
-- [ ] 9.2 Run `dart analyze --fatal-infos`.
+- [x] 9.2 Run `dart analyze --fatal-infos`.
 - [ ] 9.3 Run `flutter analyze`.
 - [ ] 9.4 Run targeted pairing, socket, connection, discovery, and scheduler
   tests.
