@@ -285,6 +285,11 @@ class SocketManager {
         final raw = utf8.decode(rawMessage);
         final message = MirrorMessage.decode(raw);
 
+        if (message.protocolVersion != SecurityConstants.protocolVersion) {
+          _logger.w('Rejected message with unknown protocol version.');
+          continue;
+        }
+
         // ---- Intercept auth messages before heartbeat / onMessage ----
         if (message.type == MessageTypes.ping) {
           sendMessage(MessageTypes.pong, {});

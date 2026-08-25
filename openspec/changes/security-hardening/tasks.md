@@ -52,7 +52,7 @@
   message type, message ID, and timestamp.
 - [x] 5.3 Include the canonical metadata as AES-GCM associated authenticated
   data for every encrypted normal message.
-- [ ] 5.4 Reject unknown protocol versions, altered metadata, invalid payloads,
+- [x] 5.4 Reject unknown protocol versions, altered metadata, invalid payloads,
   and authentication failures before dispatching messages.
 - [ ] 5.5 Add wire-level tests for valid envelopes, metadata tampering, wrong
   versions, wrong keys, and invalid ciphertext.
