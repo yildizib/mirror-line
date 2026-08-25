@@ -32,5 +32,5 @@
 - [x] 3.4 Run targeted connection, pairing, discovery, and scheduler tests.
 - [x] 3.5 Run `flutter test` and verify all tests pass.
 - [x] 3.6 Run `flutter build apk --debug`.
-- [ ] 3.7 Run strict OpenSpec validation and update the issue with each
+- [x] 3.7 Run strict OpenSpec validation and update the issue with each
   completed task commit before opening the PR.
