@@ -480,6 +480,33 @@ The core layer provides networking, security, telephony, database, and system
 services. Facades turn those services into product behavior. The UI layer does
 not access sockets, DAOs, or native listeners directly.
 
+## Verified Security Behavior
+
+- Sensitive SQLite fields and offline queue payloads are encrypted before
+  persistence; the secure storage key is authoritative for local encryption.
+- Network payloads use AES-GCM encryption. Normal messages authenticate their
+  protocol version, type, message ID, and timestamp as associated data.
+- Paired connections use mutual Ed25519 authentication with device IDs and
+  expected public keys, then negotiate a fresh session before application data
+  is accepted.
+- Normal messages reject cross-session delivery, replayed IDs, reordered
+  sequences, and timestamps outside the freshness window.
+- QR pairing binds the request, accept, verification value, and final
+  acknowledgement to one transaction. Peer ID, role, and public-key changes
+  are rejected, and persistence waits for the final acknowledgement.
+- Transport parsing enforces frame, JSON, and encrypted payload limits and
+  closes connections that repeatedly send malformed data.
+
+### Security Non-Goals
+
+- The application does not protect a device that is already compromised or
+  running malicious software with access to its process and secure storage.
+- Local-network availability, TCP metadata, and claimed peer IP addresses are
+  not treated as proof of identity.
+- The product does not provide a cloud relay, remote access outside the local
+  network, or protection against denial of service by the operating system or
+  network infrastructure.
+
 ## Current Status
 
 The current application includes pairing, role selection, call mirroring, SMS
@@ -487,8 +514,10 @@ mirroring, selected notification mirroring, offline queue, automatic
 reconnection, connection diagnostics, Android foreground service, and basic
 device management.
 
-Tests cover encryption, protocol, sockets, beacon, subnet discovery, pairing,
-DAOs, migrations, facades, pagination, providers, and widgets.
+Tests cover raw wire confidentiality, local storage encryption and migration,
+authenticated sockets, replay protection, pairing identity binding, transport
+limits, beacon, subnet discovery, DAOs, facades, pagination, providers, and
+widgets.
 
 This document describes the current product behavior. New feature decisions and
 release plans should be verified against the implementation before being added

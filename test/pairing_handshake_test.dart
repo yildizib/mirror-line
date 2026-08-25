@@ -25,7 +25,17 @@ void main() {
       final scanned = SocketManager(
         onMessage: (m) async {
           if (m.type == MessageTypes.pairingRequest) {
-            final decrypted = await CryptoManager.decrypt(key, m.payload);
+            final metadata = CryptoManager.canonicalMessageMetadata(
+              version: m.protocolVersion,
+              type: m.type,
+              id: m.id,
+              timestamp: m.timestamp,
+            );
+            final decrypted = await CryptoManager.decryptWithAad(
+              key,
+              m.payload,
+              aad: utf8.encode(metadata),
+            );
             if (decrypted != null) {
               receivedRequest.complete(
                 jsonDecode(decrypted) as Map<String, dynamic>,
@@ -87,7 +97,17 @@ void main() {
       final scanner = SocketManager(
         onMessage: (m) async {
           if (m.type == MessageTypes.pairingAccept) {
-            final decrypted = await CryptoManager.decrypt(key, m.payload);
+            final metadata = CryptoManager.canonicalMessageMetadata(
+              version: m.protocolVersion,
+              type: m.type,
+              id: m.id,
+              timestamp: m.timestamp,
+            );
+            final decrypted = await CryptoManager.decryptWithAad(
+              key,
+              m.payload,
+              aad: utf8.encode(metadata),
+            );
             if (decrypted != null) {
               receivedAccept.complete(
                 jsonDecode(decrypted) as Map<String, dynamic>,

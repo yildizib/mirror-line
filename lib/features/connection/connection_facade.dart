@@ -16,6 +16,7 @@ import 'package:mirrorline/core/network/socket_manager.dart';
 import 'package:mirrorline/core/network/subnet_scanner.dart';
 import 'package:mirrorline/core/security/crypto_manager.dart';
 import 'package:mirrorline/core/security/key_store.dart';
+import 'package:mirrorline/core/security/security_constants.dart';
 import 'package:mirrorline/core/services/connectivity_service.dart';
 import 'package:mirrorline/core/services/notification_service.dart';
 import 'package:mirrorline/core/services/queue_service.dart';
@@ -59,15 +60,12 @@ final connectionConnectingProvider = Provider<bool>((ref) {
 });
 
 class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
-  static const Duration _retryInterval = Duration(seconds: 30);
   // How long an outgoing SMS may sit on 'pending' before it's given up on
   // and shown as 'failed'. The queue's own 5-attempt retry only advances
   // when the connection actually comes back up (see _flushQueue), so if
   // the peer never reconnects a queued sms_status ack would otherwise
   // never get marked either way -- this is a connection-state-independent
   // backstop so "Gönderiliyor" doesn't linger forever.
-  static const Duration _pendingSmsTimeout = Duration(minutes: 2);
-
   final Logger _logger = Logger();
   final Ref _ref;
   final ConnectivityService _connectivity = ConnectivityService();
@@ -219,10 +217,10 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
     // the same full (re)initialization that happens on a fresh app start,
     // so devices recover on their own instead of requiring the app to be
     // killed and reopened.
-    _healthTimer ??= Timer.periodic(_retryInterval, (_) {
+    _healthTimer ??= Timer.periodic(SecurityConstants.reconnectInterval, (_) {
       _ref
           .read(smsFacadeProvider.notifier)
-          .failStalePending(_pendingSmsTimeout);
+          .failStalePending(SecurityConstants.pendingSmsTimeout);
       if (_connecting || state) return;
       refresh();
       _maybeRunFallbackScan();
@@ -463,11 +461,15 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
   Future<void> _configureAuth(SocketManager sm) async {
     final peer = _peer;
     if (peer == null) return;
+    sm.requireAuthIdentity();
     final localKeyPair = await KeyStore.getDeviceKeyPair();
     if (localKeyPair == null) return;
+    final localDeviceId = await KeyStore.getSelfId();
     sm.setAuthIdentity(
       peerPublicKeyBase64: peer.publicKey,
       localKeyPair: localKeyPair,
+      localDeviceId: localDeviceId ?? '',
+      peerDeviceId: peer.id,
     );
   }
 
@@ -988,7 +990,17 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
     final key = _key;
     if (key == null) return;
 
-    final decrypted = await CryptoManager.decrypt(key, message.payload);
+    final metadata = CryptoManager.canonicalMessageMetadata(
+      version: message.protocolVersion,
+      type: message.type,
+      id: message.id,
+      timestamp: message.timestamp,
+    );
+    final decrypted = await CryptoManager.decryptWithAad(
+      key,
+      message.payload,
+      aad: utf8.encode(metadata),
+    );
     if (decrypted == null) {
       _logger.e('Decryption failed for message: ${message.id}');
       return;
@@ -1044,7 +1056,7 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
 
       case MessageTypes.pairingRequest:
         _logger.i('pairingRequest received from scanner.');
-        _ref
+        await _ref
             .read(pairingFacadeProvider.notifier)
             .handleIncomingRequest(payload);
         break;
@@ -1055,7 +1067,7 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
         // arrives on this device's regular socket (unlike pairingAccept/
         // pairingReject below, which the *scanner* receives on its own
         // separate handshake socket, never here).
-        _ref.read(pairingFacadeProvider.notifier).handlePairingAck();
+        _ref.read(pairingFacadeProvider.notifier).handlePairingAck(payload);
         break;
 
       case MessageTypes.pairingAccept:

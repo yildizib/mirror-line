@@ -1,16 +1,24 @@
 import 'dart:convert';
 
+import 'package:mirrorline/core/security/security_constants.dart';
+
 class MirrorMessage {
   final String type;
   final String id;
   final int timestamp;
   final String payload; // base64 encrypted json
+  final int protocolVersion;
+  final String? sessionId;
+  final int? sequence;
 
   MirrorMessage({
     required this.type,
     required this.id,
     required this.timestamp,
     required this.payload,
+    this.protocolVersion = SecurityConstants.protocolVersion,
+    this.sessionId,
+    this.sequence,
   });
 
   Map<String, dynamic> toJson() => {
@@ -18,19 +26,40 @@ class MirrorMessage {
     'id': id,
     'timestamp': timestamp,
     'payload': payload,
+    'protocol_version': protocolVersion,
+    if (sessionId != null) 'session_id': sessionId,
+    if (sequence != null) 'sequence': sequence,
   };
 
   factory MirrorMessage.fromJson(Map<String, dynamic> json) => MirrorMessage(
     type: json['type'] as String,
     id: json['id'] as String,
     timestamp: json['timestamp'] as int,
-    payload: json['payload'] as String,
+    payload: _validatedPayload(json['payload'] as String),
+    protocolVersion:
+        (json['protocol_version'] as int?) ?? SecurityConstants.protocolVersion,
+    sessionId: json['session_id'] as String?,
+    sequence: json['sequence'] as int?,
   );
 
   String encode() => jsonEncode(toJson());
 
-  static MirrorMessage decode(String raw) =>
-      MirrorMessage.fromJson(jsonDecode(raw));
+  static MirrorMessage decode(String raw) {
+    if (utf8.encode(raw).length > SecurityConstants.maxJsonBytes) {
+      throw const FormatException('Message JSON exceeds configured limit.');
+    }
+    return MirrorMessage.fromJson(jsonDecode(raw));
+  }
+
+  static String _validatedPayload(String payload) {
+    final decodedLength = base64Decode(payload).length;
+    if (decodedLength > SecurityConstants.maxPayloadBytes) {
+      throw const FormatException(
+        'Encrypted payload exceeds configured limit.',
+      );
+    }
+    return payload;
+  }
 }
 
 abstract class MessageTypes {

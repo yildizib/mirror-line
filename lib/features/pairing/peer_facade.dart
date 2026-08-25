@@ -52,8 +52,16 @@ class PeerFacade extends StateNotifier<Peer?> {
     }
   }
 
-  static String generateVerificationCode(String keyBase64, String peerId) {
-    return CryptoManager.verificationCodeFromKey(keyBase64, peerId);
+  static String generateVerificationCode(
+    String keyBase64,
+    String peerId, {
+    Iterable<String> expectedPublicKeys = const [],
+  }) {
+    return CryptoManager.verificationCodeFromKey(
+      keyBase64,
+      peerId,
+      expectedPublicKeys: expectedPublicKeys,
+    );
   }
 
   Future<void> createPeer(String role) async {

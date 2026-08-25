@@ -1,17 +1,31 @@
+import 'package:flutter/foundation.dart';
 import 'package:mirrorline/core/data/database.dart';
 import 'package:mirrorline/core/data/models/sms_message.dart';
+import 'package:mirrorline/core/security/key_store.dart';
+import 'package:mirrorline/core/security/local_storage_crypto.dart';
 import 'package:sqflite/sqflite.dart';
 
 class SmsMessageDao {
   final AppDatabase _db = AppDatabase.instance;
+  Database? _testDb;
 
-  Future<Database> get _database => _db.database;
+  SmsMessageDao();
+
+  @visibleForTesting
+  SmsMessageDao.forDatabase(Database db) : _testDb = db;
+
+  Future<Database> get _database async => _testDb ?? await _db.database;
 
   Future<void> insert(SmsMessage message) async {
     final db = await _database;
+    final values = await LocalStorageCrypto.encryptFields(
+      await KeyStore.ensureLocalDatabaseKey(),
+      message.toJson(),
+      const ['thread_id', 'address', 'contact_name', 'body'],
+    );
     await db.insert(
       'sms_message',
-      message.toJson(),
+      values,
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
   }
@@ -19,7 +33,7 @@ class SmsMessageDao {
   Future<List<SmsMessage>> getAll() async {
     final db = await _database;
     final maps = await db.query('sms_message', orderBy: 'timestamp DESC');
-    return maps.map(SmsMessage.fromJson).toList();
+    return Future.wait(maps.map(_fromStorage));
   }
 
   Future<List<SmsMessage>> getRecent({
@@ -36,7 +50,7 @@ class SmsMessageDao {
       orderBy: 'timestamp DESC',
       limit: limit,
     );
-    return maps.map(SmsMessage.fromJson).toList();
+    return Future.wait(maps.map(_fromStorage));
   }
 
   Future<List<SmsMessage>> getOlder({
@@ -59,18 +73,14 @@ class SmsMessageDao {
       limit: limit,
       offset: offset,
     );
-    return maps.map(SmsMessage.fromJson).toList();
+    return Future.wait(maps.map(_fromStorage));
   }
 
   Future<List<SmsMessage>> getByThread(String threadId) async {
     final db = await _database;
-    final maps = await db.query(
-      'sms_message',
-      where: 'thread_id = ?',
-      whereArgs: [threadId],
-      orderBy: 'timestamp ASC',
-    );
-    return maps.map(SmsMessage.fromJson).toList();
+    final maps = await db.query('sms_message', orderBy: 'timestamp ASC');
+    final messages = await Future.wait(maps.map(_fromStorage));
+    return messages.where((message) => message.threadId == threadId).toList();
   }
 
   Future<List<SmsMessage>> getRecentByThread({
@@ -78,14 +88,10 @@ class SmsMessageDao {
     required int limit,
   }) async {
     final db = await _database;
-    final maps = await db.query(
-      'sms_message',
-      where: 'thread_id = ?',
-      whereArgs: [threadId],
-      orderBy: 'timestamp DESC',
-      limit: limit,
-    );
-    final result = maps.map(SmsMessage.fromJson).toList();
+    final maps = await db.query('sms_message', orderBy: 'timestamp DESC');
+    final result = (await Future.wait(
+      maps.map(_fromStorage),
+    )).where((message) => message.threadId == threadId).take(limit).toList();
     result.sort((a, b) => a.timestamp.compareTo(b.timestamp));
     return result;
   }
@@ -95,14 +101,10 @@ class SmsMessageDao {
     required int limit,
   }) async {
     final db = await _database;
-    final maps = await db.query(
-      'sms_message',
-      where: 'address = ?',
-      whereArgs: [address],
-      orderBy: 'timestamp DESC',
-      limit: limit,
-    );
-    final result = maps.map(SmsMessage.fromJson).toList();
+    final maps = await db.query('sms_message', orderBy: 'timestamp DESC');
+    final result = (await Future.wait(
+      maps.map(_fromStorage),
+    )).where((message) => message.address == address).take(limit).toList();
     result.sort((a, b) => a.timestamp.compareTo(b.timestamp));
     return result;
   }
@@ -113,15 +115,12 @@ class SmsMessageDao {
     required int offset,
   }) async {
     final db = await _database;
-    final maps = await db.query(
-      'sms_message',
-      where: 'thread_id = ?',
-      whereArgs: [threadId],
-      orderBy: 'timestamp DESC',
-      limit: limit,
-      offset: offset,
-    );
-    final result = maps.map(SmsMessage.fromJson).toList();
+    final maps = await db.query('sms_message', orderBy: 'timestamp DESC');
+    final result = (await Future.wait(maps.map(_fromStorage)))
+        .where((message) => message.threadId == threadId)
+        .skip(offset)
+        .take(limit)
+        .toList();
     result.sort((a, b) => a.timestamp.compareTo(b.timestamp));
     return result;
   }
@@ -132,15 +131,12 @@ class SmsMessageDao {
     required int offset,
   }) async {
     final db = await _database;
-    final maps = await db.query(
-      'sms_message',
-      where: 'address = ?',
-      whereArgs: [address],
-      orderBy: 'timestamp DESC',
-      limit: limit,
-      offset: offset,
-    );
-    final result = maps.map(SmsMessage.fromJson).toList();
+    final maps = await db.query('sms_message', orderBy: 'timestamp DESC');
+    final result = (await Future.wait(maps.map(_fromStorage)))
+        .where((message) => message.address == address)
+        .skip(offset)
+        .take(limit)
+        .toList();
     result.sort((a, b) => a.timestamp.compareTo(b.timestamp));
     return result;
   }
@@ -163,5 +159,14 @@ class SmsMessageDao {
   Future<void> deleteAll() async {
     final db = await _database;
     await db.delete('sms_message');
+  }
+
+  Future<SmsMessage> _fromStorage(Map<String, Object?> row) async {
+    final values = await LocalStorageCrypto.decryptFields(
+      KeyStore.ensureLocalDatabaseKey,
+      Map<String, dynamic>.from(row),
+      const ['thread_id', 'address', 'contact_name', 'body'],
+    );
+    return SmsMessage.fromJson(values);
   }
 }

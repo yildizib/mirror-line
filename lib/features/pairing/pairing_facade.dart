@@ -8,8 +8,10 @@ import 'package:mirrorline/core/network/message_protocol.dart';
 import 'package:mirrorline/core/network/socket_manager.dart';
 import 'package:mirrorline/core/security/crypto_manager.dart';
 import 'package:mirrorline/core/security/key_store.dart';
+import 'package:mirrorline/core/security/security_constants.dart';
 import 'package:mirrorline/features/pairing/peer_facade.dart';
 import 'package:mirrorline/l10n/app_localizations.dart';
+import 'package:uuid/uuid.dart';
 
 /// What went wrong during pairing, kept as a code (not a rendered string)
 /// so it can be localized at the widget layer -- see [pairingErrorText].
@@ -133,6 +135,11 @@ class PairingFacade extends StateNotifier<PairingState> {
 
   /// Stashed scanner info on the *scanned* side (set by handleIncomingRequest).
   Map<String, dynamic>? _pendingScannerInfo;
+  String? _transactionId;
+  String? _localPairingId;
+  String? _localPairingPublicKey;
+  String? _expectedPeerId;
+  String? _expectedPeerPublicKey;
 
   PairingFacade(this._ref) : super(const PairingState());
 
@@ -167,10 +174,16 @@ class PairingFacade extends StateNotifier<PairingState> {
     final keyBytes = base64Decode(scannedKeyBase64);
     final key = SecretKey(keyBytes);
     _handshakeKey = key;
+    _transactionId = const Uuid().v4();
+    _localPairingId = myPeerId;
+    _localPairingPublicKey = myPublicKey;
+    _expectedPeerId = scannedId;
+    _expectedPeerPublicKey = scannedPublicKey;
 
     final verificationCode = PeerFacade.generateVerificationCode(
       scannedKeyBase64,
       scannedId,
+      expectedPublicKeys: [myPublicKey, scannedPublicKey],
     );
 
     state = PairingState(
@@ -204,6 +217,7 @@ class PairingFacade extends StateNotifier<PairingState> {
       }
 
       await _handshakeSocket!.sendMessage(MessageTypes.pairingRequest, {
+        'transactionId': _transactionId,
         'deviceName': myDeviceName,
         'peerId': myPeerId,
         'role': myRole,
@@ -213,7 +227,7 @@ class PairingFacade extends StateNotifier<PairingState> {
 
       _acceptCompleter = Completer<bool>();
       final accepted = await _acceptCompleter!.future.timeout(
-        const Duration(seconds: 30),
+        SecurityConstants.pairingTimeout,
         onTimeout: () => false,
       );
 
@@ -252,7 +266,11 @@ class PairingFacade extends StateNotifier<PairingState> {
         // pairingAck's doc comment in message_protocol.dart. Sent on the
         // same handshake socket before it's torn down below.
         _logger.i('Sending pairingAck on handshake socket...');
-        await _handshakeSocket?.sendMessage(MessageTypes.pairingAck, {});
+        await _handshakeSocket?.sendMessage(MessageTypes.pairingAck, {
+          'transactionId': _transactionId,
+          'peerId': _localPairingId,
+          'publicKey': _localPairingPublicKey,
+        });
       } else {
         state = state.copyWith(
           isWaitingForAccept: false,
@@ -274,7 +292,17 @@ class PairingFacade extends StateNotifier<PairingState> {
     final key = _handshakeKey;
     if (key == null) return;
 
-    final decrypted = await CryptoManager.decrypt(key, message.payload);
+    final metadata = CryptoManager.canonicalMessageMetadata(
+      version: message.protocolVersion,
+      type: message.type,
+      id: message.id,
+      timestamp: message.timestamp,
+    );
+    final decrypted = await CryptoManager.decryptWithAad(
+      key,
+      message.payload,
+      aad: utf8.encode(metadata),
+    );
     if (decrypted == null) return;
 
     Map<String, dynamic>? payload;
@@ -286,6 +314,13 @@ class PairingFacade extends StateNotifier<PairingState> {
 
     switch (message.type) {
       case MessageTypes.pairingAccept:
+        if (!_isMatchingTransaction(payload) ||
+            payload?['peerId'] != _expectedPeerId ||
+            payload?['publicKey'] != _expectedPeerPublicKey ||
+            !_isSupportedRole(payload?['role'])) {
+          _logger.w('Ignoring pairingAccept from another transaction.');
+          break;
+        }
         _logger.i('Pairing accepted by remote.');
         _acceptPayload = payload;
         state = state.copyWith(isWaitingForAccept: false);
@@ -313,7 +348,7 @@ class PairingFacade extends StateNotifier<PairingState> {
 
   /// Called when a `pairingRequest` message arrives on the *scanned* device.
   /// Updates state so the UI can show a confirmation dialog.
-  void handleIncomingRequest(Map<String, dynamic> payload) {
+  Future<void> handleIncomingRequest(Map<String, dynamic> payload) async {
     // Left null (not defaulted here) so the UI's own
     // `remoteDeviceName ?? l.pairingUnknownDevice` fallback -- localized to
     // *this* device's language -- is what actually renders, instead of a
@@ -321,10 +356,28 @@ class PairingFacade extends StateNotifier<PairingState> {
     final deviceName = payload['deviceName'] as String?;
     final peerId = payload['peerId'] as String? ?? '';
     final publicKey = payload['publicKey'] as String? ?? '';
+    final role = payload['role'] as String? ?? '';
     final scannerIp = payload['ip'] as String?;
+    final transactionId = payload['transactionId'] as String? ?? '';
+    if (transactionId.isEmpty ||
+        peerId.isEmpty ||
+        publicKey.isEmpty ||
+        !_isSupportedRole(role)) {
+      _logger.w('Ignoring pairing request without transaction ID.');
+      return;
+    }
 
     final peer = _ref.read(peerFacadeProvider);
-    final verificationCode = peer?.verificationCode ?? '';
+    final verificationCode = peer == null
+        ? ''
+        : PeerFacade.generateVerificationCode(
+            peer.key,
+            peer.id,
+            expectedPublicKeys: [
+              await _ref.read(peerFacadeProvider.notifier).getMyPublicKey(),
+              publicKey,
+            ],
+          );
 
     state = PairingState(
       isShowingRequest: true,
@@ -340,9 +393,10 @@ class PairingFacade extends StateNotifier<PairingState> {
     _pendingScannerInfo = {
       'deviceName': deviceName,
       'peerId': peerId,
-      'role': payload['role'] as String? ?? 'main',
+      'role': role,
       'publicKey': publicKey,
       'ip': scannerIp,
+      'transactionId': transactionId,
     };
   }
 
@@ -370,9 +424,22 @@ class PairingFacade extends StateNotifier<PairingState> {
   }) async {
     final myPeer = _ref.read(peerFacadeProvider);
     final myPublicKey = await KeyStore.ensureDeviceKeyPair();
+    final transactionId = scannerInfo['transactionId'] as String? ?? '';
+    final scannerId = scannerInfo['peerId'] as String? ?? '';
+    final scannerPublicKey = scannerInfo['publicKey'] as String? ?? '';
+    final scannerRole = scannerInfo['role'] as String? ?? '';
+    if (transactionId.isEmpty ||
+        transactionId != _pendingScannerInfo?['transactionId'] ||
+        scannerId.isEmpty ||
+        scannerPublicKey.isEmpty ||
+        !_isSupportedRole(scannerRole)) {
+      state = const PairingState(errorCode: PairingErrorCode.handshakeFailed);
+      return;
+    }
 
     _logger.i('Sending pairingAccept to scanner...');
     await socketManager.sendMessage(MessageTypes.pairingAccept, {
+      'transactionId': transactionId,
       // Sent to the other device as identity data -- locale-neutral
       // fallback, same reasoning as peer_facade.dart's _getDeviceName().
       'deviceName': myPeer?.deviceName ?? 'Unknown Device',
@@ -401,12 +468,10 @@ class PairingFacade extends StateNotifier<PairingState> {
     // pairingRequest (more reliable than the TCP remote address, which can
     // be wrong on NAT/VLAN setups) -- fall back to the TCP remote address
     // if the scanner didn't claim an IP.
-    final scannerId = scannerInfo['peerId'] as String? ?? '';
     // Persisted identity data -- locale-neutral fallback, same reasoning as
     // peer_facade.dart's _getDeviceName().
     final scannerDeviceName =
         scannerInfo['deviceName'] as String? ?? 'Unknown Device';
-    final scannerPublicKey = scannerInfo['publicKey'] as String? ?? '';
     final scannerClaimedIp = scannerInfo['ip'] as String?;
     final scannerIp = (scannerClaimedIp != null && scannerClaimedIp.isNotEmpty)
         ? scannerClaimedIp
@@ -427,8 +492,14 @@ class PairingFacade extends StateNotifier<PairingState> {
 
   /// Scanned side: the scanner confirmed it persisted its own end. Safe to
   /// commit our side now (see acceptRequest).
-  void handlePairingAck() {
+  void handlePairingAck(Map<String, dynamic> payload) {
     _logger.i('handlePairingAck called — completing _pairAckCompleter.');
+    if (payload['transactionId'] != _pendingScannerInfo?['transactionId'] ||
+        payload['peerId'] != _localPairingId ||
+        payload['publicKey'] != _localPairingPublicKey) {
+      _logger.w('Ignoring pairingAck from another transaction.');
+      return;
+    }
     if (_pairAckCompleter != null && !_pairAckCompleter!.isCompleted) {
       _pairAckCompleter!.complete(true);
     }
@@ -463,6 +534,11 @@ class PairingFacade extends StateNotifier<PairingState> {
     _handshakeKey = null;
     _acceptPayload = null;
   }
+
+  bool _isMatchingTransaction(Map<String, dynamic>? payload) =>
+      payload?['transactionId'] == _transactionId;
+
+  bool _isSupportedRole(Object? role) => role == 'main' || role == 'source';
 
   @override
   void dispose() {

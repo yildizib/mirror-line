@@ -51,44 +51,44 @@ A new random 256-bit local storage key will be generated once and stored only in
 `flutter_secure_storage`, backed by Android Keystore. It will be distinct from
 the peer network AES key and the Ed25519 identity keys.
 
-The network AES key will no longer be relied on as a readable SQLite value. The
-secure storage copy remains authoritative. The legacy database column will be
-cleared only after the secure storage value has been verified.
+The network AES key will no longer be stored as readable SQLite data. The secure
+storage copy remains authoritative, while the existing `peer.key` column will
+contain the versioned local ciphertext when it is persisted for compatibility.
 
-### Column-level encrypted storage with lookup hashes
+### Same-column versioned encryption
 
-Encrypted columns will be added for sensitive values rather than replacing
-existing columns immediately. The migration will write the encrypted value,
-verify it can be decrypted, and then replace the legacy plaintext value with an
-empty sentinel where the schema requires a non-null value.
+Sensitive values will be encrypted in their existing SQLite columns. No
+additional `_encrypted` or lookup columns will be added. Persisted ciphertext
+will use a versioned envelope such as `v1:<base64 AES-GCM value>` so the storage
+layer can distinguish legacy plaintext from already migrated values and can
+evolve the local format later.
 
 Call numbers, SMS addresses, and notification package names sometimes need
-grouping or lookup. The system will store a keyed lookup digest alongside the
-ciphertext. The digest will be derived with the local storage key and will not
-be a plain SHA-256 of the sensitive value. Message bodies, titles, and contact
-names will not receive searchable plaintext copies.
+grouping or lookup. The system will decrypt those values inside the DAO/storage
+boundary and perform the required filtering or grouping after decryption. This
+avoids storing additional equality hashes and keeps the database schema stable.
 
 DAOs will decrypt values before returning models to facades. Facades and UI
 components will continue to consume normal readable model values and will not
 know whether a field was encrypted at rest.
 
-### Resumable database migration
+### Resumable same-column migration
 
-The current schema version 6 will be upgraded with a new migration version.
-Because secure storage access is asynchronous and the SQLite upgrade callback
-is not the right place for the complete data transformation, schema changes and
-data migration will be separated:
+The SQLite schema version will remain unchanged for the storage-format
+migration. Because secure storage access is asynchronous and the SQLite upgrade
+callback is not the right place for the complete data transformation, migration
+will run through a resumable coordinator:
 
-1. Add encrypted and lookup columns in the SQLite schema migration.
-2. Initialize or recover the local storage key through secure storage.
-3. Convert existing records in bounded transactions.
-4. Verify encrypted values and lookup digests.
-5. Scrub legacy plaintext values and the legacy peer key column.
-6. Persist a migration marker only after all records are complete.
+1. Initialize or recover the local storage key through secure storage.
+2. Read existing sensitive values from their current columns.
+3. Encrypt values that do not have the `v1:` envelope prefix.
+4. Verify the encrypted value can be decrypted with the local key.
+5. Replace the original value in the same column within a bounded transaction.
+6. Persist migration progress only after each batch is complete.
 
-If secure storage is unavailable, the migration will stop before destructive
-scrubbing. If interrupted, the marker and per-record state allow the operation
-to resume without duplicating records or losing the original recoverable data.
+If secure storage is unavailable, the migration will stop before changing data.
+If interrupted, the prefix allows the coordinator to skip already encrypted
+values and resume without duplicating encryption or losing recoverable data.
 
 ### Encrypt the offline queue before persistence
 

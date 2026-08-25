@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mirrorline/core/security/crypto_manager.dart';
 
@@ -38,5 +40,32 @@ void main() {
         expect(a, isNot(b));
       },
     );
+
+    test('verification code binds expected public-key identities', () async {
+      final key = CryptoManager.generateKey();
+      final keyBase64 = base64Encode(await key.extractBytes());
+
+      final code = CryptoManager.verificationCodeFromKey(
+        keyBase64,
+        'peer-id',
+        expectedPublicKeys: ['scanner-public-key', 'scanned-public-key'],
+      );
+      expect(
+        CryptoManager.verificationCodeFromKey(
+          keyBase64,
+          'peer-id',
+          expectedPublicKeys: ['scanned-public-key', 'scanner-public-key'],
+        ),
+        code,
+      );
+      expect(
+        CryptoManager.verificationCodeFromKey(
+          keyBase64,
+          'peer-id',
+          expectedPublicKeys: ['different-public-key', 'scanned-public-key'],
+        ),
+        isNot(code),
+      );
+    });
   });
 }

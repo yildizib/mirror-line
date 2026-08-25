@@ -1,17 +1,31 @@
+import 'package:flutter/foundation.dart';
 import 'package:mirrorline/core/data/database.dart';
 import 'package:mirrorline/core/data/models/notification_event.dart';
+import 'package:mirrorline/core/security/key_store.dart';
+import 'package:mirrorline/core/security/local_storage_crypto.dart';
 import 'package:sqflite/sqflite.dart';
 
 class NotificationEventDao {
   final AppDatabase _db = AppDatabase.instance;
+  Database? _testDb;
 
-  Future<Database> get _database => _db.database;
+  NotificationEventDao();
+
+  @visibleForTesting
+  NotificationEventDao.forDatabase(Database db) : _testDb = db;
+
+  Future<Database> get _database async => _testDb ?? await _db.database;
 
   Future<void> insert(NotificationEvent event) async {
     final db = await _database;
+    final values = await LocalStorageCrypto.encryptFields(
+      await KeyStore.ensureLocalDatabaseKey(),
+      event.toJson(),
+      const ['native_id', 'package_name', 'app_name', 'title', 'text'],
+    );
     await db.insert(
       'notification_event',
-      event.toJson(),
+      values,
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
   }
@@ -22,7 +36,7 @@ class NotificationEventDao {
       'notification_event',
       orderBy: 'timestamp DESC',
     );
-    return maps.map(NotificationEvent.fromJson).toList();
+    return Future.wait(maps.map(_fromStorage));
   }
 
   Future<List<NotificationEvent>> getRecent({
@@ -43,7 +57,7 @@ class NotificationEventDao {
       orderBy: 'timestamp DESC',
       limit: limit,
     );
-    return maps.map(NotificationEvent.fromJson).toList();
+    return Future.wait(maps.map(_fromStorage));
   }
 
   Future<List<NotificationEvent>> getOlder({
@@ -66,7 +80,7 @@ class NotificationEventDao {
       limit: limit,
       offset: offset,
     );
-    return maps.map(NotificationEvent.fromJson).toList();
+    return Future.wait(maps.map(_fromStorage));
   }
 
   Future<void> delete(String id) async {
@@ -79,15 +93,30 @@ class NotificationEventDao {
   /// packageName/nativeId, not our locally-generated id.
   Future<void> deleteByNativeId(String packageName, String nativeId) async {
     final db = await _database;
-    await db.delete(
-      'notification_event',
-      where: 'package_name = ? AND native_id = ?',
-      whereArgs: [packageName, nativeId],
-    );
+    final rows = await db.query('notification_event');
+    final events = await Future.wait(rows.map(_fromStorage));
+    for (final event in events.where(
+      (event) => event.packageName == packageName && event.nativeId == nativeId,
+    )) {
+      await db.delete(
+        'notification_event',
+        where: 'id = ?',
+        whereArgs: [event.id],
+      );
+    }
   }
 
   Future<void> deleteAll() async {
     final db = await _database;
     await db.delete('notification_event');
+  }
+
+  Future<NotificationEvent> _fromStorage(Map<String, Object?> row) async {
+    final values = await LocalStorageCrypto.decryptFields(
+      KeyStore.ensureLocalDatabaseKey,
+      Map<String, dynamic>.from(row),
+      const ['native_id', 'package_name', 'app_name', 'title', 'text'],
+    );
+    return NotificationEvent.fromJson(values);
   }
 }

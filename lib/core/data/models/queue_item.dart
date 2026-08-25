@@ -2,6 +2,7 @@ class QueueItem {
   final int? id;
   final String type; // 'call' | 'sms'
   final String payload; // encrypted JSON
+  final String? dedupeKey;
   final int retryCount;
   final DateTime createdAt;
 
@@ -9,6 +10,7 @@ class QueueItem {
     this.id,
     required this.type,
     required this.payload,
+    this.dedupeKey,
     this.retryCount = 0,
     required this.createdAt,
   });
@@ -17,6 +19,7 @@ class QueueItem {
     'id': id,
     'type': type,
     'payload': payload,
+    'dedupe_key': dedupeKey,
     'retry_count': retryCount,
     'created_at': createdAt.millisecondsSinceEpoch,
   };
@@ -25,6 +28,7 @@ class QueueItem {
     id: json['id'] as int?,
     type: json['type'] as String,
     payload: json['payload'] as String,
+    dedupeKey: json['dedupe_key'] as String?,
     retryCount: json['retry_count'] as int,
     createdAt: DateTime.fromMillisecondsSinceEpoch(json['created_at'] as int),
   );
@@ -33,6 +37,7 @@ class QueueItem {
     id: id,
     type: type,
     payload: payload,
+    dedupeKey: dedupeKey,
     retryCount: retryCount ?? this.retryCount,
     createdAt: createdAt,
   );

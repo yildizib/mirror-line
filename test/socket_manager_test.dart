@@ -46,7 +46,17 @@ void main() {
     expect(received.first.type, 'sms_incoming');
 
     // The payload must decrypt back to the original content.
-    final decrypted = await CryptoManager.decrypt(key, received.first.payload);
+    final metadata = CryptoManager.canonicalMessageMetadata(
+      version: received.first.protocolVersion,
+      type: received.first.type,
+      id: received.first.id,
+      timestamp: received.first.timestamp,
+    );
+    final decrypted = await CryptoManager.decryptWithAad(
+      key,
+      received.first.payload,
+      aad: utf8.encode(metadata),
+    );
     expect(decrypted, contains('"address":"+905551112233"'));
     expect(decrypted, contains('"body":"Merhaba"'));
 
@@ -153,8 +163,9 @@ void main() {
       );
 
       final serverConnected = Completer<void>();
+      final received = <MirrorMessage>[];
       final server = SocketManager(
-        onMessage: (_) {},
+        onMessage: received.add,
         onConnected: () => serverConnected.complete(),
         onDisconnected: () {},
       );
@@ -186,6 +197,15 @@ void main() {
       await serverConnected.future.timeout(const Duration(seconds: 5));
       expect(client.isAuthed, isTrue);
       expect(server.isAuthed, isTrue);
+
+      expect(
+        await client.sendMessage(MessageTypes.smsIncoming, {'body': 'x'}),
+        isTrue,
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(received, isNotEmpty);
+      expect(received.single.sessionId, isNotEmpty);
+      expect(received.single.sequence, 1);
 
       await client.disconnect();
       await server.disconnect();
