@@ -86,7 +86,7 @@
 
 ## 8. Secure Pairing
 
-- [ ] 8.1 Bind QR, pairing request, pairing accept, verification data, and
+- [x] 8.1 Bind QR, pairing request, pairing accept, verification data, and
   final acknowledgement to one peer identity transaction.
 - [ ] 8.2 Include the expected public-key identities in verification value
   generation.

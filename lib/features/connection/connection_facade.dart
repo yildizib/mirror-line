@@ -1067,7 +1067,7 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
         // arrives on this device's regular socket (unlike pairingAccept/
         // pairingReject below, which the *scanner* receives on its own
         // separate handshake socket, never here).
-        _ref.read(pairingFacadeProvider.notifier).handlePairingAck();
+        _ref.read(pairingFacadeProvider.notifier).handlePairingAck(payload);
         break;
 
       case MessageTypes.pairingAccept:
