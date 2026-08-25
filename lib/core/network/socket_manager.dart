@@ -55,6 +55,7 @@ class SocketManager {
   bool _authed = false;
   bool _disposed = false;
   final List<int> _buffer = [];
+  int _invalidMessageCount = 0;
   Timer? _heartbeatTimer;
   DateTime _lastDataAt = DateTime.now();
   // Bumped on every connect()/disconnect()/disconnectClient() call so a
@@ -204,6 +205,7 @@ class SocketManager {
     _authed = false;
     _disposed = false;
     _buffer.clear();
+    _invalidMessageCount = 0;
     _sessionId = null;
     _nextSequence = 0;
     _lastReceivedSequence = 0;
@@ -249,6 +251,11 @@ class SocketManager {
     socket.listen(
       (data) {
         _lastDataAt = DateTime.now();
+        if (_buffer.length + data.length > SecurityConstants.maxFrameBytes) {
+          _logger.w('Rejected oversized transport frame.');
+          _handleClosed();
+          return;
+        }
         _buffer.addAll(data);
         _processBuffer();
       },
@@ -309,6 +316,11 @@ class SocketManager {
       final rawMessage = _buffer.sublist(0, newlineIndex);
       _buffer.removeRange(0, newlineIndex + 1);
       if (rawMessage.isEmpty) continue;
+      if (rawMessage.length > SecurityConstants.maxFrameBytes) {
+        _logger.w('Rejected oversized message frame.');
+        _handleClosed();
+        return;
+      }
 
       try {
         final raw = utf8.decode(rawMessage);
@@ -368,6 +380,12 @@ class SocketManager {
         onMessage(message);
       } catch (e) {
         _logger.e('Invalid message received: $e');
+        _invalidMessageCount++;
+        if (_invalidMessageCount >= SecurityConstants.maxInvalidMessages) {
+          _logger.w('Too many invalid messages; closing connection.');
+          _handleClosed();
+          return;
+        }
       }
     }
   }

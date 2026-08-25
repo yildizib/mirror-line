@@ -99,13 +99,13 @@
 
 ## 9. Transport Resource Limits
 
-- [ ] 9.1 Enforce maximum frame, JSON, and encrypted payload sizes before
+- [x] 9.1 Enforce maximum frame, JSON, and encrypted payload sizes before
   unbounded buffer growth or JSON decoding.
-- [ ] 9.2 Close or reset connections that send oversized, malformed, or
+- [x] 9.2 Close or reset connections that send oversized, malformed, or
   incomplete frames beyond the configured limits.
-- [ ] 9.3 Add authentication connection timeout and invalid-message handling
+- [x] 9.3 Add authentication connection timeout and invalid-message handling
   limits without weakening valid pairing behavior.
-- [ ] 9.4 Add parser and transport tests for oversized frames, fragmented
+- [x] 9.4 Add parser and transport tests for oversized frames, fragmented
   frames, malformed JSON, invalid UTF-8, and repeated invalid messages.
 
 ## 10. Documentation and Verification

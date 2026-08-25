@@ -35,7 +35,7 @@ class MirrorMessage {
     type: json['type'] as String,
     id: json['id'] as String,
     timestamp: json['timestamp'] as int,
-    payload: json['payload'] as String,
+    payload: _validatedPayload(json['payload'] as String),
     protocolVersion:
         (json['protocol_version'] as int?) ?? SecurityConstants.protocolVersion,
     sessionId: json['session_id'] as String?,
@@ -44,8 +44,22 @@ class MirrorMessage {
 
   String encode() => jsonEncode(toJson());
 
-  static MirrorMessage decode(String raw) =>
-      MirrorMessage.fromJson(jsonDecode(raw));
+  static MirrorMessage decode(String raw) {
+    if (utf8.encode(raw).length > SecurityConstants.maxJsonBytes) {
+      throw const FormatException('Message JSON exceeds configured limit.');
+    }
+    return MirrorMessage.fromJson(jsonDecode(raw));
+  }
+
+  static String _validatedPayload(String payload) {
+    final decodedLength = base64Decode(payload).length;
+    if (decodedLength > SecurityConstants.maxPayloadBytes) {
+      throw const FormatException(
+        'Encrypted payload exceeds configured limit.',
+      );
+    }
+    return payload;
+  }
 }
 
 abstract class MessageTypes {

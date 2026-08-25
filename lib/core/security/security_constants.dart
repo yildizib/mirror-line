@@ -18,6 +18,7 @@ abstract final class SecurityConstants {
   static const int maxFrameBytes = 1024 * 1024;
   static const int maxJsonBytes = 1024 * 1024;
   static const int maxPayloadBytes = 768 * 1024;
+  static const int maxInvalidMessages = 5;
   static const int maxQueueItems = 500;
   static const int maxQueueItemBytes = 256 * 1024;
   static const int maxQueueRetryCount = 5;
