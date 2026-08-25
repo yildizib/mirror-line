@@ -8,31 +8,27 @@ import 'package:mirrorline/core/network/lan_beacon.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test(
-    'broadcaster -> listener end to end',
-    () async {
-      final received = Completer<BeaconInfo>();
-      final listener = BeaconListener();
-      await listener.start(onBeacon: received.complete);
+  test('broadcaster -> listener end to end', () async {
+    final received = Completer<BeaconInfo>();
+    final listener = BeaconListener();
+    await listener.start(onBeacon: received.complete);
 
-      final broadcaster = BeaconBroadcaster();
-      await broadcaster.start(
-        peerId: 'peer-777',
-        tcpPort: 45678,
-        deviceName: 'Pixel 8',
-      );
+    final broadcaster = BeaconBroadcaster();
+    await broadcaster.start(
+      peerId: 'peer-777',
+      tcpPort: 45678,
+      deviceName: 'Pixel 8',
+    );
 
-      final info = await received.future.timeout(const Duration(seconds: 5));
-      expect(info.peerId, 'peer-777');
-      expect(info.tcpPort, 45678);
-      expect(info.deviceName, 'Pixel 8');
-      expect(info.ip, isNotEmpty);
+    final info = await received.future.timeout(const Duration(seconds: 5));
+    expect(info.peerId, 'peer-777');
+    expect(info.tcpPort, 45678);
+    expect(info.deviceName, 'Pixel 8');
+    expect(info.ip, isNotEmpty);
 
-      await broadcaster.stop();
-      await listener.stop();
-    },
-    skip: !Platform.isLinux && !Platform.isWindows,
-  );
+    await broadcaster.stop();
+    await listener.stop();
+  }, skip: !Platform.isLinux && !Platform.isWindows);
 
   test('beacon is delivered via unicast to the local interface', () async {
     // Deterministic check of the full UDP path (send -> bind -> decode)
