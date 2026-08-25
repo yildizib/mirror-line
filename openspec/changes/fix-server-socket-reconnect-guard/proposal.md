@@ -1,10 +1,11 @@
 ## Why
 
-After pairing-runtime discovery was merged, device logs exposed a reconnect
-regression: an unpaired Main device can keep its temporary pairing server open
-while a network-change or force-reconnect path attempts to reuse that server as
-a client. The result is a rejected connection attempt and, after enough
-failures, a tight reconnect loop with no useful backoff.
+After pairing-runtime discovery and transport hardening were merged, device
+logs exposed a broader QR pairing failure. An unpaired listener is marked as
+requiring paired authentication before a remote identity exists, so it closes
+the incoming QR socket before processing `pairing_request`. Pairing
+acknowledgement, endpoint selection, and socket callback gaps can then leave
+the devices in different pairing states.
 
 ## What Changes
 
@@ -14,15 +15,23 @@ failures, a tight reconnect loop with no useful backoff.
   reconnects.
 - Make reconnect scheduling preserve a bounded backoff and treat failed
   connection results as failures.
-- Add regression tests for server/client socket ownership and retry behavior.
-- Verify the fix on Android devices with a two-device QR pairing flow.
+- Keep QR bootstrap transport separate from authenticated paired transport and
+  prevent normal connection side effects during pairing.
+- Validate QR endpoints against all local addresses and preserve local versus
+  remote identity semantics in QR data and pairing responses.
+- Make request, accept, acknowledgement, disconnect, and persistence
+  transitions deterministic under fast responses and failed writes.
+- Prevent stale socket callbacks from closing replacement connections.
+- Add full request/accept/ack and self-endpoint regression coverage.
+- Verify two-way QR pairing, reconnect, and network changes on Android devices.
 
 ## Capabilities
 
 ### New Capabilities
 
 - `server-socket-reconnect`: Defines safe socket ownership and reconnect
-  behavior while pairing is incomplete or a peer is disconnected.
+  behavior while pairing is incomplete or a peer is disconnected, including
+  QR bootstrap isolation and stale callback handling.
 
 ### Modified Capabilities
 
@@ -30,7 +39,8 @@ failures, a tight reconnect loop with no useful backoff.
 
 ## Impact
 
-- Affects `ConnectionFacade`, `ReconnectScheduler`, and socket lifecycle
-  coordination.
+- Affects `ConnectionFacade`, `PairingFacade`, pairing UI services,
+  `SocketManager`, endpoint validation, and reconnect coordination.
 - Adds connection and pairing regression tests.
-- Does not change the pairing protocol payload or require new dependencies.
+- Does not change cryptographic algorithms, pairing payload format, storage
+  schema, or dependencies.

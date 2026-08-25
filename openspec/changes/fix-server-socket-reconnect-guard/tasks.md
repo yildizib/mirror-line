@@ -34,3 +34,62 @@
 - [x] 3.6 Run `flutter build apk --debug`.
 - [x] 3.7 Run strict OpenSpec validation and update the issue with each
   completed task commit before opening the PR.
+
+## 4. Pairing Bootstrap Transport
+
+- [ ] 4.1 Separate QR bootstrap mode from authenticated paired transport and
+  allow an unpaired listener to process a QR-authorized request.
+- [ ] 4.2 Keep pairing bootstrap out of normal connected-state side effects,
+  queue flushing, and reconnect scheduling.
+- [ ] 4.3 Preserve fail-closed behavior for paired connections missing identity
+  material.
+
+## 5. Pairing Transaction State
+
+- [ ] 5.1 Initialize request and accept completion state and expected identity
+  before sending the corresponding socket messages.
+- [ ] 5.2 Check request, accept, acknowledgement, and rejection write results;
+  do not report failed writes as delivered or complete.
+- [ ] 5.3 Validate `pairingAck` against the pending scanner transaction and
+  remote identity, then clear transaction state on every terminal outcome.
+
+## 6. Pairing Endpoint and Identity Safety
+
+- [ ] 6.1 Reject QR endpoints that are empty, invalid, loopback, or present in
+  the scanner's complete local-IP inventory before opening a socket.
+- [ ] 6.2 Validate claimed request and accept IPs before persisting them and add
+  diagnostics for locally-owned or stale endpoints.
+- [ ] 6.3 Generate QR and pairing response identity from local self identity,
+  not the overloaded remote peer record.
+- [ ] 6.4 Prevent the UI from presenting QR data with missing, placeholder, or
+  stale local identity fields.
+
+## 7. Socket Lifecycle and Diagnostics
+
+- [ ] 7.1 Bind socket completion and error handling to the socket instance so
+  stale callbacks cannot close a replacement socket.
+- [ ] 7.2 Log incoming remote address, outgoing target, transport mode, and
+  stage-specific pairing failures without logging secrets.
+
+## 8. Pairing Regression Coverage
+
+- [ ] 8.1 Test fresh Main-to-Source and Source-to-Main request, accept, ack,
+  persistence, and authenticated reconnect flows.
+- [ ] 8.2 Test immediate accept and ack responses, disconnect races, failed
+  writes, and stale socket callbacks.
+- [ ] 8.3 Test self-endpoint QR, loopback, stale claimed IP, mixed identity, and
+  unavailable QR-field scenarios.
+
+## 9. Verification and Delivery
+
+- [ ] 9.1 Run `dart format lib/ test/`.
+- [ ] 9.2 Run `dart analyze --fatal-infos`.
+- [ ] 9.3 Run `flutter analyze`.
+- [ ] 9.4 Run targeted pairing, socket, connection, discovery, and scheduler
+  tests.
+- [ ] 9.5 Run `flutter test`.
+- [ ] 9.6 Run `flutter build apk --debug`.
+- [ ] 9.7 Run two-way QR pairing, reconnect, and network-change QA on two
+  Android devices.
+- [ ] 9.8 Run strict OpenSpec validation and update Issue #98 per task commit
+  before opening the PR.
