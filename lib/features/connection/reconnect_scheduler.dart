@@ -46,6 +46,13 @@ class ReconnectScheduler {
     scheduleReconnect();
   }
 
+  void invalidate() {
+    _connectGeneration++;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    _disconnectedSince = null;
+  }
+
   void scheduleReconnect() {
     _reconnectTimer?.cancel();
     var delay = _reconnectInitialDelay * (1 << _reconnectAttempts);
@@ -61,8 +68,8 @@ class ReconnectScheduler {
   Future<void> _tryConnect() async {
     final ip = _getPeerIp();
     final port = _getPeerPort();
-    if (ip == null || ip.isEmpty) {
-      _logger.w('No peer IP available for reconnect.');
+    if (ip == null || ip.isEmpty || port <= 0 || port > 65535) {
+      _logger.w('No usable peer endpoint available for reconnect.');
       scheduleReconnect();
       return;
     }

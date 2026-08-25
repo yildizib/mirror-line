@@ -4,12 +4,16 @@ import 'dart:convert';
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logger/logger.dart';
+import 'package:mirrorline/core/data/models/peer.dart';
 import 'package:mirrorline/core/network/message_protocol.dart';
 import 'package:mirrorline/core/network/socket_manager.dart';
 import 'package:mirrorline/core/security/crypto_manager.dart';
 import 'package:mirrorline/core/security/key_store.dart';
 import 'package:mirrorline/core/security/security_constants.dart';
 import 'package:mirrorline/features/pairing/peer_facade.dart';
+import 'package:mirrorline/features/pairing/pairing_runtime_state.dart';
+import 'package:mirrorline/features/pairing/pairing_identity_guard.dart';
+import 'package:mirrorline/features/connection/connection_facade.dart';
 import 'package:mirrorline/l10n/app_localizations.dart';
 import 'package:uuid/uuid.dart';
 
@@ -49,6 +53,7 @@ class PairingState {
   final bool isShowingRequest; // Scanned side: incoming request, awaiting user
   final bool
   isFinalizing; // Scanned side: sent accept, waiting for scanner's ack
+  final bool isComplete; // Both sides persisted the completed pairing
   final String? remoteDeviceName; // Other device's name
   final String? remotePeerId; // Other device's peer id
   final String? verificationCode; // 6-digit code shared via QR/key
@@ -60,6 +65,7 @@ class PairingState {
     this.isWaitingForAccept = false,
     this.isShowingRequest = false,
     this.isFinalizing = false,
+    this.isComplete = false,
     this.remoteDeviceName,
     this.remotePeerId,
     this.verificationCode,
@@ -71,6 +77,7 @@ class PairingState {
     bool? isWaitingForAccept,
     bool? isShowingRequest,
     bool? isFinalizing,
+    bool? isComplete,
     String? remoteDeviceName,
     String? remotePeerId,
     String? verificationCode,
@@ -82,6 +89,7 @@ class PairingState {
       isWaitingForAccept: isWaitingForAccept ?? this.isWaitingForAccept,
       isShowingRequest: isShowingRequest ?? this.isShowingRequest,
       isFinalizing: isFinalizing ?? this.isFinalizing,
+      isComplete: isComplete ?? this.isComplete,
       remoteDeviceName: remoteDeviceName ?? this.remoteDeviceName,
       remotePeerId: remotePeerId ?? this.remotePeerId,
       verificationCode: verificationCode ?? this.verificationCode,
@@ -89,6 +97,12 @@ class PairingState {
       errorDetail: clearError ? null : errorDetail ?? this.errorDetail,
     );
   }
+
+  PairingRuntimeState runtimeStateFor(Peer? peer) => resolvePairingRuntimeState(
+    peer: peer,
+    isPairingPending: isWaitingForAccept || isShowingRequest || isFinalizing,
+    isPairingComplete: isComplete,
+  );
 }
 
 final pairingFacadeProvider =
@@ -171,6 +185,20 @@ class PairingFacade extends StateNotifier<PairingState> {
     required String myPublicKey,
     required String myIp,
   }) async {
+    if (!isValidRemoteIdentity(
+      remoteId: scannedId,
+      remotePublicKey: scannedPublicKey,
+      localId: myPeerId,
+      localPublicKey: myPublicKey,
+    )) {
+      _logger.w('Rejecting QR payload with invalid local identity.');
+      state = const PairingState(errorCode: PairingErrorCode.handshakeFailed);
+      return;
+    }
+    _logger.i('Pairing QR identity validated.');
+    await _ref
+        .read(connectionFacadeProvider.notifier)
+        .invalidateNormalConnectionWork();
     final keyBytes = base64Decode(scannedKeyBase64);
     final key = SecretKey(keyBytes);
     _handshakeKey = key;
@@ -224,6 +252,7 @@ class PairingFacade extends StateNotifier<PairingState> {
         'publicKey': myPublicKey,
         'ip': myIp,
       });
+      _logger.i('Pairing request delivered.');
 
       _acceptCompleter = Completer<bool>();
       final accepted = await _acceptCompleter!.future.timeout(
@@ -271,7 +300,9 @@ class PairingFacade extends StateNotifier<PairingState> {
           'peerId': _localPairingId,
           'publicKey': _localPairingPublicKey,
         });
+        state = state.copyWith(isComplete: true);
       } else {
+        _logger.w('Pairing acceptance timed out or was rejected.');
         state = state.copyWith(
           isWaitingForAccept: false,
           errorCode: PairingErrorCode.rejectedOrTimedOut,
@@ -349,6 +380,9 @@ class PairingFacade extends StateNotifier<PairingState> {
   /// Called when a `pairingRequest` message arrives on the *scanned* device.
   /// Updates state so the UI can show a confirmation dialog.
   Future<void> handleIncomingRequest(Map<String, dynamic> payload) async {
+    await _ref
+        .read(connectionFacadeProvider.notifier)
+        .invalidateNormalConnectionWork();
     // Left null (not defaulted here) so the UI's own
     // `remoteDeviceName ?? l.pairingUnknownDevice` fallback -- localized to
     // *this* device's language -- is what actually renders, instead of a
@@ -364,6 +398,20 @@ class PairingFacade extends StateNotifier<PairingState> {
         publicKey.isEmpty ||
         !_isSupportedRole(role)) {
       _logger.w('Ignoring pairing request without transaction ID.');
+      return;
+    }
+
+    final localId =
+        await KeyStore.getSelfId() ?? _ref.read(peerFacadeProvider)?.id ?? '';
+    final localPublicKey = await KeyStore.ensureDeviceKeyPair();
+    if (isSelfRemoteIdentity(
+      remoteId: peerId,
+      remotePublicKey: publicKey,
+      localId: localId,
+      localPublicKey: localPublicKey,
+    )) {
+      _logger.w('Rejecting pairing request that identifies this device.');
+      state = const PairingState(errorCode: PairingErrorCode.handshakeFailed);
       return;
     }
 
@@ -436,6 +484,17 @@ class PairingFacade extends StateNotifier<PairingState> {
       state = const PairingState(errorCode: PairingErrorCode.handshakeFailed);
       return;
     }
+    final localId = await KeyStore.getSelfId() ?? myPeer?.id ?? '';
+    if (isSelfRemoteIdentity(
+      remoteId: scannerId,
+      remotePublicKey: scannerPublicKey,
+      localId: localId,
+      localPublicKey: myPublicKey,
+    )) {
+      _logger.w('Rejecting self identity during pairing acceptance.');
+      state = const PairingState(errorCode: PairingErrorCode.handshakeFailed);
+      return;
+    }
 
     _logger.i('Sending pairingAccept to scanner...');
     await socketManager.sendMessage(MessageTypes.pairingAccept, {
@@ -458,6 +517,7 @@ class PairingFacade extends StateNotifier<PairingState> {
     );
 
     if (!acked) {
+      _logger.w('Pairing acknowledgement timed out.');
       state = const PairingState(errorCode: PairingErrorCode.ackTimeout);
       _pendingScannerInfo = null;
       return;
@@ -487,7 +547,7 @@ class PairingFacade extends StateNotifier<PairingState> {
           );
     }
 
-    state = const PairingState();
+    state = state.copyWith(isFinalizing: false, isComplete: true);
   }
 
   /// Scanned side: the scanner confirmed it persisted its own end. Safe to
@@ -513,6 +573,9 @@ class PairingFacade extends StateNotifier<PairingState> {
 
   /// Reset to idle (e.g. dialog dismissed without action).
   void reset() {
+    _ref
+        .read(connectionFacadeProvider.notifier)
+        .invalidateNormalConnectionWork();
     state = const PairingState();
     if (_acceptCompleter != null && !_acceptCompleter!.isCompleted) {
       _acceptCompleter!.complete(false);

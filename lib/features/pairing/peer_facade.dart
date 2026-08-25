@@ -8,6 +8,7 @@ import 'package:mirrorline/core/data/models/peer.dart';
 import 'package:mirrorline/core/network/peer_discovery.dart';
 import 'package:mirrorline/core/security/crypto_manager.dart';
 import 'package:mirrorline/core/security/key_store.dart';
+import 'package:mirrorline/features/pairing/pairing_identity_guard.dart';
 import 'package:uuid/uuid.dart';
 
 final peerFacadeProvider = StateNotifierProvider<PeerFacade, Peer?>((ref) {
@@ -23,7 +24,8 @@ final pairedPeersProvider = FutureProvider<List<Peer>>((ref) async {
   // Depend on peerFacadeProvider so any state change (applyPairedPeer,
   // deletePeer, reset, ...) invalidates this provider.
   ref.watch(peerFacadeProvider);
-  return PeerDao().getAllPeers();
+  final peers = await PeerDao().getAllPeers();
+  return peers.where((peer) => peer.publicKey.isNotEmpty).toList();
 });
 
 class PeerFacade extends StateNotifier<Peer?> {
@@ -114,6 +116,16 @@ class PeerFacade extends StateNotifier<Peer?> {
     required String deviceName,
     required String publicKey,
   }) async {
+    final localId = await KeyStore.getSelfId() ?? state?.id ?? '';
+    final localPublicKey = await KeyStore.ensureDeviceKeyPair();
+    if (isSelfRemoteIdentity(
+      remoteId: id,
+      remotePublicKey: publicKey,
+      localId: localId,
+      localPublicKey: localPublicKey,
+    )) {
+      return;
+    }
     final keyBytes = base64Decode(keyBase64);
     final key = SecretKey(keyBytes);
 
@@ -167,6 +179,16 @@ class PeerFacade extends StateNotifier<Peer?> {
   }) async {
     final current = state;
     if (current == null) return;
+    final localId = await KeyStore.getSelfId() ?? current.id;
+    final localPublicKey = await KeyStore.ensureDeviceKeyPair();
+    if (isSelfRemoteIdentity(
+      remoteId: id,
+      remotePublicKey: publicKey,
+      localId: localId,
+      localPublicKey: localPublicKey,
+    )) {
+      return;
+    }
     final updated = current.copyWith(
       id: id,
       deviceName: deviceName,

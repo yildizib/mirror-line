@@ -33,6 +33,7 @@ class PeerDiscoveryCoordinator {
   DateTime? _disconnectedSince;
   DateTime? _lastScanAt;
   bool _scanning = false;
+  int _scanGeneration = 0;
   final List<String> _beaconIps = [];
 
   PeerDiscoveryCoordinator({
@@ -78,6 +79,12 @@ class PeerDiscoveryCoordinator {
     _lastScanAt = null;
   }
 
+  void invalidate() {
+    _scanGeneration++;
+    _lastScanAt = null;
+    _disconnectedSince = null;
+  }
+
   void updateBeaconInfo() {
     final allIps = _getAllLocalIps().isNotEmpty ? _getAllLocalIps() : null;
     _listener.updateBroadcastInfo(
@@ -104,6 +111,12 @@ class PeerDiscoveryCoordinator {
   }) async {
     if (_scanning) return;
 
+    final port = _getPeerPort();
+    if (port <= 0 || port > 65535) {
+      _logger.w('Skipping subnet scan with unusable peer port $port.');
+      return;
+    }
+
     if (!immediate) {
       final disconnectedSince = _disconnectedSince;
       if (disconnectedSince == null) return;
@@ -122,6 +135,7 @@ class PeerDiscoveryCoordinator {
 
     _scanning = true;
     _lastScanAt = DateTime.now();
+    final generation = _scanGeneration;
 
     try {
       final scanIps = _getAllLocalIps().isNotEmpty
@@ -135,10 +149,10 @@ class PeerDiscoveryCoordinator {
       _logger.i('Running fallback subnet scan...');
       final found = await _scanner.findHostWithOpenPortMulti(
         localIps: scanIps,
-        port: _getPeerPort(),
+        port: port,
       );
-      if (found != null) {
-        await _onDiscovered(found, _getPeerPort(), fromScan: true);
+      if (found != null && generation == _scanGeneration) {
+        await _onDiscovered(found, port, fromScan: true);
       }
     } catch (e) {
       _logger.e('Subnet scan failed: $e');
