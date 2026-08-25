@@ -148,6 +148,24 @@ void main() {
     await server.disconnect();
   });
 
+  test('server-mode manager is not reused for outbound connections', () async {
+    final key = CryptoManager.generateKey();
+    final manager = SocketManager(
+      onMessage: (_) {},
+      onConnected: () {},
+      onDisconnected: () {},
+    );
+
+    await manager.startServer(45906, key);
+    expect(manager.isServerMode, isTrue);
+
+    expect(await manager.connect('127.0.0.1', 45906, key), isFalse);
+    expect(manager.isServerMode, isTrue);
+
+    await manager.disconnect();
+    expect(manager.isServerMode, isFalse);
+  });
+
   test(
     'authenticated handshake: both sides only report connected after mutual ack',
     () async {

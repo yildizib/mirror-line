@@ -17,7 +17,7 @@
   and starts neither reconnect nor subnet discovery.
 - [x] 2.2 Test that manual force reconnect is a no-op with an unavailable
   remote peer and reports the appropriate diagnostic state.
-- [ ] 2.3 Test that a server-mode socket is never reused for an outbound client
+- [x] 2.3 Test that a server-mode socket is never reused for an outbound client
   connection and that listener/client cleanup remains independent.
 - [ ] 2.4 Test scheduler success/failure callback handling and bounded retry
   delays, including high-attempt behavior.
