@@ -163,8 +163,9 @@ void main() {
       );
 
       final serverConnected = Completer<void>();
+      final received = <MirrorMessage>[];
       final server = SocketManager(
-        onMessage: (_) {},
+        onMessage: received.add,
         onConnected: () => serverConnected.complete(),
         onDisconnected: () {},
       );
@@ -196,6 +197,14 @@ void main() {
       await serverConnected.future.timeout(const Duration(seconds: 5));
       expect(client.isAuthed, isTrue);
       expect(server.isAuthed, isTrue);
+
+      expect(
+        await client.sendMessage(MessageTypes.smsIncoming, {'body': 'x'}),
+        isTrue,
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(received, isNotEmpty);
+      expect(received.single.sessionId, isNotEmpty);
 
       await client.disconnect();
       await server.disconnect();

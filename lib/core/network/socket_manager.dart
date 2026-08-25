@@ -27,6 +27,7 @@ class SocketManager {
   String? _peerDeviceId;
   String? _localPublicKeyBase64;
   String? _clientAuthTranscript;
+  String? _sessionId;
 
   /// This device's Ed25519 keypair, used to sign challenges when acting as
   /// the *client*.  Set via [setAuthIdentity].
@@ -200,6 +201,7 @@ class SocketManager {
     _authed = false;
     _disposed = false;
     _buffer.clear();
+    _sessionId = null;
     _lastDataAt = DateTime.now();
     socket.setOption(SocketOption.tcpNoDelay, true);
     _listen(socket);
@@ -305,6 +307,9 @@ class SocketManager {
       try {
         final raw = utf8.decode(rawMessage);
         final message = MirrorMessage.decode(raw);
+        if (message.sessionId != null) {
+          _sessionId ??= message.sessionId;
+        }
 
         if (message.protocolVersion != SecurityConstants.protocolVersion) {
           _logger.w('Rejected message with unknown protocol version.');
@@ -386,6 +391,7 @@ class SocketManager {
         id: id,
         timestamp: timestamp,
         payload: encrypted,
+        sessionId: _sessionId,
       );
       client.write('${message.encode()}\n');
       await client.flush();
@@ -422,6 +428,7 @@ class SocketManager {
   /// Server side: send a random nonce to the client.
   Future<void> _startServerAuth(Socket socket) async {
     final nonce = CryptoManager.generateNonce();
+    _sessionId = const Uuid().v4();
     final localKey = _localKeyPair;
     final localPublicKey = localKey == null
         ? ''
@@ -430,6 +437,7 @@ class SocketManager {
     _logger.i('Server sending auth challenge.');
     sendMessage(MessageTypes.authChallenge, {
       'nonce': nonce,
+      'session_id': _sessionId,
       'protocol_version': SecurityConstants.protocolVersion,
       'server_device_id': _localDeviceId,
       'client_device_id': _peerDeviceId,
@@ -487,7 +495,8 @@ class SocketManager {
     }
     final payload = jsonDecode(decrypted) as Map<String, dynamic>;
     final nonce = payload['nonce'] as String? ?? '';
-    if (nonce.isEmpty) {
+    final sessionId = payload['session_id'] as String? ?? '';
+    if (nonce.isEmpty || sessionId.isEmpty || message.sessionId != sessionId) {
       _logger.e('Empty nonce in auth challenge.');
       _handleClosed();
       return;
@@ -506,6 +515,7 @@ class SocketManager {
     _logger.i('Client sending auth response (signed nonce).');
     await sendMessage(MessageTypes.authResponse, {
       'nonce': nonce,
+      'session_id': sessionId,
       'signature': signature,
       'transcript': transcript,
     });
@@ -529,12 +539,14 @@ class SocketManager {
     }
     final payload = jsonDecode(decrypted) as Map<String, dynamic>;
     final nonce = payload['nonce'] as String? ?? '';
+    final sessionId = payload['session_id'] as String? ?? '';
     final signature = payload['signature'] as String? ?? '';
     final transcript = payload['transcript'] as String? ?? '';
 
     // Verify the signature against the nonce using the peer's public key.
     final expectedTranscript = _authTranscript({
       'nonce': nonce,
+      'session_id': sessionId,
       'protocol_version': SecurityConstants.protocolVersion,
       'server_device_id': _localDeviceId,
       'client_device_id': _peerDeviceId,
@@ -542,6 +554,9 @@ class SocketManager {
       'client_public_key': peerPubKey,
     });
     final ok =
+        sessionId.isNotEmpty &&
+        message.sessionId == sessionId &&
+        sessionId == _sessionId &&
         transcript == expectedTranscript &&
         await CryptoManager.verifySignature(
           signatureBase64: signature,
@@ -580,6 +595,7 @@ class SocketManager {
   String _authTranscript(Map<String, dynamic> payload) => jsonEncode({
     'protocol_version': payload['protocol_version'],
     'nonce': payload['nonce'],
+    'session_id': payload['session_id'],
     'server_device_id': payload['server_device_id'],
     'client_device_id': payload['client_device_id'],
     'server_public_key': payload['server_public_key'],
