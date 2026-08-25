@@ -424,9 +424,11 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
   }
 
   SocketManager _createSocketManager() {
-    final sm = SocketManager(
+    late final SocketManager sm;
+    sm = SocketManager(
       onMessage: _handleIncomingMessage,
       onConnected: () {
+        if (sm.isPairingMode) return;
         state = true;
         _reconnectScheduler.markConnected();
         _peerDiscoveryCoordinator.markConnected();
@@ -449,6 +451,7 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
         _peerDiscoveryCoordinator.setThrottle(true);
       },
       onDisconnected: () {
+        if (sm.isPairingMode) return;
         state = false;
         _peerDiscoveryCoordinator.markDisconnected();
         _logger.w(

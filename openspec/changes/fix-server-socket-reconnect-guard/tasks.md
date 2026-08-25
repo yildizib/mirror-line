@@ -39,7 +39,7 @@
 
 - [x] 4.1 Separate QR bootstrap mode from authenticated paired transport and
   allow an unpaired listener to process a QR-authorized request.
-- [ ] 4.2 Keep pairing bootstrap out of normal connected-state side effects,
+- [x] 4.2 Keep pairing bootstrap out of normal connected-state side effects,
   queue flushing, and reconnect scheduling.
 - [ ] 4.3 Preserve fail-closed behavior for paired connections missing identity
   material.

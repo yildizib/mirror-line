@@ -34,6 +34,7 @@ void main() {
 
     final ok = await client.connect('127.0.0.1', 45901, key);
     expect(ok, isTrue);
+    expect(client.isPairingMode, isTrue);
 
     await client.sendMessage('sms_incoming', {
       'id': 'msg-1',
@@ -42,6 +43,7 @@ void main() {
     });
 
     await completer.future.timeout(const Duration(seconds: 5));
+    expect(server.isPairingMode, isTrue);
     expect(received, hasLength(1));
     expect(received.first.type, 'sms_incoming');
 

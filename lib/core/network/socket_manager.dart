@@ -40,6 +40,7 @@ class SocketManager {
   /// (initiates connection).
   bool _isServer = false;
   bool _identityRequired = false;
+  bool _pairingMode = false;
 
   /// Completer for the client-side auth challenge.
   Completer<void>? _authCompleter;
@@ -74,6 +75,7 @@ class SocketManager {
   bool get isConnected => _isConnected;
   bool get isAuthed => _authed;
   bool get isServerMode => _isServer && _server != null;
+  bool get isPairingMode => _pairingMode;
 
   /// Extends the heartbeat cadence when the app goes to the background
   /// (screen off) and restores it on resume. A slower ping while the
@@ -204,6 +206,7 @@ class SocketManager {
     _client = socket;
     _isConnected = true;
     _authed = false;
+    _pairingMode = false;
     _disposed = false;
     _buffer.clear();
     _invalidMessageCount = 0;
@@ -229,6 +232,7 @@ class SocketManager {
         _logger.i(
           'Server: no peer public key set — pairing mode, skipping auth.',
         );
+        _pairingMode = true;
         _onAuthSuccess();
       }
     } else {
@@ -243,6 +247,7 @@ class SocketManager {
         _logger.i(
           'Client: no local key pair set — pairing mode, skipping auth.',
         );
+        _pairingMode = true;
         _onAuthSuccess();
       }
     }
@@ -282,6 +287,7 @@ class SocketManager {
     _client = null;
     _buffer.clear();
     if (!_disposed) onDisconnected?.call();
+    _pairingMode = false;
   }
 
   void _startHeartbeat() {
@@ -719,6 +725,7 @@ class SocketManager {
     _connectGeneration++;
     _disposed = true;
     _authed = false;
+    _pairingMode = false;
     _stopHeartbeat();
     _stopServerAuthTimer();
     try {
