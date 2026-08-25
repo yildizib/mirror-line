@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:mirrorline/core/data/database.dart';
 import 'package:mirrorline/core/data/models/sms_message.dart';
 import 'package:mirrorline/core/security/key_store.dart';
@@ -6,8 +7,14 @@ import 'package:sqflite/sqflite.dart';
 
 class SmsMessageDao {
   final AppDatabase _db = AppDatabase.instance;
+  Database? _testDb;
 
-  Future<Database> get _database => _db.database;
+  SmsMessageDao();
+
+  @visibleForTesting
+  SmsMessageDao.forDatabase(Database db) : _testDb = db;
+
+  Future<Database> get _database async => _testDb ?? await _db.database;
 
   Future<void> insert(SmsMessage message) async {
     final db = await _database;
