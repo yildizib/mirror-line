@@ -2,12 +2,19 @@ import 'dart:convert';
 
 import 'package:mirrorline/core/data/daos/queue_dao.dart';
 import 'package:mirrorline/core/data/models/queue_item.dart';
+import 'package:mirrorline/core/security/crypto_manager.dart';
+import 'package:mirrorline/core/security/key_store.dart';
 import 'package:mirrorline/core/security/security_constants.dart';
 
 class QueueService {
   final QueueDao _dao;
+  final Future<String?> Function(String type, String payload) _makeDedupeKey;
 
-  QueueService({QueueDao? dao}) : _dao = dao ?? QueueDao();
+  QueueService({
+    QueueDao? dao,
+    Future<String?> Function(String type, String payload)? makeDedupeKey,
+  }) : _dao = dao ?? QueueDao(),
+       _makeDedupeKey = makeDedupeKey ?? _defaultDedupeKey;
 
   Future<void> enqueue(String type, String payload) async {
     await _removeUnavailableItems();
@@ -17,8 +24,15 @@ class QueueService {
     if (await _dao.count() >= SecurityConstants.maxQueueItems) {
       throw StateError('Queue item limit reached.');
     }
+    final dedupeKey = await _makeDedupeKey(type, payload);
+    if (dedupeKey != null && await _dao.hasDedupeKey(dedupeKey)) return;
     await _dao.insert(
-      QueueItem(type: type, payload: payload, createdAt: DateTime.now()),
+      QueueItem(
+        type: type,
+        payload: payload,
+        dedupeKey: dedupeKey,
+        createdAt: DateTime.now(),
+      ),
     );
   }
 
@@ -49,5 +63,21 @@ class QueueService {
     final cutoff = DateTime.now().subtract(SecurityConstants.queueItemTtl);
     await _dao.deleteExpired(cutoff);
     await _dao.deleteRetryExceeded(SecurityConstants.maxQueueRetryCount);
+  }
+
+  static Future<String?> _defaultDedupeKey(String type, String payload) async {
+    try {
+      final value = jsonDecode(payload);
+      if (value is! Map<String, dynamic>) return null;
+      final identity = value['id'] ?? value['nativeId'];
+      if (identity == null || identity.toString().isEmpty) return null;
+      final key = await KeyStore.ensureLocalDatabaseKey();
+      return CryptoManager.keyedLookupDigest(
+        key,
+        '$type:${identity.toString()}',
+      );
+    } on FormatException {
+      return null;
+    }
   }
 }

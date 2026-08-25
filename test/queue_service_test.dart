@@ -7,7 +7,11 @@ import 'package:mirrorline/core/services/queue_service.dart';
 void main() {
   test('rejects payloads larger than the configured item limit', () async {
     final dao = _FakeQueueDao();
-    final service = QueueService(dao: dao);
+    final service = QueueService(
+      dao: dao,
+      makeDedupeKey: (type, payload) async =>
+          payload.contains('message-1') ? '$type:message-1' : null,
+    );
     final payload = 'x' * (SecurityConstants.maxQueueItemBytes + 1);
 
     expect(() => service.enqueue('sms', payload), throwsStateError);
@@ -58,6 +62,21 @@ void main() {
 
     expect(pending.map((item) => item.payload), ['available']);
   });
+
+  test('deduplicates queued messages by originating identity', () async {
+    final dao = _FakeQueueDao();
+    final service = QueueService(
+      dao: dao,
+      makeDedupeKey: (type, payload) async =>
+          payload.contains('message-1') ? '$type:message-1' : null,
+    );
+    const payload = '{"id":"message-1","body":"hello"}';
+
+    await service.enqueue('sms_incoming', payload);
+    await service.enqueue('sms_incoming', payload);
+
+    expect(dao.items, hasLength(1));
+  });
 }
 
 class _FakeQueueDao extends QueueDao {
@@ -83,4 +102,8 @@ class _FakeQueueDao extends QueueDao {
   Future<void> deleteRetryExceeded(int maxRetryCount) async {
     items.removeWhere((item) => item.retryCount >= maxRetryCount);
   }
+
+  @override
+  Future<bool> hasDedupeKey(String dedupeKey) async =>
+      items.any((item) => item.dedupeKey == dedupeKey);
 }

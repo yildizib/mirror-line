@@ -26,6 +26,18 @@ class QueueDao {
     await db.insert('offline_queue', values);
   }
 
+  Future<bool> hasDedupeKey(String dedupeKey) async {
+    final db = await _database;
+    final rows = await db.query(
+      'offline_queue',
+      columns: ['id'],
+      where: 'dedupe_key = ?',
+      whereArgs: [dedupeKey],
+      limit: 1,
+    );
+    return rows.isNotEmpty;
+  }
+
   Future<List<QueueItem>> getAll() async {
     final db = await _database;
     final maps = await db.query('offline_queue', orderBy: 'created_at ASC');

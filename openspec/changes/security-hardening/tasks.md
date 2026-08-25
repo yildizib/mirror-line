@@ -39,7 +39,7 @@
   and decrypt them only for network delivery.
 - [x] 4.2 Enforce queue item count, item size, retry count, and retention TTL
   limits with a defined overflow and expiration policy.
-- [ ] 4.3 Prevent duplicate queue delivery using the originating message
+- [x] 4.3 Prevent duplicate queue delivery using the originating message
   identity where applicable.
 - [ ] 4.4 Add queue tests for encrypted persistence, delivery decryption,
   overflow, expiration, retry limits, and duplicate handling.
