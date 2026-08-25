@@ -9,25 +9,25 @@
 
 ## 2. Local Storage Migration
 
-- [ ] 2.1 Add schema v7 encrypted and lookup columns for sensitive peer, call,
-  SMS, notification, and queue data.
+- [ ] 2.1 Define the same-column versioned encryption format and migration
+  contract for sensitive peer, call, SMS, notification, and queue data.
 - [ ] 2.2 Implement a resumable migration coordinator that initializes or
   recovers secure keys before transforming existing records.
-- [ ] 2.3 Encrypt existing sensitive records, verify successful decryption,
-  and scrub legacy plaintext values only after verification.
-- [ ] 2.4 Remove the readable network AES key from SQLite after confirming the
-  secure storage copy is available.
+- [ ] 2.3 Encrypt existing sensitive records in place, verify successful
+  decryption, and resume safely using the versioned storage prefix.
+- [ ] 2.4 Store the network AES key only as versioned local ciphertext in the
+  existing peer key field while keeping secure storage authoritative.
 - [ ] 2.5 Add migration tests for fresh installs, upgrades, interruptions,
   missing secure keys, corrupt records, and repeatable execution.
 
 ## 3. DAO and Model Protection
 
-- [ ] 3.1 Update peer, call, SMS, and notification persistence to encrypt
-  sensitive fields before database writes.
-- [ ] 3.2 Update DAOs to decrypt protected fields before returning application
-  models to facades.
-- [ ] 3.3 Add keyed lookup digests for address, thread, and package grouping
-  without storing searchable sensitive plaintext.
+- [ ] 3.1 Update peer, call, SMS, notification, and queue persistence to encrypt
+  sensitive fields in their existing columns before database writes.
+- [ ] 3.2 Update DAOs and queue handling to decrypt protected fields before
+  returning application models or sending queued messages.
+- [ ] 3.3 Move address, thread, and package filtering/grouping after decryption
+  without adding searchable sensitive columns.
 - [ ] 3.4 Preserve existing facade, provider, pagination, grouping, and UI
   behavior with decrypted model values.
 - [ ] 3.5 Add DAO regression tests proving plaintext is not persisted and UI
