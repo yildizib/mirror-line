@@ -1,12 +1,20 @@
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mirrorline/core/data/database.dart';
 import 'package:mirrorline/core/services/local_storage_migration.dart';
+import 'package:mirrorline/core/security/local_storage_crypto.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   setUp(() {
     FlutterSecureStorage.setMockInitialValues({});
+  });
+
+  setUpAll(() {
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
   });
 
   test('prepare creates a key and starts in the not-started state', () async {
@@ -56,5 +64,95 @@ void main() {
       () => LocalStorageMigrationCoordinator().prepare(),
       throwsStateError,
     );
+  });
+
+  test('migrates sensitive fields in bounded, repeatable batches', () async {
+    final db = await databaseFactory.openDatabase(
+      inMemoryDatabasePath,
+      options: OpenDatabaseOptions(
+        version: AppDatabase.schemaVersion,
+        onCreate: AppDatabase.instance.createTables,
+      ),
+    );
+    await _insertLegacyRows(db);
+
+    final coordinator = LocalStorageMigrationCoordinator();
+    await coordinator.migrate(db, batchSize: 1);
+    final preparation = await coordinator.prepare();
+    final rows = await db.query('sms_message');
+
+    expect(preparation.state, LocalStorageMigrationState.completed);
+    expect(rows.single['body'], startsWith(LocalStorageCrypto.currentPrefix));
+    expect(
+      rows.single['address'],
+      startsWith(LocalStorageCrypto.currentPrefix),
+    );
+    expect(
+      await LocalStorageCrypto.decrypt(
+        preparation.localKey,
+        rows.single['body']! as String,
+      ),
+      'legacy body',
+    );
+
+    final ciphertext = rows.single['body'];
+    await coordinator.migrate(db, batchSize: 1);
+    expect((await db.query('sms_message')).single['body'], ciphertext);
+    expect((await db.query('peer')).single['key'], 'network-key');
+
+    await db.close();
+  });
+}
+
+Future<void> _insertLegacyRows(Database db) async {
+  const timestamp = 1700000000000;
+  await db.insert('peer', {
+    'id': 'peer-1',
+    'device_name': 'Legacy Device',
+    'role': 'main',
+    'ip': '192.168.1.10',
+    'port': 45678,
+    'key': 'network-key',
+    'public_key': 'legacy-public-key',
+    'created_at': timestamp,
+  });
+  await db.insert('call_event', {
+    'id': 'call-1',
+    'direction': 'incoming',
+    'number': '+905551112233',
+    'contact_name': 'Legacy Caller',
+    'timestamp': timestamp,
+    'encrypted': '',
+    'status': 'missed',
+    'created_at': timestamp,
+  });
+  await db.insert('sms_message', {
+    'id': 'sms-1',
+    'thread_id': 'thread-1',
+    'address': '+905551112233',
+    'contact_name': 'Legacy Sender',
+    'body': 'legacy body',
+    'encrypted': '',
+    'direction': 'incoming',
+    'status': 'received',
+    'timestamp': timestamp,
+    'created_at': timestamp,
+  });
+  await db.insert('notification_event', {
+    'id': 'notification-1',
+    'native_id': 'native-1',
+    'package_name': 'com.example.legacy',
+    'app_name': 'Legacy App',
+    'title': 'Legacy title',
+    'text': 'Legacy text',
+    'encrypted': '',
+    'timestamp': timestamp,
+    'created_at': timestamp,
+  });
+  await db.insert('offline_queue', {
+    'type': 'sms',
+    'payload': '{"body":"legacy body"}',
+    'retry_count': 0,
+    'created_at': timestamp,
   });
 }

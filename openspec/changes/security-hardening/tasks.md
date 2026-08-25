@@ -13,7 +13,7 @@
   contract for sensitive peer, call, SMS, notification, and queue data.
 - [x] 2.2 Implement a resumable migration coordinator that initializes or
   recovers secure keys before transforming existing records.
-- [ ] 2.3 Encrypt existing sensitive records in place, verify successful
+- [x] 2.3 Encrypt existing sensitive records in place, verify successful
   decryption, and resume safely using the versioned storage prefix.
 - [ ] 2.4 Store the network AES key only as versioned local ciphertext in the
   existing peer key field while keeping secure storage authoritative.
