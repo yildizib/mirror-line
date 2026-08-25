@@ -15,7 +15,7 @@
 
 - [x] 2.1 Test that an unpaired network change preserves the pairing listener
   and starts neither reconnect nor subnet discovery.
-- [ ] 2.2 Test that manual force reconnect is a no-op with an unavailable
+- [x] 2.2 Test that manual force reconnect is a no-op with an unavailable
   remote peer and reports the appropriate diagnostic state.
 - [ ] 2.3 Test that a server-mode socket is never reused for an outbound client
   connection and that listener/client cleanup remains independent.

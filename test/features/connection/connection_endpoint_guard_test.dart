@@ -31,6 +31,23 @@ void main() {
       );
     });
 
+    test('force reconnect guard rejects an unavailable remote peer', () {
+      expect(
+        isUsablePeerEndpoint(
+          peer: pairedPeer.copyWith(publicKey: ''),
+          localIps: const ['192.168.1.10'],
+        ),
+        false,
+      );
+      expect(
+        isUsablePeerEndpoint(
+          peer: pairedPeer.copyWith(ip: '192.168.1.10'),
+          localIps: const ['192.168.1.10'],
+        ),
+        false,
+      );
+    });
+
     test('rejects a zero-port endpoint', () {
       expect(
         isUsablePeerEndpoint(
