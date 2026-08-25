@@ -41,7 +41,7 @@
   limits with a defined overflow and expiration policy.
 - [x] 4.3 Prevent duplicate queue delivery using the originating message
   identity where applicable.
-- [ ] 4.4 Add queue tests for encrypted persistence, delivery decryption,
+- [x] 4.4 Add queue tests for encrypted persistence, delivery decryption,
   overflow, expiration, retry limits, and duplicate handling.
 
 ## 5. Authenticated Message Envelope

@@ -77,6 +77,37 @@ void main() {
 
     expect(dao.items, hasLength(1));
   });
+
+  test(
+    'drops items at the retry boundary and increments lower retries',
+    () async {
+      final dao = _FakeQueueDao(
+        items: [
+          QueueItem(
+            id: 1,
+            type: 'sms',
+            payload: 'drop',
+            createdAt: DateTime.now(),
+          ),
+          QueueItem(
+            id: 2,
+            type: 'sms',
+            payload: 'retry',
+            createdAt: DateTime.now(),
+          ),
+        ],
+      );
+      final service = QueueService(dao: dao);
+
+      expect(
+        await service.markFailed(1, SecurityConstants.maxQueueRetryCount),
+        isTrue,
+      );
+      expect(await service.markFailed(2, 1), isFalse);
+      expect(dao.items.singleWhere((item) => item.id == 2).retryCount, 2);
+      expect(dao.items.any((item) => item.id == 1), isFalse);
+    },
+  );
 }
 
 class _FakeQueueDao extends QueueDao {
@@ -106,4 +137,15 @@ class _FakeQueueDao extends QueueDao {
   @override
   Future<bool> hasDedupeKey(String dedupeKey) async =>
       items.any((item) => item.dedupeKey == dedupeKey);
+
+  @override
+  Future<void> updateRetryCount(int id, int retryCount) async {
+    final index = items.indexWhere((item) => item.id == id);
+    items[index] = items[index].copyWith(retryCount: retryCount);
+  }
+
+  @override
+  Future<void> delete(int id) async {
+    items.removeWhere((item) => item.id == id);
+  }
 }
