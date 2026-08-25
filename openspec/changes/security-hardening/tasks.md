@@ -9,7 +9,7 @@
 
 ## 2. Local Storage Migration
 
-- [ ] 2.1 Define the same-column versioned encryption format and migration
+- [x] 2.1 Define the same-column versioned encryption format and migration
   contract for sensitive peer, call, SMS, notification, and queue data.
 - [ ] 2.2 Implement a resumable migration coordinator that initializes or
   recovers secure keys before transforming existing records.
