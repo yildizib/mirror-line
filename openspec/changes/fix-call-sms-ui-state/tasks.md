@@ -1,6 +1,6 @@
 ## 1. Call UI State
 
-- [ ] 1.1 Add regression coverage for same-identifier call status replacement,
+- [x] 1.1 Add regression coverage for same-identifier call status replacement,
   grouping-key movement, and Reject action targeting; update call pagination
   reconciliation so a missed call replaces stale ringing state and only the
   active ringing call remains rejectable; run the focused call tests and
