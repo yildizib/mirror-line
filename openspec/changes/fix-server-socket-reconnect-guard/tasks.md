@@ -84,7 +84,7 @@
 
 - [x] 9.1 Run `dart format lib/ test/`.
 - [x] 9.2 Run `dart analyze --fatal-infos`.
-- [ ] 9.3 Run `flutter analyze`.
+- [x] 9.3 Run `flutter analyze`.
 - [ ] 9.4 Run targeted pairing, socket, connection, discovery, and scheduler
   tests.
 - [ ] 9.5 Run `flutter test`.
