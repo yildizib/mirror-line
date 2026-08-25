@@ -1,16 +1,20 @@
 import 'dart:convert';
 
+import 'package:mirrorline/core/security/security_constants.dart';
+
 class MirrorMessage {
   final String type;
   final String id;
   final int timestamp;
   final String payload; // base64 encrypted json
+  final int protocolVersion;
 
   MirrorMessage({
     required this.type,
     required this.id,
     required this.timestamp,
     required this.payload,
+    this.protocolVersion = SecurityConstants.protocolVersion,
   });
 
   Map<String, dynamic> toJson() => {
@@ -18,6 +22,7 @@ class MirrorMessage {
     'id': id,
     'timestamp': timestamp,
     'payload': payload,
+    'protocol_version': protocolVersion,
   };
 
   factory MirrorMessage.fromJson(Map<String, dynamic> json) => MirrorMessage(
@@ -25,6 +30,8 @@ class MirrorMessage {
     id: json['id'] as String,
     timestamp: json['timestamp'] as int,
     payload: json['payload'] as String,
+    protocolVersion:
+        (json['protocol_version'] as int?) ?? SecurityConstants.protocolVersion,
   );
 
   String encode() => jsonEncode(toJson());

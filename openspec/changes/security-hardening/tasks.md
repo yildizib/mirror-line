@@ -46,7 +46,7 @@
 
 ## 5. Authenticated Message Envelope
 
-- [ ] 5.1 Add a versioned wire envelope without breaking controlled pairing
+- [x] 5.1 Add a versioned wire envelope without breaking controlled pairing
   compatibility.
 - [ ] 5.2 Implement canonical authenticated metadata for protocol version,
   message type, message ID, and timestamp.
