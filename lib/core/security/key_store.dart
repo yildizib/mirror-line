@@ -10,6 +10,9 @@ class KeyStore {
   static const _peerKeyKey = 'peer_aes_key';
   static const _peerIdKey = 'peer_id';
   static const _localDatabaseKeyKey = 'local_database_key';
+  static const _localStorageMigrationStateKey = 'local_storage_migration_state';
+  static const _localStorageMigrationCheckpointKey =
+      'local_storage_migration_checkpoint';
 
   // Ed25519 device identity keypair
   static const _devicePrivateKeyKey = 'device_ed25519_private';
@@ -92,6 +95,26 @@ class KeyStore {
   static Future<void> clearLocalDatabaseKey() =>
       _storage.delete(key: _localDatabaseKeyKey);
 
+  static Future<String?> getLocalStorageMigrationState() =>
+      _storage.read(key: _localStorageMigrationStateKey);
+
+  static Future<void> setLocalStorageMigrationState(String state) =>
+      _storage.write(key: _localStorageMigrationStateKey, value: state);
+
+  static Future<String?> getLocalStorageMigrationCheckpoint() =>
+      _storage.read(key: _localStorageMigrationCheckpointKey);
+
+  static Future<void> setLocalStorageMigrationCheckpoint(String checkpoint) =>
+      _storage.write(
+        key: _localStorageMigrationCheckpointKey,
+        value: checkpoint,
+      );
+
+  static Future<void> clearLocalStorageMigration() async {
+    await _storage.delete(key: _localStorageMigrationStateKey);
+    await _storage.delete(key: _localStorageMigrationCheckpointKey);
+  }
+
   // ---- Ed25519 device identity -----------------------------------------
 
   /// Generates a new Ed25519 keypair and stores it. Returns the public key
@@ -141,6 +164,7 @@ class KeyStore {
     await clearPeerId();
     await clearPeerKey();
     await clearLocalDatabaseKey();
+    await clearLocalStorageMigration();
     await clearDeviceKeyPair();
     await clearSelfIdentity();
   }
