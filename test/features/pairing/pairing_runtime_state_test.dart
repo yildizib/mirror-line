@@ -15,6 +15,17 @@ void main() {
   );
 
   group('resolvePairingRuntimeState', () {
+    test('reports a self-only setup record as unpaired', () {
+      expect(
+        resolvePairingRuntimeState(
+          peer: peer.copyWith(publicKey: ''),
+          isPairingPending: false,
+          isPairingComplete: false,
+        ),
+        PairingRuntimeState.unpaired,
+      );
+    });
+
     test('reports an unpaired device without a completed peer', () {
       expect(
         resolvePairingRuntimeState(

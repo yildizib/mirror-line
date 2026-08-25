@@ -28,7 +28,7 @@
   endpoint on both devices without replacing it with local identity data.
 - [x] 3.3 Add non-secret stage diagnostics for QR parsing, TCP connection,
   request delivery, accept, acknowledgement, and rejection paths.
-- [ ] 3.4 Add regression coverage for Settings-facing peer state and diagnostic
+- [x] 3.4 Add regression coverage for Settings-facing peer state and diagnostic
   states after successful and failed pairing.
 
 ## 4. Verification
