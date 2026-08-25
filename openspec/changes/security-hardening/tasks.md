@@ -54,7 +54,7 @@
   data for every encrypted normal message.
 - [x] 5.4 Reject unknown protocol versions, altered metadata, invalid payloads,
   and authentication failures before dispatching messages.
-- [ ] 5.5 Add wire-level tests for valid envelopes, metadata tampering, wrong
+- [x] 5.5 Add wire-level tests for valid envelopes, metadata tampering, wrong
   versions, wrong keys, and invalid ciphertext.
 
 ## 6. Mutual Peer Authentication

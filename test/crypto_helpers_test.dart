@@ -97,4 +97,31 @@ void main() {
       isNull,
     );
   });
+
+  test('AAD rejects metadata tampering and wrong keys', () async {
+    final key = CryptoManager.generateKey();
+    final otherKey = CryptoManager.generateKey();
+    final ciphertext = await CryptoManager.encryptWithAad(
+      key,
+      '{"body":"secret"}',
+      aad: 'metadata-v1'.codeUnits,
+    );
+
+    expect(
+      await CryptoManager.decryptWithAad(
+        key,
+        ciphertext,
+        aad: 'metadata-v2'.codeUnits,
+      ),
+      isNull,
+    );
+    expect(
+      await CryptoManager.decryptWithAad(
+        otherKey,
+        ciphertext,
+        aad: 'metadata-v1'.codeUnits,
+      ),
+      isNull,
+    );
+  });
 }
