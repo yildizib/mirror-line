@@ -29,7 +29,7 @@
 - [x] 3.1 Run `dart format lib/ test/` and format all changed Dart files.
 - [x] 3.2 Run `dart analyze --fatal-infos` and fix all reported issues.
 - [x] 3.3 Run `flutter analyze` and fix all reported issues.
-- [ ] 3.4 Run targeted connection, pairing, discovery, and scheduler tests.
+- [x] 3.4 Run targeted connection, pairing, discovery, and scheduler tests.
 - [ ] 3.5 Run `flutter test` and verify all tests pass.
 - [ ] 3.6 Run `flutter build apk --debug`.
 - [ ] 3.7 Run strict OpenSpec validation and update the issue with each
