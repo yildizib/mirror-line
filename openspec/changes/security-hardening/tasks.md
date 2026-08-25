@@ -17,7 +17,7 @@
   decryption, and resume safely using the versioned storage prefix.
 - [x] 2.4 Store the network AES key only as versioned local ciphertext in the
   existing peer key field while keeping secure storage authoritative.
-- [ ] 2.5 Add migration tests for fresh installs, upgrades, interruptions,
+- [x] 2.5 Add migration tests for fresh installs, upgrades, interruptions,
   missing secure keys, corrupt records, and repeatable execution.
 
 ## 3. DAO and Model Protection
