@@ -195,6 +195,7 @@ class PairingFacade extends StateNotifier<PairingState> {
       state = const PairingState(errorCode: PairingErrorCode.handshakeFailed);
       return;
     }
+    _logger.i('Pairing QR identity validated.');
     await _ref
         .read(connectionFacadeProvider.notifier)
         .invalidateNormalConnectionWork();
@@ -251,6 +252,7 @@ class PairingFacade extends StateNotifier<PairingState> {
         'publicKey': myPublicKey,
         'ip': myIp,
       });
+      _logger.i('Pairing request delivered.');
 
       _acceptCompleter = Completer<bool>();
       final accepted = await _acceptCompleter!.future.timeout(
@@ -300,6 +302,7 @@ class PairingFacade extends StateNotifier<PairingState> {
         });
         state = state.copyWith(isComplete: true);
       } else {
+        _logger.w('Pairing acceptance timed out or was rejected.');
         state = state.copyWith(
           isWaitingForAccept: false,
           errorCode: PairingErrorCode.rejectedOrTimedOut,
@@ -514,6 +517,7 @@ class PairingFacade extends StateNotifier<PairingState> {
     );
 
     if (!acked) {
+      _logger.w('Pairing acknowledgement timed out.');
       state = const PairingState(errorCode: PairingErrorCode.ackTimeout);
       _pendingScannerInfo = null;
       return;
