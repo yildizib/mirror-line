@@ -9,6 +9,7 @@ class MirrorMessage {
   final String payload; // base64 encrypted json
   final int protocolVersion;
   final String? sessionId;
+  final int? sequence;
 
   MirrorMessage({
     required this.type,
@@ -17,6 +18,7 @@ class MirrorMessage {
     required this.payload,
     this.protocolVersion = SecurityConstants.protocolVersion,
     this.sessionId,
+    this.sequence,
   });
 
   Map<String, dynamic> toJson() => {
@@ -26,6 +28,7 @@ class MirrorMessage {
     'payload': payload,
     'protocol_version': protocolVersion,
     if (sessionId != null) 'session_id': sessionId,
+    if (sequence != null) 'sequence': sequence,
   };
 
   factory MirrorMessage.fromJson(Map<String, dynamic> json) => MirrorMessage(
@@ -36,6 +39,7 @@ class MirrorMessage {
     protocolVersion:
         (json['protocol_version'] as int?) ?? SecurityConstants.protocolVersion,
     sessionId: json['session_id'] as String?,
+    sequence: json['sequence'] as int?,
   );
 
   String encode() => jsonEncode(toJson());

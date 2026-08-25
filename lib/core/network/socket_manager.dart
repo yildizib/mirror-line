@@ -28,6 +28,7 @@ class SocketManager {
   String? _localPublicKeyBase64;
   String? _clientAuthTranscript;
   String? _sessionId;
+  int _nextSequence = 0;
 
   /// This device's Ed25519 keypair, used to sign challenges when acting as
   /// the *client*.  Set via [setAuthIdentity].
@@ -202,6 +203,7 @@ class SocketManager {
     _disposed = false;
     _buffer.clear();
     _sessionId = null;
+    _nextSequence = 0;
     _lastDataAt = DateTime.now();
     socket.setOption(SocketOption.tcpNoDelay, true);
     _listen(socket);
@@ -373,6 +375,7 @@ class SocketManager {
     try {
       final id = const Uuid().v4();
       final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final sequence = _isControlMessage(type) ? null : ++_nextSequence;
       final metadata = CryptoManager.canonicalMessageMetadata(
         version: SecurityConstants.protocolVersion,
         type: type,
@@ -392,6 +395,7 @@ class SocketManager {
         timestamp: timestamp,
         payload: encrypted,
         sessionId: _sessionId,
+        sequence: sequence,
       );
       client.write('${message.encode()}\n');
       await client.flush();

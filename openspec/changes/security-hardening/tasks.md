@@ -75,7 +75,7 @@
 
 - [x] 7.1 Generate and negotiate a fresh session identifier during every
   authenticated connection.
-- [ ] 7.2 Add session ID, sequence data, and message ID handling to normal
+- [x] 7.2 Add session ID, sequence data, and message ID handling to normal
   messages and queue delivery.
 - [ ] 7.3 Reject messages from another session, duplicate IDs, invalid sequence
   values, and timestamps outside the freshness window.

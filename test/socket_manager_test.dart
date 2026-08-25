@@ -205,6 +205,7 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 50));
       expect(received, isNotEmpty);
       expect(received.single.sessionId, isNotEmpty);
+      expect(received.single.sequence, 1);
 
       await client.disconnect();
       await server.disconnect();
