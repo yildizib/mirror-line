@@ -150,10 +150,10 @@ class PairingFacade extends StateNotifier<PairingState> {
   /// Stashed scanner info on the *scanned* side (set by handleIncomingRequest).
   Map<String, dynamic>? _pendingScannerInfo;
   String? _transactionId;
-  String? _localPairingId;
-  String? _localPairingPublicKey;
   String? _expectedPeerId;
   String? _expectedPeerPublicKey;
+  String? _expectedAckPeerId;
+  String? _expectedAckPeerPublicKey;
 
   PairingFacade(this._ref) : super(const PairingState());
 
@@ -203,8 +203,6 @@ class PairingFacade extends StateNotifier<PairingState> {
     final key = SecretKey(keyBytes);
     _handshakeKey = key;
     _transactionId = const Uuid().v4();
-    _localPairingId = myPeerId;
-    _localPairingPublicKey = myPublicKey;
     _expectedPeerId = scannedId;
     _expectedPeerPublicKey = scannedPublicKey;
 
@@ -244,6 +242,8 @@ class PairingFacade extends StateNotifier<PairingState> {
         return;
       }
 
+      _acceptPayload = null;
+      _acceptCompleter = Completer<bool>();
       await _handshakeSocket!.sendMessage(MessageTypes.pairingRequest, {
         'transactionId': _transactionId,
         'deviceName': myDeviceName,
@@ -254,7 +254,6 @@ class PairingFacade extends StateNotifier<PairingState> {
       });
       _logger.i('Pairing request delivered.');
 
-      _acceptCompleter = Completer<bool>();
       final accepted = await _acceptCompleter!.future.timeout(
         SecurityConstants.pairingTimeout,
         onTimeout: () => false,
@@ -297,8 +296,8 @@ class PairingFacade extends StateNotifier<PairingState> {
         _logger.i('Sending pairingAck on handshake socket...');
         await _handshakeSocket?.sendMessage(MessageTypes.pairingAck, {
           'transactionId': _transactionId,
-          'peerId': _localPairingId,
-          'publicKey': _localPairingPublicKey,
+          'peerId': myPeerId,
+          'publicKey': myPublicKey,
         });
         state = state.copyWith(isComplete: true);
       } else {
@@ -496,6 +495,11 @@ class PairingFacade extends StateNotifier<PairingState> {
       return;
     }
 
+    _expectedAckPeerId = scannerId;
+    _expectedAckPeerPublicKey = scannerPublicKey;
+    _pairAckCompleter = Completer<bool>();
+    state = state.copyWith(isShowingRequest: false, isFinalizing: true);
+
     _logger.i('Sending pairingAccept to scanner...');
     await socketManager.sendMessage(MessageTypes.pairingAccept, {
       'transactionId': transactionId,
@@ -508,9 +512,6 @@ class PairingFacade extends StateNotifier<PairingState> {
       'ip': myIp,
     });
 
-    state = state.copyWith(isShowingRequest: false, isFinalizing: true);
-
-    _pairAckCompleter = Completer<bool>();
     final acked = await _pairAckCompleter!.future.timeout(
       const Duration(seconds: 15),
       onTimeout: () => false,
@@ -555,8 +556,8 @@ class PairingFacade extends StateNotifier<PairingState> {
   void handlePairingAck(Map<String, dynamic> payload) {
     _logger.i('handlePairingAck called — completing _pairAckCompleter.');
     if (payload['transactionId'] != _pendingScannerInfo?['transactionId'] ||
-        payload['peerId'] != _localPairingId ||
-        payload['publicKey'] != _localPairingPublicKey) {
+        payload['peerId'] != _expectedAckPeerId ||
+        payload['publicKey'] != _expectedAckPeerPublicKey) {
       _logger.w('Ignoring pairingAck from another transaction.');
       return;
     }
