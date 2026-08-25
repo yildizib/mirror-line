@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logger/logger.dart';
 import 'package:mirrorline/core/data/models/peer.dart';
 import 'package:mirrorline/core/network/message_protocol.dart';
+import 'package:mirrorline/core/network/peer_discovery.dart';
 import 'package:mirrorline/core/network/socket_manager.dart';
 import 'package:mirrorline/core/security/crypto_manager.dart';
 import 'package:mirrorline/core/security/key_store.dart';
@@ -14,6 +15,7 @@ import 'package:mirrorline/features/pairing/peer_facade.dart';
 import 'package:mirrorline/features/pairing/pairing_runtime_state.dart';
 import 'package:mirrorline/features/pairing/pairing_identity_guard.dart';
 import 'package:mirrorline/features/connection/connection_facade.dart';
+import 'package:mirrorline/features/connection/connection_endpoint_guard.dart';
 import 'package:mirrorline/l10n/app_localizations.dart';
 import 'package:uuid/uuid.dart';
 
@@ -196,6 +198,18 @@ class PairingFacade extends StateNotifier<PairingState> {
       return;
     }
     _logger.i('Pairing QR identity validated.');
+    final localAddresses = await PeerDiscovery().getAllLocalAddresses();
+    if (localAddresses == null ||
+        localAddresses.isEmpty ||
+        !isUsableEndpoint(
+          ip: scannedIp,
+          port: scannedPort,
+          localIps: localAddresses,
+        )) {
+      _logger.w('Rejecting invalid or locally owned QR endpoint.');
+      state = const PairingState(errorCode: PairingErrorCode.handshakeFailed);
+      return;
+    }
     await _ref
         .read(connectionFacadeProvider.notifier)
         .invalidateNormalConnectionWork();

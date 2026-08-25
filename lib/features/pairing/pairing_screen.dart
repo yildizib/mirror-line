@@ -504,7 +504,7 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
 
     final scannedId = parts[0];
     final scannedIp = parts[1];
-    final scannedPort = int.tryParse(parts[2]) ?? 45678;
+    final scannedPort = int.tryParse(parts[2]) ?? 0;
     final scannedKey = parts[3];
 
     final hasRole =

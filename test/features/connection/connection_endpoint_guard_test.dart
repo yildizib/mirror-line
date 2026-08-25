@@ -81,6 +81,7 @@ void main() {
 
   group('isUsableEndpoint', () {
     test('rejects invalid addresses and ports', () {
+      expect(isUsableEndpoint(ip: '', port: 45678, localIps: const []), false);
       expect(
         isUsableEndpoint(ip: 'not-an-ip', port: 45678, localIps: const []),
         false,
@@ -88,6 +89,86 @@ void main() {
       expect(
         isUsableEndpoint(ip: '192.168.1.20', port: 0, localIps: const []),
         false,
+      );
+      expect(
+        isUsableEndpoint(ip: '192.168.1.20', port: 65536, localIps: const []),
+        false,
+      );
+    });
+
+    test('rejects IPv4 and IPv6 loopback addresses', () {
+      expect(
+        isUsableEndpoint(ip: '127.0.0.1', port: 45678, localIps: const []),
+        false,
+      );
+      expect(
+        isUsableEndpoint(ip: '::1', port: 45678, localIps: const []),
+        false,
+      );
+      expect(
+        isUsableEndpoint(
+          ip: '::ffff:127.0.0.1',
+          port: 45678,
+          localIps: const [],
+        ),
+        false,
+      );
+    });
+
+    test('rejects IPv4 and IPv6 unspecified addresses', () {
+      expect(
+        isUsableEndpoint(ip: '0.0.0.0', port: 45678, localIps: const []),
+        false,
+      );
+      expect(
+        isUsableEndpoint(ip: '::', port: 45678, localIps: const []),
+        false,
+      );
+    });
+
+    test('rejects every locally owned address', () {
+      const localIps = ['192.168.1.10', '2001:db8::1'];
+      expect(
+        isUsableEndpoint(ip: '192.168.1.10', port: 45678, localIps: localIps),
+        false,
+      );
+      expect(
+        isUsableEndpoint(
+          ip: '2001:0db8:0:0:0:0:0:1',
+          port: 45678,
+          localIps: localIps,
+        ),
+        false,
+      );
+      expect(
+        isUsableEndpoint(
+          ip: '::ffff:192.168.1.10',
+          port: 45678,
+          localIps: localIps,
+        ),
+        false,
+      );
+    });
+
+    test('rejects a scoped local IPv6 address', () {
+      expect(
+        isUsableEndpoint(
+          ip: 'fe80::1',
+          port: 45678,
+          localIps: const ['fe80::1%wlan0'],
+        ),
+        false,
+      );
+    });
+
+    test('accepts a distinct valid endpoint', () {
+      expect(
+        isUsableEndpoint(
+          ip: '192.168.1.20',
+          port: 45678,
+          localIps: const ['192.168.1.10', '2001:db8::1'],
+        ),
+        true,
       );
     });
   });
