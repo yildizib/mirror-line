@@ -21,51 +21,44 @@ void main() {
     expect(identity.isReadyForQr, true);
   });
 
-  test('QR is unavailable for missing or placeholder identity fields', () {
-    const missingKey = LocalPairingIdentity(
-      id: 'local-id',
-      deviceName: 'Local Device',
-      role: 'source',
-      publicKey: '',
-      ip: '10.8.0.4',
-      port: 45678,
-      keyBase64: 'shared-key',
-    );
-    const placeholderName = LocalPairingIdentity(
-      id: 'local-id',
-      deviceName: 'Unknown Device',
-      role: 'source',
-      publicKey: 'local-public-key',
-      ip: '10.8.0.4',
-      port: 45678,
-      keyBase64: 'shared-key',
-    );
+  final unavailableCases = <(String, LocalPairingIdentity)>[
+    ('empty ID', _identity(id: '')),
+    ('empty name', _identity(deviceName: '')),
+    ('Unknown Device placeholder', _identity(deviceName: 'Unknown Device')),
+    ('Android Device placeholder', _identity(deviceName: 'Android Device')),
+    ('empty public key', _identity(publicKey: '')),
+    ('empty pairing key', _identity(keyBase64: '')),
+    ('invalid role', _identity(role: 'viewer')),
+    ('invalid port', _identity(port: 0)),
+    ('malformed endpoint', _identity(ip: 'not-an-ip')),
+    ('unknown endpoint', _identity(ip: 'unknown')),
+    ('IPv4 loopback endpoint', _identity(ip: '127.0.0.1')),
+    ('IPv6 loopback endpoint', _identity(ip: '::1')),
+  ];
 
-    expect(missingKey.isReadyForQr, false);
-    expect(placeholderName.isReadyForQr, false);
-  });
+  for (final unavailableCase in unavailableCases) {
+    test('QR is unavailable for ${unavailableCase.$1}', () {
+      expect(unavailableCase.$2.isReadyForQr, isFalse);
+    });
+  }
+}
 
-  test('QR is unavailable for stale or unusable endpoints', () {
-    const unknownEndpoint = LocalPairingIdentity(
-      id: 'local-id',
-      deviceName: 'Local Device',
-      role: 'main',
-      publicKey: 'local-public-key',
-      ip: 'unknown',
-      port: 45678,
-      keyBase64: 'shared-key',
-    );
-    const loopbackEndpoint = LocalPairingIdentity(
-      id: 'local-id',
-      deviceName: 'Local Device',
-      role: 'main',
-      publicKey: 'local-public-key',
-      ip: '127.0.0.1',
-      port: 45678,
-      keyBase64: 'shared-key',
-    );
-
-    expect(unknownEndpoint.isReadyForQr, false);
-    expect(loopbackEndpoint.isReadyForQr, false);
-  });
+LocalPairingIdentity _identity({
+  String id = 'local-id',
+  String deviceName = 'Local Device',
+  String role = 'source',
+  String publicKey = 'local-public-key',
+  String ip = '10.8.0.4',
+  int port = 45678,
+  String keyBase64 = 'shared-key',
+}) {
+  return LocalPairingIdentity(
+    id: id,
+    deviceName: deviceName,
+    role: role,
+    publicKey: publicKey,
+    ip: ip,
+    port: port,
+    keyBase64: keyBase64,
+  );
 }

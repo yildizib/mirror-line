@@ -14,6 +14,8 @@ import 'package:mirrorline/core/network/socket_manager.dart';
 import 'package:mirrorline/core/security/crypto_manager.dart';
 import 'package:mirrorline/core/security/security_constants.dart';
 import 'package:mirrorline/features/pairing/pairing_facade.dart';
+import 'package:mirrorline/features/pairing/pairing_controller.dart';
+import 'package:mirrorline/features/pairing/pairing_endpoint_selector.dart';
 import 'package:mirrorline/features/pairing/peer_facade.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -339,6 +341,334 @@ void main() {
     expect(scanned.pairing.state.errorCode, PairingErrorCode.handshakeFailed);
     expect(scanned.pairing.pendingScannerInfo, isNull);
   });
+
+  test(
+    'self-endpoint QR is rejected before socket creation or connect',
+    () async {
+      var socketCreations = 0;
+      var connectAttempts = 0;
+      final scanner = await _Device.create(
+        id: 'scanner-id',
+        name: 'Scanner',
+        role: 'main',
+        ip: '10.42.0.1',
+        port: 45678,
+        pairingKey: CryptoManager.generateKey(),
+        createHandshakeSocket:
+            ({
+              required onMessage,
+              required onConnected,
+              required onDisconnected,
+            }) {
+              socketCreations++;
+              return _ControlledSocketManager();
+            },
+        connectHandshakeSocket: (socket, ip, port, key) async {
+          connectAttempts++;
+          return true;
+        },
+      );
+      addTearDown(scanner.dispose);
+
+      await scanner.pairing.sendRequest(
+        scannedId: 'scanned-id',
+        scannedIp: scanner.ip,
+        scannedPort: 45678,
+        scannedKeyBase64: scanner.selfPeer.key,
+        scannedDeviceName: 'Scanned',
+        scannedPublicKey: 'scanned-public-key',
+        myIp: scanner.ip,
+      );
+
+      expect(scanner.pairing.state.errorCode, PairingErrorCode.handshakeFailed);
+      expect(socketCreations, 0);
+      expect(connectAttempts, 0);
+    },
+  );
+
+  for (final loopback in ['127.0.0.1', '::1']) {
+    test('$loopback loopback QR is rejected before socket work', () async {
+      var socketCreations = 0;
+      var connectAttempts = 0;
+      final scanner = await _Device.create(
+        id: 'scanner-id',
+        name: 'Scanner',
+        role: 'main',
+        ip: '10.42.0.1',
+        port: 45678,
+        pairingKey: CryptoManager.generateKey(),
+        createHandshakeSocket:
+            ({
+              required onMessage,
+              required onConnected,
+              required onDisconnected,
+            }) {
+              socketCreations++;
+              return _ControlledSocketManager();
+            },
+        connectHandshakeSocket: (socket, ip, port, key) async {
+          connectAttempts++;
+          return true;
+        },
+      );
+      addTearDown(scanner.dispose);
+
+      await scanner.pairing.sendRequest(
+        scannedId: 'scanned-id',
+        scannedIp: loopback,
+        scannedPort: 45678,
+        scannedKeyBase64: scanner.selfPeer.key,
+        scannedDeviceName: 'Scanned',
+        scannedPublicKey: 'scanned-public-key',
+        myIp: scanner.ip,
+      );
+
+      expect(scanner.pairing.state.errorCode, PairingErrorCode.handshakeFailed);
+      expect(socketCreations, 0);
+      expect(connectAttempts, 0);
+    });
+  }
+
+  test(
+    'request stale claim reports request stage and persists claimed IP',
+    () async {
+      final scanned = await _Device.create(
+        id: 'scanned-id',
+        name: 'Scanned',
+        role: 'source',
+        ip: '10.42.0.2',
+        port: 45678,
+        pairingKey: CryptoManager.generateKey(),
+      );
+      addTearDown(scanned.dispose);
+      final scannerInfo = {
+        ..._scannerInfo(transactionId: 'stale-request'),
+        'ip': '10.42.0.9',
+      };
+
+      await scanned.pairing.handleIncomingRequest(
+        scannerInfo,
+        liveRemoteAddress: '10.42.0.8',
+      );
+
+      expect(
+        scanned.pairing.state.endpointDiagnostic?.issue,
+        PairingEndpointIssue.staleClaim,
+      );
+      expect(
+        scanned.pairing.state.endpointDiagnostic?.stage,
+        PairingEndpointStage.request,
+      );
+      expect(scanned.pairing.pendingScannerInfo?['ip'], '10.42.0.9');
+
+      final socket = _ControlledSocketManager(
+        remoteAddress: '10.42.0.8',
+        send: (type, payload) async {
+          if (type == MessageTypes.pairingAccept) {
+            scanned.pairing.handlePairingAck(_ackFor(scannerInfo));
+          }
+          return true;
+        },
+      );
+      await scanned.pairing.acceptRequest(
+        socketManager: socket,
+        scannerInfo: scanned.pairing.pendingScannerInfo!,
+        myIp: scanned.ip,
+      );
+
+      expect(scanned.pairing.state.isComplete, isTrue);
+      expect(
+        scanned.pairing.state.endpointDiagnostic?.issue,
+        PairingEndpointIssue.staleClaim,
+      );
+      expect(
+        scanned.pairing.state.endpointDiagnostic?.stage,
+        PairingEndpointStage.request,
+      );
+      expect((await scanned.dao.getPeer())?.ip, '10.42.0.9');
+    },
+  );
+
+  test(
+    'accept stale claim reports accept stage and persists claimed IP',
+    () async {
+      final key = CryptoManager.generateKey();
+      final scanner = await _Device.create(
+        id: 'scanner-id',
+        name: 'Scanner',
+        role: 'main',
+        ip: '10.42.0.1',
+        port: 45678,
+        pairingKey: key,
+        createHandshakeSocket:
+            ({
+              required onMessage,
+              required onConnected,
+              required onDisconnected,
+            }) => _ControlledSocketManager(
+              remoteAddress: '10.42.0.8',
+              onMessage: onMessage,
+              send: (type, payload) async {
+                if (type == MessageTypes.pairingRequest) {
+                  onMessage(
+                    await _encryptedMessage(key, MessageTypes.pairingAccept, {
+                      'transactionId': payload['transactionId'],
+                      'deviceName': 'Scanned',
+                      'peerId': 'scanned-id',
+                      'publicKey': 'scanned-public-key',
+                      'role': 'source',
+                      'ip': '10.42.0.9',
+                    }),
+                  );
+                }
+                return true;
+              },
+            ),
+      );
+      addTearDown(scanner.dispose);
+
+      await _sendScannerRequest(scanner);
+
+      expect(scanner.pairing.state.isComplete, isTrue);
+      expect(
+        scanner.pairing.state.endpointDiagnostic?.issue,
+        PairingEndpointIssue.staleClaim,
+      );
+      expect(
+        scanner.pairing.state.endpointDiagnostic?.stage,
+        PairingEndpointStage.accept,
+      );
+      expect((await scanner.dao.getPeer())?.ip, '10.42.0.9');
+    },
+  );
+
+  test(
+    'post-pairing remote identity cannot contaminate QR or payloads',
+    () async {
+      final key = CryptoManager.generateKey();
+      Map<String, dynamic>? requestPayload;
+      final device = await _Device.create(
+        id: 'local-id',
+        name: 'Local Device',
+        role: 'main',
+        ip: '10.42.0.1',
+        port: 45678,
+        pairingKey: key,
+        createHandshakeSocket:
+            ({
+              required onMessage,
+              required onConnected,
+              required onDisconnected,
+            }) => _ControlledSocketManager(
+              remoteAddress: '10.42.0.2',
+              onMessage: onMessage,
+              send: (type, payload) async {
+                if (type == MessageTypes.pairingRequest) {
+                  requestPayload = payload;
+                  onMessage(
+                    await _encryptedMessage(key, MessageTypes.pairingAccept, {
+                      'transactionId': payload['transactionId'],
+                      'deviceName': 'Next Remote',
+                      'peerId': 'next-remote-id',
+                      'publicKey': 'next-remote-public-key',
+                      'role': 'source',
+                      'ip': '10.42.0.2',
+                    }),
+                  );
+                }
+                return true;
+              },
+            ),
+      );
+      addTearDown(device.dispose);
+      await device.peers.applyPairedPeer(
+        id: 'old-remote-id',
+        deviceName: 'Old Remote',
+        publicKey: 'old-remote-public-key',
+        ip: '10.42.0.9',
+      );
+
+      final qrIdentity = await device.peers.getLocalPairingIdentity(
+        ip: device.ip,
+      );
+      expect(qrIdentity, isNotNull);
+      expect(qrIdentity!.id, device.id);
+      expect(qrIdentity.deviceName, device.name);
+      expect(qrIdentity.publicKey, device.identity.publicKey);
+      expect(qrIdentity.role, device.role);
+      expect(qrIdentity.qrData, isNot(contains('old-remote')));
+
+      await device.pairing.sendRequest(
+        scannedId: 'next-remote-id',
+        scannedIp: '10.42.0.2',
+        scannedPort: 45678,
+        scannedKeyBase64: device.selfPeer.key,
+        scannedDeviceName: 'Next Remote',
+        scannedPublicKey: 'next-remote-public-key',
+        myIp: device.ip,
+      );
+      _expectLocalIdentityPayload(requestPayload!, device);
+
+      final incoming = {
+        ..._scannerInfo(transactionId: 'mixed-identity-accept'),
+        'ip': '10.42.0.3',
+      };
+      await device.pairing.handleIncomingRequest(
+        incoming,
+        liveRemoteAddress: '10.42.0.3',
+      );
+      Map<String, dynamic>? acceptPayload;
+      final acceptSocket = _ControlledSocketManager(
+        remoteAddress: '10.42.0.3',
+        send: (type, payload) async {
+          if (type == MessageTypes.pairingAccept) {
+            acceptPayload = payload;
+            device.pairing.handlePairingAck(_ackFor(incoming));
+          }
+          return true;
+        },
+      );
+      await device.pairing.acceptRequest(
+        socketManager: acceptSocket,
+        scannerInfo: device.pairing.pendingScannerInfo!,
+        myIp: device.ip,
+      );
+      _expectLocalIdentityPayload(acceptPayload!, device);
+    },
+  );
+
+  test(
+    'local pairing identity provider returns null for a missing ID',
+    () async {
+      final device = await _Device.create(
+        id: 'local-id',
+        name: 'Local Device',
+        role: 'main',
+        ip: '10.42.0.1',
+        port: 45678,
+        pairingKey: CryptoManager.generateKey(),
+      );
+      addTearDown(device.dispose);
+      device.identity.id = null;
+
+      expect(
+        await device.container.read(
+          localPairingIdentityProvider(device.ip).future,
+        ),
+        isNull,
+      );
+    },
+  );
+}
+
+void _expectLocalIdentityPayload(Map<String, dynamic> payload, _Device device) {
+  expect(payload['peerId'], device.id);
+  expect(payload['deviceName'], device.name);
+  expect(payload['publicKey'], device.identity.publicKey);
+  expect(payload['role'], device.role);
+  expect(payload.values, isNot(contains('old-remote-id')));
+  expect(payload.values, isNot(contains('Old Remote')));
+  expect(payload.values, isNot(contains('old-remote-public-key')));
 }
 
 Future<void> _sendScannerRequest(_Device scanner) {
@@ -682,6 +1012,8 @@ class _Device {
     required int port,
     required SecretKey pairingKey,
     PairingHandshakeSocketFactory? createHandshakeSocket,
+    Future<bool> Function(SocketManager, String, int, SecretKey)?
+    connectHandshakeSocket,
   }) async {
     final database = await databaseFactory.openDatabase(
       inMemoryDatabasePath,
@@ -721,11 +1053,17 @@ class _Device {
             ref,
             getLocalAddresses: () async => [ip],
             getLocalIdentity: () async =>
-                (id: identity.id, publicKey: identity.publicKey),
+                (id: identity.id ?? '', publicKey: identity.publicKey),
             invalidateNormalConnectionWork: () async {},
-            connectHandshakeSocket: (socket, logicalIp, port, key) {
-              return socket.connect(_transportAddress(logicalIp), port, key);
-            },
+            connectHandshakeSocket:
+                connectHandshakeSocket ??
+                (socket, logicalIp, port, key) {
+                  return socket.connect(
+                    _transportAddress(logicalIp),
+                    port,
+                    key,
+                  );
+                },
             createHandshakeSocket: createHandshakeSocket,
           ),
         ),
@@ -761,6 +1099,8 @@ class _ControlledSocketManager extends SocketManager {
   final Future<bool> Function(String, Map<String, dynamic>) _send;
   final void Function()? _emitDisconnected;
   final Completer<void>? disconnectGate;
+  @override
+  final String? remoteAddress;
   int disconnectCount = 0;
 
   _ControlledSocketManager({
@@ -768,6 +1108,7 @@ class _ControlledSocketManager extends SocketManager {
     void Function(MirrorMessage)? onMessage,
     void Function()? onDisconnected,
     this.disconnectGate,
+    this.remoteAddress,
   }) : _send = send ?? ((_, _) async => true),
        _emitDisconnected = onDisconnected,
        super(onMessage: onMessage ?? (_) {});
@@ -794,7 +1135,7 @@ class _ControlledSocketManager extends SocketManager {
 }
 
 class _MemoryPeerIdentityStore implements PeerIdentityStore {
-  final String id;
+  String? id;
   final String deviceName;
   String role;
   final SimpleKeyPair keyPair;

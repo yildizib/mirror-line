@@ -77,7 +77,7 @@
   persistence, and authenticated reconnect flows.
 - [x] 8.2 Test immediate accept and ack responses, disconnect races, failed
   writes, and stale socket callbacks.
-- [ ] 8.3 Test self-endpoint QR, loopback, stale claimed IP, mixed identity, and
+- [x] 8.3 Test self-endpoint QR, loopback, stale claimed IP, mixed identity, and
   unavailable QR-field scenarios.
 
 ## 9. Verification and Delivery
