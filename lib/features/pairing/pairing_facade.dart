@@ -275,7 +275,17 @@ class PairingFacade extends StateNotifier<PairingState> {
     final key = _handshakeKey;
     if (key == null) return;
 
-    final decrypted = await CryptoManager.decrypt(key, message.payload);
+    final metadata = CryptoManager.canonicalMessageMetadata(
+      version: message.protocolVersion,
+      type: message.type,
+      id: message.id,
+      timestamp: message.timestamp,
+    );
+    final decrypted = await CryptoManager.decryptWithAad(
+      key,
+      message.payload,
+      aad: utf8.encode(metadata),
+    );
     if (decrypted == null) return;
 
     Map<String, dynamic>? payload;

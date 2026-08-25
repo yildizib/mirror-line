@@ -986,7 +986,17 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
     final key = _key;
     if (key == null) return;
 
-    final decrypted = await CryptoManager.decrypt(key, message.payload);
+    final metadata = CryptoManager.canonicalMessageMetadata(
+      version: message.protocolVersion,
+      type: message.type,
+      id: message.id,
+      timestamp: message.timestamp,
+    );
+    final decrypted = await CryptoManager.decryptWithAad(
+      key,
+      message.payload,
+      aad: utf8.encode(metadata),
+    );
     if (decrypted == null) {
       _logger.e('Decryption failed for message: ${message.id}');
       return;

@@ -340,11 +340,25 @@ class SocketManager {
     }
 
     try {
-      final encrypted = await CryptoManager.encrypt(key, jsonEncode(payload));
+      final id = const Uuid().v4();
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final metadata = CryptoManager.canonicalMessageMetadata(
+        version: SecurityConstants.protocolVersion,
+        type: type,
+        id: id,
+        timestamp: timestamp,
+      );
+      final encrypted = _isControlMessage(type)
+          ? await CryptoManager.encrypt(key, jsonEncode(payload))
+          : await CryptoManager.encryptWithAad(
+              key,
+              jsonEncode(payload),
+              aad: utf8.encode(metadata),
+            );
       final message = MirrorMessage(
         type: type,
-        id: const Uuid().v4(),
-        timestamp: DateTime.now().millisecondsSinceEpoch,
+        id: id,
+        timestamp: timestamp,
         payload: encrypted,
       );
       client.write('${message.encode()}\n');
@@ -365,6 +379,15 @@ class SocketManager {
       return false;
     }
   }
+
+  bool _isControlMessage(String type) =>
+      type == MessageTypes.authChallenge ||
+      type == MessageTypes.authResponse ||
+      type == MessageTypes.authOk ||
+      type == MessageTypes.authAck ||
+      type == MessageTypes.authFail ||
+      type == MessageTypes.ping ||
+      type == MessageTypes.pong;
 
   // --------------------------------------------------------------------
   // Challenge-response authentication

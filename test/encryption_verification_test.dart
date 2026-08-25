@@ -85,7 +85,17 @@ void main() {
 
     // And, of course, it must actually decrypt back to the real content
     // with the right key -- proving this is genuine AES-GCM, not noise.
-    final decrypted = await CryptoManager.decrypt(key, payloadB64);
+    final metadata = CryptoManager.canonicalMessageMetadata(
+      version: envelope['protocol_version'] as int,
+      type: envelope['type'] as String,
+      id: envelope['id'] as String,
+      timestamp: envelope['timestamp'] as int,
+    );
+    final decrypted = await CryptoManager.decryptWithAad(
+      key,
+      payloadB64,
+      aad: utf8.encode(metadata),
+    );
     expect(decrypted, isNotNull);
     expect(decrypted, contains(secretBody));
     expect(decrypted, contains(secretNumber));

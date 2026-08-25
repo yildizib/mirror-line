@@ -50,7 +50,7 @@
   compatibility.
 - [x] 5.2 Implement canonical authenticated metadata for protocol version,
   message type, message ID, and timestamp.
-- [ ] 5.3 Include the canonical metadata as AES-GCM associated authenticated
+- [x] 5.3 Include the canonical metadata as AES-GCM associated authenticated
   data for every encrypted normal message.
 - [ ] 5.4 Reject unknown protocol versions, altered metadata, invalid payloads,
   and authentication failures before dispatching messages.

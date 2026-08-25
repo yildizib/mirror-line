@@ -46,7 +46,17 @@ void main() {
     expect(received.first.type, 'sms_incoming');
 
     // The payload must decrypt back to the original content.
-    final decrypted = await CryptoManager.decrypt(key, received.first.payload);
+    final metadata = CryptoManager.canonicalMessageMetadata(
+      version: received.first.protocolVersion,
+      type: received.first.type,
+      id: received.first.id,
+      timestamp: received.first.timestamp,
+    );
+    final decrypted = await CryptoManager.decryptWithAad(
+      key,
+      received.first.payload,
+      aad: utf8.encode(metadata),
+    );
     expect(decrypted, contains('"address":"+905551112233"'));
     expect(decrypted, contains('"body":"Merhaba"'));
 
