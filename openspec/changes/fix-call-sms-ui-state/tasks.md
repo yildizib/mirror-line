@@ -22,7 +22,7 @@
 
 ## 4. Verification
 
-- [ ] 4.1 Run `dart format lib/ test/`, `dart analyze --fatal-infos`,
+- [x] 4.1 Run `dart format lib/ test/`, `dart analyze --fatal-infos`,
   `flutter analyze`, the complete `flutter test` suite, strict OpenSpec
   validation, and `flutter build apk --debug`; resolve every failure before
   marking the change implementation complete.
