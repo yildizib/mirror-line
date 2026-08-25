@@ -1,9 +1,14 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mirrorline/core/data/models/sms_message.dart';
 import 'package:mirrorline/core/services/locale_service.dart';
+import 'package:mirrorline/features/connection/connection_facade.dart';
 import 'package:mirrorline/features/sms/sms_facade.dart';
 import 'package:mirrorline/shared/pagination/grouped_paginated_notifier.dart';
 import 'package:mirrorline/shared/pagination/paginated_list_state.dart';
+
+final smsConnectionStatusProvider = Provider<bool>(
+  (ref) => ref.watch(connectionFacadeProvider),
+);
 
 /// Every message exchanged with a single address, grouped so the SMS
 /// screen can read as a normal conversation list instead of one flat,
@@ -127,16 +132,30 @@ class SmsThreadPaginated
     List<SmsThread> existing,
     List<SmsThread> newGroups,
   ) {
+    final freshIds = newGroups
+        .expand((group) => group.messages)
+        .map((message) => message.id)
+        .toSet();
     final map = <String, SmsThread>{};
     for (final g in existing) {
-      map[g.address] = g;
+      final retained = g.messages
+          .where((message) => !freshIds.contains(message.id))
+          .toList();
+      if (retained.isNotEmpty) {
+        map[g.address] = SmsThread(
+          address: g.address,
+          contactName: g.contactName,
+          messages: retained,
+          displayName: g.displayName,
+        );
+      }
     }
     for (final g in newGroups) {
       final prev = map[g.address];
       if (prev != null) {
         final merged = dedupeById([
-          ...prev.messages,
           ...g.messages,
+          ...prev.messages,
         ], (m) => m.id)..sort((a, b) => a.timestamp.compareTo(b.timestamp));
         map[g.address] = SmsThread(
           address: g.address,
@@ -193,6 +212,7 @@ class SmsThreadDetailPaginated
       state = PaginatedListState<SmsMessage>(
         items: all,
         isLoading: false,
+        hasLoadedInitial: true,
         hasReachedEnd: all.length < kDefaultPageSize,
         pageOffset: all.length,
       );
@@ -216,6 +236,7 @@ class SmsThreadDetailPaginated
       state = PaginatedListState<SmsMessage>(
         items: merged,
         isLoading: false,
+        hasLoadedInitial: state.hasLoadedInitial,
         hasReachedEnd: older.length < kDefaultPageSize,
         pageOffset: state.pageOffset + older.length,
       );
@@ -238,11 +259,12 @@ class SmsThreadDetailPaginated
         limit: kDefaultPageSize,
       );
       if (!mounted) return;
-      final merged = dedupeById([...state.items, ...fresh], (m) => m.id)
+      final merged = dedupeById([...fresh, ...state.items], (m) => m.id)
         ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
       state = PaginatedListState<SmsMessage>(
         items: merged,
         isLoading: false,
+        hasLoadedInitial: true,
         hasReachedEnd: state.hasReachedEnd,
         pageOffset: state.pageOffset,
       );

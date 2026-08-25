@@ -76,6 +76,8 @@ void main() {
     String threadId = 't1',
     String address = '+15555550100',
     String contactName = 'Alice',
+    String direction = 'incoming',
+    String status = 'received',
   }) {
     return SmsMessage(
       id: id,
@@ -84,8 +86,8 @@ void main() {
       contactName: contactName,
       body: 'hello',
       encrypted: '',
-      direction: 'incoming',
-      status: 'received',
+      direction: direction,
+      status: status,
       timestamp: timestamp,
       createdAt: timestamp,
     );
@@ -161,6 +163,31 @@ void main() {
     expect(state.items.first.id, 'm0');
     expect(state.items.last.id, 'm9');
   });
+
+  test(
+    'thread detail distinguishes initial loading from confirmed empty',
+    () async {
+      final container = buildContainer();
+      final facade = container.read(smsFacadeProvider.notifier);
+      await facade.load();
+
+      final notifier = container.read(
+        smsThreadDetailPaginatedProvider('+111').notifier,
+      );
+      expect(
+        container
+            .read(smsThreadDetailPaginatedProvider('+111'))
+            .hasLoadedInitial,
+        isFalse,
+      );
+
+      await notifier.loadInitial();
+
+      final state = container.read(smsThreadDetailPaginatedProvider('+111'));
+      expect(state.hasLoadedInitial, isTrue);
+      expect(state.items, isEmpty);
+    },
+  );
 
   test('thread detail loadOlder prepends older messages', () async {
     final container = buildContainer();
@@ -280,4 +307,40 @@ void main() {
       expect(state2.items.map((m) => m.id).toList(), ['m0', 'm1']);
     },
   );
+
+  for (final status in ['sent', 'failed']) {
+    test('refresh replaces pending with $status in list and detail', () async {
+      final container = buildContainer();
+      final facade = container.read(smsFacadeProvider.notifier);
+      await facade.load();
+
+      await facade.add(
+        makeMessage(
+          id: 'reply',
+          timestamp: DateTime.now(),
+          address: '+111',
+          direction: 'outgoing',
+          status: 'pending',
+        ),
+      );
+
+      final listNotifier = container.read(smsThreadsPaginatedProvider.notifier);
+      final detailNotifier = container.read(
+        smsThreadDetailPaginatedProvider('+111').notifier,
+      );
+      await listNotifier.loadInitial();
+      await detailNotifier.loadInitial();
+
+      await facade.updateStatus('reply', status);
+      await listNotifier.refresh();
+      await detailNotifier.refresh();
+
+      final listState = container.read(smsThreadsPaginatedProvider);
+      final detailState = container.read(
+        smsThreadDetailPaginatedProvider('+111'),
+      );
+      expect(listState.items.single.lastMessage.status, status);
+      expect(detailState.items.single.status, status);
+    });
+  }
 }
