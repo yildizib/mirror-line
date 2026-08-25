@@ -81,7 +81,7 @@
   values, and timestamps outside the freshness window.
 - [x] 7.4 Bound the accepted-message cache and clear it safely when a session
   ends.
-- [ ] 7.5 Add replay tests for duplicate messages, cross-session messages,
+- [x] 7.5 Add replay tests for duplicate messages, cross-session messages,
   equal timestamps, stale timestamps, reordered delivery, and queue retries.
 
 ## 8. Secure Pairing

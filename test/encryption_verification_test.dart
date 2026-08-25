@@ -137,6 +137,22 @@ void main() {
     expect(firstNonce, isNot(equals(secondNonce)));
   });
 
+  test('session and replay metadata survives envelope round trip', () {
+    final original = MirrorMessage(
+      type: MessageTypes.smsIncoming,
+      id: 'message-1',
+      timestamp: DateTime.now().millisecondsSinceEpoch,
+      payload: 'ciphertext',
+      sessionId: 'session-1',
+      sequence: 4,
+    );
+
+    final decoded = MirrorMessage.decode(original.encode());
+    expect(decoded.sessionId, 'session-1');
+    expect(decoded.sequence, 4);
+    expect(decoded.id, 'message-1');
+  });
+
   test(
     'pairing handshake auth messages carry no raw key/signature material',
     () async {
