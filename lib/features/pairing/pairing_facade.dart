@@ -181,10 +181,9 @@ class PairingFacade extends StateNotifier<PairingState> {
   ///
   /// [scannedIp]/[scannedPort] come from the QR (used only for the *initial*
   /// TCP connection). [scannedKeyBase64] is the shared AES key (also from
-  /// the QR). [myDeviceName], [myPeerId], [myRole], [myPublicKey] are this
-  /// device's identity. [myIp] is this device's live local IP -- sent to
-  /// the scanned device so it can store it as the peer IP (more reliable
-  /// than the TCP remote address, which can be wrong on NAT/VLAN setups).
+  /// the QR). [myIp] is this device's live local IP. The remaining local
+  /// identity fields are resolved from self identity storage so a remote peer
+  /// record can never be advertised as this device.
   Future<void> sendRequest({
     required String scannedId,
     required String scannedIp,
@@ -192,17 +191,20 @@ class PairingFacade extends StateNotifier<PairingState> {
     required String scannedKeyBase64,
     required String scannedDeviceName,
     required String scannedPublicKey,
-    required String myDeviceName,
-    required String myPeerId,
-    required String myRole,
-    required String myPublicKey,
     required String myIp,
   }) async {
+    final localIdentity = await _ref
+        .read(peerFacadeProvider.notifier)
+        .getLocalPairingIdentity(ip: myIp);
+    if (localIdentity == null) {
+      state = const PairingState(errorCode: PairingErrorCode.handshakeFailed);
+      return;
+    }
     if (!isValidRemoteIdentity(
       remoteId: scannedId,
       remotePublicKey: scannedPublicKey,
-      localId: myPeerId,
-      localPublicKey: myPublicKey,
+      localId: localIdentity.id,
+      localPublicKey: localIdentity.publicKey,
     )) {
       _logger.w('Rejecting QR payload with invalid local identity.');
       state = const PairingState(errorCode: PairingErrorCode.handshakeFailed);
@@ -237,7 +239,7 @@ class PairingFacade extends StateNotifier<PairingState> {
     final verificationCode = PeerFacade.generateVerificationCode(
       scannedKeyBase64,
       scannedId,
-      expectedPublicKeys: [myPublicKey, scannedPublicKey],
+      expectedPublicKeys: [localIdentity.publicKey, scannedPublicKey],
     );
 
     state = PairingState(
@@ -273,11 +275,11 @@ class PairingFacade extends StateNotifier<PairingState> {
       final requestSent = await _handshakeSocket!
           .sendMessage(MessageTypes.pairingRequest, {
             'transactionId': _transactionId,
-            'deviceName': myDeviceName,
-            'peerId': myPeerId,
-            'role': myRole,
-            'publicKey': myPublicKey,
-            'ip': myIp,
+            'deviceName': localIdentity.deviceName,
+            'peerId': localIdentity.id,
+            'role': localIdentity.role,
+            'publicKey': localIdentity.publicKey,
+            'ip': localIdentity.ip,
           });
       if (!requestSent) {
         state = const PairingState(errorCode: PairingErrorCode.handshakeFailed);
@@ -330,7 +332,7 @@ class PairingFacade extends StateNotifier<PairingState> {
               ip: endpoint.ip!,
               port: scannedPort,
               keyBase64: scannedKeyBase64,
-              role: myRole,
+              role: localIdentity.role,
               deviceName: peerDeviceName,
               publicKey: scannedPublicKey,
             );
@@ -341,8 +343,8 @@ class PairingFacade extends StateNotifier<PairingState> {
         final ackSent = await _handshakeSocket
             ?.sendMessage(MessageTypes.pairingAck, {
               'transactionId': _transactionId,
-              'peerId': myPeerId,
-              'publicKey': myPublicKey,
+              'peerId': localIdentity.id,
+              'publicKey': localIdentity.publicKey,
             });
         if (ackSent != true) {
           state = const PairingState(
@@ -458,9 +460,13 @@ class PairingFacade extends StateNotifier<PairingState> {
       return;
     }
 
-    final localId =
-        await KeyStore.getSelfId() ?? _ref.read(peerFacadeProvider)?.id ?? '';
+    final localId = await KeyStore.getSelfId() ?? '';
     final localPublicKey = await KeyStore.ensureDeviceKeyPair();
+    if (localId.isEmpty) {
+      _logger.w('Rejecting pairing request without local self identity.');
+      state = const PairingState(errorCode: PairingErrorCode.handshakeFailed);
+      return;
+    }
     if (isSelfRemoteIdentity(
       remoteId: peerId,
       remotePublicKey: publicKey,
@@ -494,11 +500,11 @@ class PairingFacade extends StateNotifier<PairingState> {
     _logEndpointDiagnostic(endpoint.diagnostic);
 
     final peer = _ref.read(peerFacadeProvider);
-    final verificationCode = peer == null
+    final verificationCode = peer == null || localId.isEmpty
         ? ''
         : PeerFacade.generateVerificationCode(
             peer.key,
-            peer.id,
+            localId,
             expectedPublicKeys: [
               await _ref.read(peerFacadeProvider.notifier).getMyPublicKey(),
               publicKey,
@@ -550,8 +556,14 @@ class PairingFacade extends StateNotifier<PairingState> {
     required Map<String, dynamic> scannerInfo,
     required String myIp,
   }) async {
-    final myPeer = _ref.read(peerFacadeProvider);
-    final myPublicKey = await KeyStore.ensureDeviceKeyPair();
+    final localIdentity = await _ref
+        .read(peerFacadeProvider.notifier)
+        .getLocalPairingIdentity(ip: myIp);
+    if (localIdentity == null) {
+      _clearIncomingTransaction();
+      state = const PairingState(errorCode: PairingErrorCode.handshakeFailed);
+      return;
+    }
     final transactionId = scannerInfo['transactionId'] as String? ?? '';
     final scannerId = scannerInfo['peerId'] as String? ?? '';
     final scannerPublicKey = scannerInfo['publicKey'] as String? ?? '';
@@ -565,12 +577,12 @@ class PairingFacade extends StateNotifier<PairingState> {
       state = const PairingState(errorCode: PairingErrorCode.handshakeFailed);
       return;
     }
-    final localId = await KeyStore.getSelfId() ?? myPeer?.id ?? '';
+    final localId = localIdentity.id;
     if (isSelfRemoteIdentity(
       remoteId: scannerId,
       remotePublicKey: scannerPublicKey,
       localId: localId,
-      localPublicKey: myPublicKey,
+      localPublicKey: localIdentity.publicKey,
     )) {
       _logger.w('Rejecting self identity during pairing acceptance.');
       _clearIncomingTransaction();
@@ -612,11 +624,11 @@ class PairingFacade extends StateNotifier<PairingState> {
           'transactionId': transactionId,
           // Sent to the other device as identity data -- locale-neutral
           // fallback, same reasoning as peer_facade.dart's _getDeviceName().
-          'deviceName': myPeer?.deviceName ?? 'Unknown Device',
-          'peerId': myPeer?.id ?? '',
-          'publicKey': myPublicKey,
-          'role': myPeer?.role ?? 'main',
-          'ip': myIp,
+          'deviceName': localIdentity.deviceName,
+          'peerId': localIdentity.id,
+          'publicKey': localIdentity.publicKey,
+          'role': localIdentity.role,
+          'ip': localIdentity.ip,
         },
       );
       if (!acceptSent) {

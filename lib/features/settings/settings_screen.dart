@@ -10,6 +10,8 @@ import 'package:mirrorline/core/theme/theme.dart';
 import 'package:mirrorline/features/connection/connection_facade.dart';
 import 'package:mirrorline/features/connection/connection_status_provider.dart';
 import 'package:mirrorline/features/pairing/pairing_screen.dart';
+import 'package:mirrorline/features/pairing/local_pairing_identity.dart';
+import 'package:mirrorline/features/pairing/pairing_controller.dart';
 import 'package:mirrorline/features/pairing/peer_facade.dart';
 import 'package:mirrorline/features/pairing/role_selection_screen.dart';
 import 'package:mirrorline/features/pairing/widgets/qr_display.dart';
@@ -67,6 +69,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final isConnected = ref.watch(connectionFacadeProvider);
     final isConnecting = ref.watch(connectionConnectingProvider);
     final status = ref.watch(connectionStatusProvider.select((s) => s));
+    final localPairingIdentity = ref
+        .watch(localPairingIdentityProvider(status.localIp ?? 'unknown'))
+        .valueOrNull;
 
     return ListView(
       padding: const EdgeInsets.all(AppSpacing.md),
@@ -75,6 +80,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           peer: peer,
           selfDeviceName: _selfDeviceName,
           selfPublicKey: _selfPublicKey,
+          localPairingIdentity: localPairingIdentity,
           localIp: status.localIp,
         ),
         if (peer != null && peer.publicKey.isNotEmpty) ...[
@@ -371,12 +377,14 @@ class _ThisDeviceSection extends StatelessWidget {
   final Peer? peer;
   final String? selfDeviceName;
   final String? selfPublicKey;
+  final LocalPairingIdentity? localPairingIdentity;
   final String? localIp;
 
   const _ThisDeviceSection({
     required this.peer,
     required this.selfDeviceName,
     required this.selfPublicKey,
+    required this.localPairingIdentity,
     required this.localIp,
   });
 
@@ -444,7 +452,8 @@ class _ThisDeviceSection extends StatelessWidget {
                         value: selfPublicKey!,
                         shortenLong: true,
                       ),
-                    if (peer!.publicKey.isEmpty) ...[
+                    if (peer!.publicKey.isEmpty &&
+                        localPairingIdentity != null) ...[
                       const SizedBox(height: AppSpacing.md),
                       Text(
                         l.settingsNotPairedHint,
@@ -454,10 +463,7 @@ class _ThisDeviceSection extends StatelessWidget {
                       ),
                       const SizedBox(height: AppSpacing.sm),
                       Center(
-                        child: QrDisplay(
-                          data:
-                              '${peer!.id}|${localIp ?? 'unknown'}|${peer!.port}|${peer!.key}|${peer!.deviceName}|${peer!.role}|${selfPublicKey ?? ''}',
-                        ),
+                        child: QrDisplay(data: localPairingIdentity!.qrData),
                       ),
                     ],
                   ],

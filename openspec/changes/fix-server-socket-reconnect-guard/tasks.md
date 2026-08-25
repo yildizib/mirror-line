@@ -59,7 +59,7 @@
   the scanner's complete local-IP inventory before opening a socket.
 - [x] 6.2 Validate claimed request and accept IPs before persisting them and add
   diagnostics for locally-owned or stale endpoints.
-- [ ] 6.3 Generate QR and pairing response identity from local self identity,
+- [x] 6.3 Generate QR and pairing response identity from local self identity,
   not the overloaded remote peer record.
 - [ ] 6.4 Prevent the UI from presenting QR data with missing, placeholder, or
   stale local identity fields.

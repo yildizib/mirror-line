@@ -2,10 +2,20 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mirrorline/features/connection/connection_facade.dart';
 import 'package:mirrorline/features/connection/connection_status_provider.dart';
 import 'package:mirrorline/features/pairing/pairing_facade.dart';
+import 'package:mirrorline/features/pairing/local_pairing_identity.dart';
+import 'package:mirrorline/features/pairing/peer_facade.dart';
 
 final pairingControllerProvider = Provider<PairingController>((ref) {
   return PairingController(ref);
 });
+
+final localPairingIdentityProvider = FutureProvider.family
+    .autoDispose<LocalPairingIdentity?, String>((ref, localIp) async {
+      ref.watch(peerFacadeProvider);
+      return ref
+          .read(peerFacadeProvider.notifier)
+          .getLocalPairingIdentity(ip: localIp);
+    });
 
 /// UI Service for PairingScreen (issue #39's F5): orchestrates the
 /// facade calls the accept/send flows each chain together. UI-only
@@ -46,10 +56,6 @@ class PairingController {
     required String scannedKeyBase64,
     required String scannedDeviceName,
     required String scannedPublicKey,
-    required String myDeviceName,
-    required String myPeerId,
-    required String myRole,
-    required String myPublicKey,
     required String myIp,
   }) async {
     await _ref
@@ -61,10 +67,6 @@ class PairingController {
           scannedKeyBase64: scannedKeyBase64,
           scannedDeviceName: scannedDeviceName,
           scannedPublicKey: scannedPublicKey,
-          myDeviceName: myDeviceName,
-          myPeerId: myPeerId,
-          myRole: myRole,
-          myPublicKey: myPublicKey,
           myIp: myIp,
         );
     await _ref.read(connectionFacadeProvider.notifier).refresh();

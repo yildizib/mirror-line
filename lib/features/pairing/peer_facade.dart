@@ -9,6 +9,7 @@ import 'package:mirrorline/core/network/peer_discovery.dart';
 import 'package:mirrorline/core/security/crypto_manager.dart';
 import 'package:mirrorline/core/security/key_store.dart';
 import 'package:mirrorline/features/pairing/pairing_identity_guard.dart';
+import 'package:mirrorline/features/pairing/local_pairing_identity.dart';
 import 'package:uuid/uuid.dart';
 
 final peerFacadeProvider = StateNotifierProvider<PeerFacade, Peer?>((ref) {
@@ -71,6 +72,17 @@ class PeerFacade extends StateNotifier<Peer?> {
     if (existing != null) {
       final updated = existing.copyWith(role: role);
       await _dao.update(updated);
+      final selfId = await KeyStore.getSelfId();
+      final selfDeviceName = await KeyStore.getSelfDeviceName();
+      if (selfId == null || selfDeviceName == null) {
+        await KeyStore.setSelfIdentity(
+          id: selfId ?? const Uuid().v4(),
+          deviceName: selfDeviceName ?? await _getDeviceName(),
+          role: role,
+        );
+      } else {
+        await KeyStore.setSelfRole(role);
+      }
       state = updated;
       return;
     }
@@ -100,8 +112,45 @@ class PeerFacade extends StateNotifier<Peer?> {
     await _dao.insert(peer);
     await KeyStore.setPeerId(peer.id);
     await KeyStore.setPeerKey(key);
-    await KeyStore.setSelfIdentity(id: peer.id, deviceName: deviceName);
+    await KeyStore.setSelfIdentity(
+      id: peer.id,
+      deviceName: deviceName,
+      role: role,
+    );
     state = peer;
+  }
+
+  Future<LocalPairingIdentity?> getLocalPairingIdentity({
+    required String ip,
+  }) async {
+    final peer = state;
+    if (peer == null) return null;
+
+    final id = await KeyStore.getSelfId();
+    final deviceName = await KeyStore.getSelfDeviceName();
+    var role = await KeyStore.getSelfRole();
+    if (role == null) {
+      role = peer.role;
+      await KeyStore.setSelfRole(role);
+    }
+
+    if (id == null ||
+        id.isEmpty ||
+        deviceName == null ||
+        deviceName.isEmpty ||
+        role.isEmpty) {
+      return null;
+    }
+    final publicKey = await KeyStore.ensureDeviceKeyPair();
+    return LocalPairingIdentity(
+      id: id,
+      deviceName: deviceName,
+      role: role,
+      publicKey: publicKey,
+      ip: ip,
+      port: peer.port,
+      keyBase64: peer.key,
+    );
   }
 
   /// Save peer info obtained from scanning the other device's QR code.
@@ -116,7 +165,8 @@ class PeerFacade extends StateNotifier<Peer?> {
     required String deviceName,
     required String publicKey,
   }) async {
-    final localId = await KeyStore.getSelfId() ?? state?.id ?? '';
+    final localId = await KeyStore.getSelfId() ?? '';
+    if (localId.isEmpty) return;
     final localPublicKey = await KeyStore.ensureDeviceKeyPair();
     if (isSelfRemoteIdentity(
       remoteId: id,
@@ -179,7 +229,8 @@ class PeerFacade extends StateNotifier<Peer?> {
   }) async {
     final current = state;
     if (current == null) return;
-    final localId = await KeyStore.getSelfId() ?? current.id;
+    final localId = await KeyStore.getSelfId() ?? '';
+    if (localId.isEmpty) return;
     final localPublicKey = await KeyStore.ensureDeviceKeyPair();
     if (isSelfRemoteIdentity(
       remoteId: id,
