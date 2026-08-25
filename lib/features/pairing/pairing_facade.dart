@@ -398,6 +398,20 @@ class PairingFacade extends StateNotifier<PairingState> {
       return;
     }
 
+    final localId =
+        await KeyStore.getSelfId() ?? _ref.read(peerFacadeProvider)?.id ?? '';
+    final localPublicKey = await KeyStore.ensureDeviceKeyPair();
+    if (isSelfRemoteIdentity(
+      remoteId: peerId,
+      remotePublicKey: publicKey,
+      localId: localId,
+      localPublicKey: localPublicKey,
+    )) {
+      _logger.w('Rejecting pairing request that identifies this device.');
+      state = const PairingState(errorCode: PairingErrorCode.handshakeFailed);
+      return;
+    }
+
     final peer = _ref.read(peerFacadeProvider);
     final verificationCode = peer == null
         ? ''
@@ -464,6 +478,17 @@ class PairingFacade extends StateNotifier<PairingState> {
         scannerId.isEmpty ||
         scannerPublicKey.isEmpty ||
         !_isSupportedRole(scannerRole)) {
+      state = const PairingState(errorCode: PairingErrorCode.handshakeFailed);
+      return;
+    }
+    final localId = await KeyStore.getSelfId() ?? myPeer?.id ?? '';
+    if (isSelfRemoteIdentity(
+      remoteId: scannerId,
+      remotePublicKey: scannerPublicKey,
+      localId: localId,
+      localPublicKey: myPublicKey,
+    )) {
+      _logger.w('Rejecting self identity during pairing acceptance.');
       state = const PairingState(errorCode: PairingErrorCode.handshakeFailed);
       return;
     }

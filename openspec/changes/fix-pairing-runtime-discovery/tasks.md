@@ -13,7 +13,7 @@
 
 - [x] 2.1 Validate QR-bound device ID and public key against the local identity
   before starting the pairing transaction.
-- [ ] 2.2 Reject incoming pairing requests and persistence updates that claim
+- [x] 2.2 Reject incoming pairing requests and persistence updates that claim
   the local device as the remote peer.
 - [ ] 2.3 Preserve the dedicated temporary pairing socket while pausing normal
   connection machinery during the transaction.
