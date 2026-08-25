@@ -22,7 +22,7 @@
 
 ## 3. DAO and Model Protection
 
-- [ ] 3.1 Update peer, call, SMS, notification, and queue persistence to encrypt
+- [x] 3.1 Update peer, call, SMS, notification, and queue persistence to encrypt
   sensitive fields in their existing columns before database writes.
 - [ ] 3.2 Update DAOs and queue handling to decrypt protected fields before
   returning application models or sending queued messages.

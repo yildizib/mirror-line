@@ -32,4 +32,40 @@ abstract final class LocalStorageCrypto {
     final ciphertext = storedValue.substring(currentPrefix.length);
     return CryptoManager.decrypt(key, ciphertext);
   }
+
+  static Future<Map<String, dynamic>> encryptFields(
+    SecretKey key,
+    Map<String, dynamic> values,
+    Iterable<String> fields,
+  ) async {
+    final result = Map<String, dynamic>.from(values);
+    for (final field in fields) {
+      final value = result[field];
+      if (value is String && value.isNotEmpty) {
+        result[field] = await encrypt(key, value);
+      }
+    }
+    return result;
+  }
+
+  static Future<Map<String, dynamic>> decryptFields(
+    Future<SecretKey> Function() keyLoader,
+    Map<String, dynamic> values,
+    Iterable<String> fields,
+  ) async {
+    final result = Map<String, dynamic>.from(values);
+    SecretKey? key;
+    for (final field in fields) {
+      final value = result[field];
+      if (value is String && value.isNotEmpty && isEncrypted(value)) {
+        key ??= await keyLoader();
+        final decrypted = await decrypt(key, value);
+        if (decrypted == null) {
+          throw StateError('Cannot decrypt local storage field: $field.');
+        }
+        result[field] = decrypted;
+      }
+    }
+    return result;
+  }
 }

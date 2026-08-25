@@ -89,14 +89,26 @@ class PeerDao {
   }
 
   Future<Map<String, dynamic>> _toStorage(Peer peer) async {
-    final values = peer.toJson();
     final localKey = await KeyStore.ensureLocalDatabaseKey();
+    final values = await LocalStorageCrypto.encryptFields(
+      localKey,
+      peer.toJson(),
+      const ['device_name', 'public_key'],
+    );
     values['key'] = await LocalStorageCrypto.encrypt(localKey, peer.key);
     return values;
   }
 
   Future<Peer> _fromStorage(Map<String, Object?> row) async {
     final values = Map<String, dynamic>.from(row);
+    final decryptedFields = await LocalStorageCrypto.decryptFields(
+      KeyStore.ensureLocalDatabaseKey,
+      values,
+      const ['device_name', 'public_key'],
+    );
+    values
+      ..clear()
+      ..addAll(decryptedFields);
     final storedKey = values['key'] as String;
     if (LocalStorageCrypto.isEncrypted(storedKey)) {
       final localKey = await KeyStore.ensureLocalDatabaseKey();

@@ -1,5 +1,7 @@
 import 'package:mirrorline/core/data/database.dart';
 import 'package:mirrorline/core/data/models/call_event.dart';
+import 'package:mirrorline/core/security/key_store.dart';
+import 'package:mirrorline/core/security/local_storage_crypto.dart';
 import 'package:sqflite/sqflite.dart';
 
 class CallEventDao {
@@ -9,9 +11,14 @@ class CallEventDao {
 
   Future<void> insert(CallEvent event) async {
     final db = await _database;
+    final values = await LocalStorageCrypto.encryptFields(
+      await KeyStore.ensureLocalDatabaseKey(),
+      event.toJson(),
+      const ['number', 'contact_name'],
+    );
     await db.insert(
       'call_event',
-      event.toJson(),
+      values,
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
   }
@@ -19,7 +26,7 @@ class CallEventDao {
   Future<List<CallEvent>> getAll() async {
     final db = await _database;
     final maps = await db.query('call_event', orderBy: 'timestamp DESC');
-    return maps.map(CallEvent.fromJson).toList();
+    return Future.wait(maps.map(_fromStorage));
   }
 
   Future<List<CallEvent>> getRecent({
@@ -36,7 +43,7 @@ class CallEventDao {
       orderBy: 'timestamp DESC',
       limit: limit,
     );
-    return maps.map(CallEvent.fromJson).toList();
+    return Future.wait(maps.map(_fromStorage));
   }
 
   Future<List<CallEvent>> getOlder({
@@ -59,7 +66,7 @@ class CallEventDao {
       limit: limit,
       offset: offset,
     );
-    return maps.map(CallEvent.fromJson).toList();
+    return Future.wait(maps.map(_fromStorage));
   }
 
   Future<void> updateStatus(String id, String status) async {
@@ -85,7 +92,12 @@ class CallEventDao {
     }
     if (values.isEmpty) return;
     final db = await _database;
-    await db.update('call_event', values, where: 'id = ?', whereArgs: [id]);
+    final encrypted = await LocalStorageCrypto.encryptFields(
+      await KeyStore.ensureLocalDatabaseKey(),
+      values,
+      const ['number', 'contact_name'],
+    );
+    await db.update('call_event', encrypted, where: 'id = ?', whereArgs: [id]);
   }
 
   Future<void> delete(String id) async {
@@ -96,5 +108,14 @@ class CallEventDao {
   Future<void> deleteAll() async {
     final db = await _database;
     await db.delete('call_event');
+  }
+
+  Future<CallEvent> _fromStorage(Map<String, Object?> row) async {
+    final values = await LocalStorageCrypto.decryptFields(
+      KeyStore.ensureLocalDatabaseKey,
+      Map<String, dynamic>.from(row),
+      const ['number', 'contact_name'],
+    );
+    return CallEvent.fromJson(values);
   }
 }
