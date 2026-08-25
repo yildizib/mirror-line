@@ -48,7 +48,7 @@
 
 - [x] 5.1 Initialize request and accept completion state and expected identity
   before sending the corresponding socket messages.
-- [ ] 5.2 Check request, accept, acknowledgement, and rejection write results;
+- [x] 5.2 Check request, accept, acknowledgement, and rejection write results;
   do not report failed writes as delivered or complete.
 - [ ] 5.3 Validate `pairingAck` against the pending scanner transaction and
   remote identity, then clear transaction state on every terminal outcome.

@@ -244,14 +244,19 @@ class PairingFacade extends StateNotifier<PairingState> {
 
       _acceptPayload = null;
       _acceptCompleter = Completer<bool>();
-      await _handshakeSocket!.sendMessage(MessageTypes.pairingRequest, {
-        'transactionId': _transactionId,
-        'deviceName': myDeviceName,
-        'peerId': myPeerId,
-        'role': myRole,
-        'publicKey': myPublicKey,
-        'ip': myIp,
-      });
+      final requestSent = await _handshakeSocket!
+          .sendMessage(MessageTypes.pairingRequest, {
+            'transactionId': _transactionId,
+            'deviceName': myDeviceName,
+            'peerId': myPeerId,
+            'role': myRole,
+            'publicKey': myPublicKey,
+            'ip': myIp,
+          });
+      if (!requestSent) {
+        state = const PairingState(errorCode: PairingErrorCode.handshakeFailed);
+        return;
+      }
       _logger.i('Pairing request delivered.');
 
       final accepted = await _acceptCompleter!.future.timeout(
@@ -294,11 +299,18 @@ class PairingFacade extends StateNotifier<PairingState> {
         // pairingAck's doc comment in message_protocol.dart. Sent on the
         // same handshake socket before it's torn down below.
         _logger.i('Sending pairingAck on handshake socket...');
-        await _handshakeSocket?.sendMessage(MessageTypes.pairingAck, {
-          'transactionId': _transactionId,
-          'peerId': myPeerId,
-          'publicKey': myPublicKey,
-        });
+        final ackSent = await _handshakeSocket
+            ?.sendMessage(MessageTypes.pairingAck, {
+              'transactionId': _transactionId,
+              'peerId': myPeerId,
+              'publicKey': myPublicKey,
+            });
+        if (ackSent != true) {
+          state = const PairingState(
+            errorCode: PairingErrorCode.handshakeFailed,
+          );
+          return;
+        }
         state = state.copyWith(isComplete: true);
       } else {
         _logger.w('Pairing acceptance timed out or was rejected.');
@@ -501,16 +513,23 @@ class PairingFacade extends StateNotifier<PairingState> {
     state = state.copyWith(isShowingRequest: false, isFinalizing: true);
 
     _logger.i('Sending pairingAccept to scanner...');
-    await socketManager.sendMessage(MessageTypes.pairingAccept, {
-      'transactionId': transactionId,
-      // Sent to the other device as identity data -- locale-neutral
-      // fallback, same reasoning as peer_facade.dart's _getDeviceName().
-      'deviceName': myPeer?.deviceName ?? 'Unknown Device',
-      'peerId': myPeer?.id ?? '',
-      'publicKey': myPublicKey,
-      'role': myPeer?.role ?? 'main',
-      'ip': myIp,
-    });
+    final acceptSent = await socketManager.sendMessage(
+      MessageTypes.pairingAccept,
+      {
+        'transactionId': transactionId,
+        // Sent to the other device as identity data -- locale-neutral
+        // fallback, same reasoning as peer_facade.dart's _getDeviceName().
+        'deviceName': myPeer?.deviceName ?? 'Unknown Device',
+        'peerId': myPeer?.id ?? '',
+        'publicKey': myPublicKey,
+        'role': myPeer?.role ?? 'main',
+        'ip': myIp,
+      },
+    );
+    if (!acceptSent) {
+      state = const PairingState(errorCode: PairingErrorCode.handshakeFailed);
+      return;
+    }
 
     final acked = await _pairAckCompleter!.future.timeout(
       const Duration(seconds: 15),
@@ -568,8 +587,13 @@ class PairingFacade extends StateNotifier<PairingState> {
 
   /// Called by the UI when the *scanned* device user rejects the request.
   Future<void> rejectRequest({required SocketManager socketManager}) async {
-    await socketManager.sendMessage(MessageTypes.pairingReject, {});
-    state = const PairingState();
+    final rejected = await socketManager.sendMessage(
+      MessageTypes.pairingReject,
+      {},
+    );
+    state = rejected
+        ? const PairingState()
+        : const PairingState(errorCode: PairingErrorCode.handshakeFailed);
   }
 
   /// Reset to idle (e.g. dialog dismissed without action).
