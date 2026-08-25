@@ -29,6 +29,8 @@ class SocketManager {
   String? _clientAuthTranscript;
   String? _sessionId;
   int _nextSequence = 0;
+  int _lastReceivedSequence = 0;
+  final List<String> _acceptedMessageIds = [];
 
   /// This device's Ed25519 keypair, used to sign challenges when acting as
   /// the *client*.  Set via [setAuthIdentity].
@@ -204,6 +206,8 @@ class SocketManager {
     _buffer.clear();
     _sessionId = null;
     _nextSequence = 0;
+    _lastReceivedSequence = 0;
+    _acceptedMessageIds.clear();
     _lastDataAt = DateTime.now();
     socket.setOption(SocketOption.tcpNoDelay, true);
     _listen(socket);
@@ -356,12 +360,47 @@ class SocketManager {
           continue;
         }
 
+        if (!_acceptNormalMessage(message)) {
+          continue;
+        }
+
         _logger.i('Received: ${message.type}');
         onMessage(message);
       } catch (e) {
         _logger.e('Invalid message received: $e');
       }
     }
+  }
+
+  bool _acceptNormalMessage(MirrorMessage message) {
+    final sessionId = _sessionId;
+    if (sessionId != null) {
+      if (message.sessionId != sessionId || message.sequence == null) {
+        _logger.w('Rejected message from another session or without sequence.');
+        return false;
+      }
+      if (message.sequence! <= _lastReceivedSequence) {
+        _logger.w('Rejected duplicate or reordered message sequence.');
+        return false;
+      }
+      final now = DateTime.now().millisecondsSinceEpoch;
+      if ((now - message.timestamp).abs() >
+          SecurityConstants.messageFreshnessWindow.inMilliseconds) {
+        _logger.w('Rejected message outside freshness window.');
+        return false;
+      }
+      _lastReceivedSequence = message.sequence!;
+    }
+
+    if (_acceptedMessageIds.contains(message.id)) {
+      _logger.w('Rejected duplicate message ID.');
+      return false;
+    }
+    _acceptedMessageIds.add(message.id);
+    if (_acceptedMessageIds.length > SecurityConstants.maxAcceptedMessageIds) {
+      _acceptedMessageIds.removeAt(0);
+    }
+    return true;
   }
 
   /// Encrypts and sends a message. Returns true if the message was written.

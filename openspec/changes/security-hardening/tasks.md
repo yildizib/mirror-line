@@ -77,7 +77,7 @@
   authenticated connection.
 - [x] 7.2 Add session ID, sequence data, and message ID handling to normal
   messages and queue delivery.
-- [ ] 7.3 Reject messages from another session, duplicate IDs, invalid sequence
+- [x] 7.3 Reject messages from another session, duplicate IDs, invalid sequence
   values, and timestamps outside the freshness window.
 - [ ] 7.4 Bound the accepted-message cache and clear it safely when a session
   ends.
