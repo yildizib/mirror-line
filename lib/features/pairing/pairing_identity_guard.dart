@@ -19,3 +19,19 @@ bool isSelfRemoteIdentity({
       remotePublicKey.isNotEmpty &&
       (remoteId == localId || remotePublicKey == localPublicKey);
 }
+
+bool isExpectedPairingAck({
+  required Object? transactionId,
+  required Object? peerId,
+  required Object? peerPublicKey,
+  required String? expectedTransactionId,
+  required String? expectedPeerId,
+  required String? expectedPeerPublicKey,
+}) {
+  return expectedTransactionId != null &&
+      expectedPeerId != null &&
+      expectedPeerPublicKey != null &&
+      transactionId == expectedTransactionId &&
+      peerId == expectedPeerId &&
+      peerPublicKey == expectedPeerPublicKey;
+}

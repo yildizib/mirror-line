@@ -25,6 +25,7 @@ class KeyStore {
   // itself, or the Settings "Bu Cihaz" card) must read from here instead.
   static const _selfIdKey = 'self_peer_id';
   static const _selfDeviceNameKey = 'self_device_name';
+  static const _selfRoleKey = 'self_role';
 
   static Future<String?> getPeerId() => _storage.read(key: _peerIdKey);
 
@@ -36,9 +37,11 @@ class KeyStore {
   static Future<void> setSelfIdentity({
     required String id,
     required String deviceName,
+    required String role,
   }) async {
     await _storage.write(key: _selfIdKey, value: id);
     await _storage.write(key: _selfDeviceNameKey, value: deviceName);
+    await _storage.write(key: _selfRoleKey, value: role);
   }
 
   static Future<String?> getSelfId() => _storage.read(key: _selfIdKey);
@@ -46,9 +49,15 @@ class KeyStore {
   static Future<String?> getSelfDeviceName() =>
       _storage.read(key: _selfDeviceNameKey);
 
+  static Future<String?> getSelfRole() => _storage.read(key: _selfRoleKey);
+
+  static Future<void> setSelfRole(String role) =>
+      _storage.write(key: _selfRoleKey, value: role);
+
   static Future<void> clearSelfIdentity() async {
     await _storage.delete(key: _selfIdKey);
     await _storage.delete(key: _selfDeviceNameKey);
+    await _storage.delete(key: _selfRoleKey);
   }
 
   static Future<SecretKey?> getPeerKey() async {

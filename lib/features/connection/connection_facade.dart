@@ -132,18 +132,7 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
   ConnectionFacade(this._ref) : super(false) {
     _reconnectScheduler = ReconnectScheduler(
       logger: _logger,
-      onReconnect: (ip, port) async {
-        final ok = await _connectTo(ip, port);
-        if (!ok) {
-          // _connectTo already re-armed a guarded retry via
-          // _maybeScheduleReconnect() below; throwing here additionally
-          // lets the scheduler's own catch block increment its attempt
-          // counter so backoff actually grows across scheduler-driven
-          // retries (harmless redundant reschedule for this one path --
-          // scheduleReconnect() always cancels+replaces the pending timer).
-          throw StateError('Scheduled reconnect to $ip:$port failed');
-        }
-      },
+      onReconnect: (ip, port) => _connectTo(ip, port),
       getPeerIp: () => _lastDiscoveredIp ?? _peer?.ip,
       getPeerPort: () => _peer?.port ?? 0,
     );
@@ -435,9 +424,11 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
   }
 
   SocketManager _createSocketManager() {
-    final sm = SocketManager(
+    late final SocketManager sm;
+    sm = SocketManager(
       onMessage: _handleIncomingMessage,
       onConnected: () {
+        if (sm.isPairingMode) return;
         state = true;
         _reconnectScheduler.markConnected();
         _peerDiscoveryCoordinator.markConnected();
@@ -460,6 +451,12 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
         _peerDiscoveryCoordinator.setThrottle(true);
       },
       onDisconnected: () {
+        if (sm.isPairingMode) {
+          _ref
+              .read(pairingFacadeProvider.notifier)
+              .handleSocketDisconnected(sm);
+          return;
+        }
         state = false;
         _peerDiscoveryCoordinator.markDisconnected();
         _logger.w(
@@ -478,7 +475,7 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
   /// the socket so challenge-response authentication can run.
   Future<void> _configureAuth(SocketManager sm) async {
     final peer = _peer;
-    if (peer == null) return;
+    if (peer == null || !hasCompletedRemotePeer(peer)) return;
     sm.requireAuthIdentity();
     final localKeyPair = await KeyStore.getDeviceKeyPair();
     if (localKeyPair == null) return;
@@ -517,6 +514,8 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
     _reconnectScheduler.scheduleReconnect();
   }
 
+  bool get _hasCompletedRemotePeer => hasCompletedRemotePeer(_peer);
+
   Future<bool> _connectTo(
     String ip,
     int port, {
@@ -540,6 +539,12 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
           detail: 'Connecting to $ip:$port...',
         );
     try {
+      if (_socketManager?.isServerMode == true) {
+        _logger.i('Replacing pairing listener with an outbound client.');
+        await _socketManager!.stopServer();
+        await _socketManager!.disconnectClient();
+        _socketManager = null;
+      }
       _socketManager ??= _createSocketManager();
       await _configureAuth(_socketManager!);
       final ok = await _socketManager!.connect(
@@ -721,6 +726,12 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
       }
     }
 
+    if (!isSource && !_hasCompletedRemotePeer) {
+      _reconnectScheduler.invalidate();
+      _peerDiscoveryCoordinator.invalidate();
+      return;
+    }
+
     // Abandon any connect attempt that's in flight on the old network so
     // the guards (_connecting) don't silently swallow the fast reconnect
     // below -- same pattern forceReconnect()/_maybeRunFallbackScan use.
@@ -849,6 +860,18 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
       return;
     }
 
+    if (!_hasCompletedRemotePeer ||
+        !isUsablePeerEndpoint(peer: _peer, localIps: _allLocalIps)) {
+      statusNotifier.logDiscovery(
+        'No completed remote peer is available for reconnect.',
+        isError: true,
+      );
+      statusNotifier.endForceConnect();
+      _reconnectScheduler.invalidate();
+      _peerDiscoveryCoordinator.invalidate();
+      return;
+    }
+
     // Abandon any in-flight attempt so the parallel race below owns the
     // generation and the busy guards.
     if (_connecting) {
@@ -880,7 +903,10 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
   ) async {
     final peer = _peer;
     final key = _key;
-    if (peer == null || key == null) {
+    if (peer == null ||
+        key == null ||
+        !_hasCompletedRemotePeer ||
+        !isUsablePeerEndpoint(peer: peer, localIps: _allLocalIps)) {
       statusNotifier.logDiscovery('No peer configured.', isError: true);
       return;
     }
@@ -1106,7 +1132,10 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
         _logger.i('pairingRequest received from scanner.');
         await _ref
             .read(pairingFacadeProvider.notifier)
-            .handleIncomingRequest(payload);
+            .handleIncomingRequest(
+              payload,
+              liveRemoteAddress: _socketManager?.remoteAddress,
+            );
         break;
 
       case MessageTypes.pairingAck:

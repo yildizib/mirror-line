@@ -9,11 +9,20 @@ import 'package:mirrorline/core/security/crypto_manager.dart';
 import 'package:mirrorline/core/security/security_constants.dart';
 import 'package:uuid/uuid.dart';
 
+typedef SocketStreamListener =
+    StreamSubscription<List<int>> Function(
+      Socket socket,
+      void Function(List<int>) onData,
+      void Function(Object) onError,
+      void Function() onDone,
+    );
+
 class SocketManager {
-  final Logger _logger = Logger();
+  final Logger _logger;
   final void Function(MirrorMessage) onMessage;
   final void Function()? onConnected;
   final void Function()? onDisconnected;
+  final SocketStreamListener _socketStreamListener;
 
   /// When this device is the *server*, this callback is invoked with the
   /// incoming socket's remote address so the caller can decide whether to
@@ -40,6 +49,7 @@ class SocketManager {
   /// (initiates connection).
   bool _isServer = false;
   bool _identityRequired = false;
+  bool _pairingMode = false;
 
   /// Completer for the client-side auth challenge.
   Completer<void>? _authCompleter;
@@ -69,10 +79,23 @@ class SocketManager {
     this.onConnected,
     this.onDisconnected,
     this.onAcceptConnection,
-  });
+    SocketStreamListener? socketStreamListener,
+    Logger? logger,
+  }) : _socketStreamListener =
+           socketStreamListener ??
+           ((socket, onData, onError, onDone) => socket.listen(
+             onData,
+             onError: onError,
+             onDone: onDone,
+             cancelOnError: true,
+           )),
+       _logger = logger ?? Logger();
 
   bool get isConnected => _isConnected;
   bool get isAuthed => _authed;
+  bool get isServerMode => _isServer && _server != null;
+  bool get isPairingMode => _pairingMode;
+  int? get boundPort => _server?.port;
 
   /// Extends the heartbeat cadence when the app goes to the background
   /// (screen off) and restores it on resume. A slower ping while the
@@ -120,6 +143,10 @@ class SocketManager {
       _logger.i('Socket server listening on port $port');
 
       _server!.listen((socket) {
+        _logger.i(
+          'Incoming socket: remote=${socket.remoteAddress.address}:'
+          '${socket.remotePort}, transport=$_transportMode',
+        );
         if (_client != null) {
           // A previous connection is still registered. It may be a genuine
           // second peer, but in this app's 1:1 pairing model it is far more
@@ -166,6 +193,7 @@ class SocketManager {
     _isServer = false;
     final generation = ++_connectGeneration;
     try {
+      _logger.i('Outgoing socket: target=$ip:$port, transport=$_transportMode');
       final socket = await Socket.connect(
         ip,
         port,
@@ -180,6 +208,7 @@ class SocketManager {
         return false;
       }
       _accept(socket);
+      if (!_isConnected) return false;
       _logger.i('Connected to peer $ip:$port, awaiting auth...');
 
       // Wait for auth to complete (or fail/timeout).
@@ -203,6 +232,7 @@ class SocketManager {
     _client = socket;
     _isConnected = true;
     _authed = false;
+    _pairingMode = false;
     _disposed = false;
     _buffer.clear();
     _invalidMessageCount = 0;
@@ -228,6 +258,7 @@ class SocketManager {
         _logger.i(
           'Server: no peer public key set — pairing mode, skipping auth.',
         );
+        _pairingMode = true;
         _onAuthSuccess();
       }
     } else {
@@ -242,14 +273,17 @@ class SocketManager {
         _logger.i(
           'Client: no local key pair set — pairing mode, skipping auth.',
         );
+        _pairingMode = true;
         _onAuthSuccess();
       }
     }
   }
 
   void _listen(Socket socket) {
-    socket.listen(
+    _socketStreamListener(
+      socket,
       (data) {
+        if (!identical(_client, socket)) return;
         _lastDataAt = DateTime.now();
         if (_buffer.length + data.length > SecurityConstants.maxFrameBytes) {
           _logger.w('Rejected oversized transport frame.');
@@ -259,17 +293,28 @@ class SocketManager {
         _buffer.addAll(data);
         _processBuffer();
       },
-      onDone: () {
-        _logger.i('Socket connection closed by peer.');
-        _handleClosed();
-      },
-      onError: (error) {
+      (error) {
         _logger.e('Socket error: $error');
-        _handleClosed();
+        _handleSocketClosed(socket);
       },
-      cancelOnError: true,
+      () {
+        _logger.i('Socket connection closed by peer.');
+        _handleSocketClosed(socket);
+      },
     );
   }
+
+  void _handleSocketClosed(Socket socket) {
+    if (!identical(_client, socket)) return;
+    _handleClosed();
+  }
+
+  String get _transportMode =>
+      _identityRequired ||
+          (_peerPublicKeyBase64?.isNotEmpty ?? false) ||
+          _localKeyPair != null
+      ? 'authenticated-peer'
+      : 'qr-bootstrap';
 
   void _handleClosed() {
     if (!_isConnected && _client == null) return;
@@ -281,6 +326,7 @@ class SocketManager {
     _client = null;
     _buffer.clear();
     if (!_disposed) onDisconnected?.call();
+    _pairingMode = false;
   }
 
   void _startHeartbeat() {
@@ -379,7 +425,7 @@ class SocketManager {
         _logger.i('Received: ${message.type}');
         onMessage(message);
       } catch (e) {
-        _logger.e('Invalid message received: $e');
+        _logger.e('Invalid message received: ${e.runtimeType}');
         _invalidMessageCount++;
         if (_invalidMessageCount >= SecurityConstants.maxInvalidMessages) {
           _logger.w('Too many invalid messages; closing connection.');
@@ -718,6 +764,7 @@ class SocketManager {
     _connectGeneration++;
     _disposed = true;
     _authed = false;
+    _pairingMode = false;
     _stopHeartbeat();
     _stopServerAuthTimer();
     try {

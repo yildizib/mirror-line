@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logger/logger.dart';
 import 'package:mirrorline/core/network/message_protocol.dart';
 import 'package:mirrorline/core/network/socket_manager.dart';
 import 'package:mirrorline/core/security/crypto_manager.dart';
@@ -34,6 +36,7 @@ void main() {
 
     final ok = await client.connect('127.0.0.1', 45901, key);
     expect(ok, isTrue);
+    expect(client.isPairingMode, isTrue);
 
     await client.sendMessage('sms_incoming', {
       'id': 'msg-1',
@@ -42,6 +45,7 @@ void main() {
     });
 
     await completer.future.timeout(const Duration(seconds: 5));
+    expect(server.isPairingMode, isTrue);
     expect(received, hasLength(1));
     expect(received.first.type, 'sms_incoming');
 
@@ -149,6 +153,170 @@ void main() {
   });
 
   test(
+    'stale socket data, completion, and error preserve replacement client',
+    () async {
+      final key = CryptoManager.generateKey();
+      final received = Completer<void>();
+      final callbacks =
+          <
+            ({
+              void Function(List<int>) onData,
+              void Function() onDone,
+              void Function(Object) onError,
+            })
+          >[];
+      var disconnectCount = 0;
+      final server = SocketManager(
+        onMessage: (_) {
+          if (!received.isCompleted) received.complete();
+        },
+        onConnected: () {},
+        onDisconnected: () => disconnectCount++,
+        socketStreamListener: (socket, onData, onError, onDone) {
+          callbacks.add((onData: onData, onDone: onDone, onError: onError));
+          return socket.listen(
+            onData,
+            onError: onError,
+            onDone: onDone,
+            cancelOnError: true,
+          );
+        },
+      );
+      await server.startServer(45909, key);
+
+      final c1 = SocketManager(
+        onMessage: (_) {},
+        onConnected: () {},
+        onDisconnected: () {},
+      );
+      expect(await c1.connect('127.0.0.1', 45909, key), isTrue);
+
+      final c2 = SocketManager(
+        onMessage: (_) {},
+        onConnected: () {},
+        onDisconnected: () {},
+      );
+      expect(await c2.connect('127.0.0.1', 45909, key), isTrue);
+      expect(callbacks, hasLength(2));
+
+      final disconnectsAfterReplacement = disconnectCount;
+      callbacks.first.onData([123]);
+      callbacks.first.onDone();
+      callbacks.first.onError(const SocketException('stale socket error'));
+      expect(server.isConnected, isTrue);
+      expect(disconnectCount, disconnectsAfterReplacement);
+      expect(await c2.sendMessage('replacement_probe', {}), isTrue);
+      await received.future.timeout(const Duration(seconds: 5));
+
+      await c1.disconnect();
+      await c2.disconnect();
+      await server.disconnect();
+    },
+  );
+
+  test('socket diagnostics include endpoints and transport mode', () async {
+    final key = CryptoManager.generateKey();
+    final output = _TestLogOutput();
+    final logger = Logger(printer: SimplePrinter(), output: output);
+    final serverConnected = Completer<void>();
+    final server = SocketManager(
+      onMessage: (_) {},
+      onConnected: serverConnected.complete,
+      logger: logger,
+    );
+    await server.startServer(45910, key);
+
+    final client = SocketManager(onMessage: (_) {}, logger: logger);
+    expect(await client.connect('127.0.0.1', 45910, key), isTrue);
+    await serverConnected.future.timeout(const Duration(seconds: 5));
+
+    final logs = output.lines.join('\n');
+    expect(
+      logs,
+      contains(
+        'Outgoing socket: target=127.0.0.1:45910, '
+        'transport=qr-bootstrap',
+      ),
+    );
+    expect(logs, contains('Incoming socket: remote=127.0.0.1:'));
+    expect(logs, contains('transport=qr-bootstrap'));
+
+    await client.disconnect();
+    await server.disconnect();
+  });
+
+  test('server-mode manager is not reused for outbound connections', () async {
+    final key = CryptoManager.generateKey();
+    final manager = SocketManager(
+      onMessage: (_) {},
+      onConnected: () {},
+      onDisconnected: () {},
+    );
+
+    await manager.startServer(45906, key);
+    expect(manager.isServerMode, isTrue);
+
+    expect(await manager.connect('127.0.0.1', 45906, key), isFalse);
+    expect(manager.isServerMode, isTrue);
+
+    await manager.disconnect();
+    expect(manager.isServerMode, isFalse);
+  });
+
+  test(
+    'required client identity fails closed when key pair is missing',
+    () async {
+      final key = CryptoManager.generateKey();
+      final server = SocketManager(
+        onMessage: (_) {},
+        onConnected: () {},
+        onDisconnected: () {},
+      );
+      await server.startServer(45907, key);
+
+      final client = SocketManager(
+        onMessage: (_) {},
+        onConnected: () {},
+        onDisconnected: () {},
+      )..requireAuthIdentity();
+
+      expect(await client.connect('127.0.0.1', 45907, key), isFalse);
+      expect(client.isConnected, isFalse);
+      expect(client.isPairingMode, isFalse);
+
+      await client.disconnect();
+      await server.disconnect();
+    },
+  );
+
+  test('required server identity never falls back to pairing mode', () async {
+    final key = CryptoManager.generateKey();
+    final disconnected = Completer<void>();
+    final server = SocketManager(
+      onMessage: (_) {},
+      onConnected: () {},
+      onDisconnected: () {
+        if (!disconnected.isCompleted) disconnected.complete();
+      },
+    )..requireAuthIdentity();
+    await server.startServer(45908, key);
+
+    final client = SocketManager(
+      onMessage: (_) {},
+      onConnected: () {},
+      onDisconnected: () {},
+    );
+    await client.connect('127.0.0.1', 45908, key);
+    await disconnected.future.timeout(const Duration(seconds: 5));
+
+    expect(server.isConnected, isFalse);
+    expect(server.isPairingMode, isFalse);
+
+    await client.disconnect();
+    await server.disconnect();
+  });
+
+  test(
     'authenticated handshake: both sides only report connected after mutual ack',
     () async {
       final key = CryptoManager.generateKey();
@@ -211,4 +379,11 @@ void main() {
       await server.disconnect();
     },
   );
+}
+
+class _TestLogOutput extends LogOutput {
+  final lines = <String>[];
+
+  @override
+  void output(OutputEvent event) => lines.addAll(event.lines);
 }

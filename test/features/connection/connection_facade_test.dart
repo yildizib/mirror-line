@@ -54,7 +54,7 @@ void main() {
         var facadeGeneration = 0;
         final scheduler = ReconnectScheduler(
           logger: Logger(),
-          onReconnect: (ip, port) async {},
+          onReconnect: (ip, port) async => true,
           getPeerIp: () => '192.168.1.100',
           getPeerPort: () => 45678,
         );

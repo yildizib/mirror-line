@@ -9,11 +9,67 @@ import 'package:mirrorline/core/network/peer_discovery.dart';
 import 'package:mirrorline/core/security/crypto_manager.dart';
 import 'package:mirrorline/core/security/key_store.dart';
 import 'package:mirrorline/features/pairing/pairing_identity_guard.dart';
+import 'package:mirrorline/features/pairing/local_pairing_identity.dart';
 import 'package:uuid/uuid.dart';
 
 final peerFacadeProvider = StateNotifierProvider<PeerFacade, Peer?>((ref) {
   return PeerFacade();
 });
+
+abstract interface class PeerIdentityStore {
+  Future<String?> getSelfId();
+  Future<String?> getSelfDeviceName();
+  Future<String?> getSelfRole();
+  Future<void> setSelfIdentity({
+    required String id,
+    required String deviceName,
+    required String role,
+  });
+  Future<void> setSelfRole(String role);
+  Future<String> ensureDeviceKeyPair();
+  Future<void> setPeerId(String id);
+  Future<void> setPeerKey(SecretKey key);
+  Future<void> clearPeerId();
+  Future<void> clearPeerKey();
+}
+
+class KeyStorePeerIdentityStore implements PeerIdentityStore {
+  const KeyStorePeerIdentityStore();
+
+  @override
+  Future<String?> getSelfId() => KeyStore.getSelfId();
+
+  @override
+  Future<String?> getSelfDeviceName() => KeyStore.getSelfDeviceName();
+
+  @override
+  Future<String?> getSelfRole() => KeyStore.getSelfRole();
+
+  @override
+  Future<void> setSelfIdentity({
+    required String id,
+    required String deviceName,
+    required String role,
+  }) => KeyStore.setSelfIdentity(id: id, deviceName: deviceName, role: role);
+
+  @override
+  Future<void> setSelfRole(String role) => KeyStore.setSelfRole(role);
+
+  @override
+  Future<String> ensureDeviceKeyPair() => KeyStore.ensureDeviceKeyPair();
+
+  @override
+  Future<void> setPeerId(String id) => KeyStore.setPeerId(id);
+
+  @override
+  Future<void> setPeerKey(SecretKey key) => KeyStore.setPeerKey(key);
+
+  @override
+  Future<void> clearPeerId() => KeyStore.clearPeerId();
+
+  @override
+  Future<void> clearPeerKey() => KeyStore.clearPeerKey();
+}
 
 // List of all paired peers (for settings display). Watches peerFacadeProvider so
 // it automatically refreshes whenever the active peer record changes
@@ -29,10 +85,15 @@ final pairedPeersProvider = FutureProvider<List<Peer>>((ref) async {
 });
 
 class PeerFacade extends StateNotifier<Peer?> {
-  final PeerDao _dao = PeerDao();
+  final PeerDao _dao;
+  final PeerIdentityStore _identityStore;
+  late final Future<void> initialized;
 
-  PeerFacade() : super(null) {
-    _load();
+  PeerFacade({PeerDao? dao, PeerIdentityStore? identityStore})
+    : _dao = dao ?? PeerDao(),
+      _identityStore = identityStore ?? const KeyStorePeerIdentityStore(),
+      super(null) {
+    initialized = _load();
   }
 
   Future<void> _load() async {
@@ -71,6 +132,17 @@ class PeerFacade extends StateNotifier<Peer?> {
     if (existing != null) {
       final updated = existing.copyWith(role: role);
       await _dao.update(updated);
+      final selfId = await _identityStore.getSelfId();
+      final selfDeviceName = await _identityStore.getSelfDeviceName();
+      if (selfId == null || selfDeviceName == null) {
+        await _identityStore.setSelfIdentity(
+          id: selfId ?? const Uuid().v4(),
+          deviceName: selfDeviceName ?? await _getDeviceName(),
+          role: role,
+        );
+      } else {
+        await _identityStore.setSelfRole(role);
+      }
       state = updated;
       return;
     }
@@ -84,7 +156,7 @@ class PeerFacade extends StateNotifier<Peer?> {
     // Ensure this device has an Ed25519 identity keypair (stored in KeyStore).
     // The peer's publicKey field holds the *other* device's public key and
     // is left empty until pairing completes.
-    await KeyStore.ensureDeviceKeyPair();
+    await _identityStore.ensureDeviceKeyPair();
 
     final peer = Peer(
       id: const Uuid().v4(),
@@ -98,10 +170,47 @@ class PeerFacade extends StateNotifier<Peer?> {
     );
 
     await _dao.insert(peer);
-    await KeyStore.setPeerId(peer.id);
-    await KeyStore.setPeerKey(key);
-    await KeyStore.setSelfIdentity(id: peer.id, deviceName: deviceName);
+    await _identityStore.setPeerId(peer.id);
+    await _identityStore.setPeerKey(key);
+    await _identityStore.setSelfIdentity(
+      id: peer.id,
+      deviceName: deviceName,
+      role: role,
+    );
     state = peer;
+  }
+
+  Future<LocalPairingIdentity?> getLocalPairingIdentity({
+    required String ip,
+  }) async {
+    final peer = state;
+    if (peer == null) return null;
+
+    final id = await _identityStore.getSelfId();
+    final deviceName = await _identityStore.getSelfDeviceName();
+    var role = await _identityStore.getSelfRole();
+    if (role == null) {
+      role = peer.role;
+      await _identityStore.setSelfRole(role);
+    }
+
+    if (id == null ||
+        id.isEmpty ||
+        deviceName == null ||
+        deviceName.isEmpty ||
+        role.isEmpty) {
+      return null;
+    }
+    final publicKey = await _identityStore.ensureDeviceKeyPair();
+    return LocalPairingIdentity(
+      id: id,
+      deviceName: deviceName,
+      role: role,
+      publicKey: publicKey,
+      ip: ip,
+      port: peer.port,
+      keyBase64: peer.key,
+    );
   }
 
   /// Save peer info obtained from scanning the other device's QR code.
@@ -116,8 +225,9 @@ class PeerFacade extends StateNotifier<Peer?> {
     required String deviceName,
     required String publicKey,
   }) async {
-    final localId = await KeyStore.getSelfId() ?? state?.id ?? '';
-    final localPublicKey = await KeyStore.ensureDeviceKeyPair();
+    final localId = await _identityStore.getSelfId() ?? '';
+    if (localId.isEmpty) return;
+    final localPublicKey = await _identityStore.ensureDeviceKeyPair();
     if (isSelfRemoteIdentity(
       remoteId: id,
       remotePublicKey: publicKey,
@@ -150,14 +260,14 @@ class PeerFacade extends StateNotifier<Peer?> {
     } else {
       await _dao.insert(peer);
     }
-    await KeyStore.setPeerId(peer.id);
-    await KeyStore.setPeerKey(key);
+    await _identityStore.setPeerId(peer.id);
+    await _identityStore.setPeerKey(key);
     state = peer;
   }
 
   /// Returns this device's Ed25519 public key (generating if needed).
   Future<String> getMyPublicKey() async {
-    return KeyStore.ensureDeviceKeyPair();
+    return _identityStore.ensureDeviceKeyPair();
   }
 
   /// Called on the *scanned* side once pairing completes. Persists the
@@ -179,8 +289,9 @@ class PeerFacade extends StateNotifier<Peer?> {
   }) async {
     final current = state;
     if (current == null) return;
-    final localId = await KeyStore.getSelfId() ?? current.id;
-    final localPublicKey = await KeyStore.ensureDeviceKeyPair();
+    final localId = await _identityStore.getSelfId() ?? '';
+    if (localId.isEmpty) return;
+    final localPublicKey = await _identityStore.ensureDeviceKeyPair();
     if (isSelfRemoteIdentity(
       remoteId: id,
       remotePublicKey: publicKey,
@@ -196,7 +307,7 @@ class PeerFacade extends StateNotifier<Peer?> {
       ip: (ip != null && ip.isNotEmpty) ? ip : current.ip,
     );
     await _dao.replaceId(current.id, updated);
-    await KeyStore.setPeerId(updated.id);
+    await _identityStore.setPeerId(updated.id);
     state = updated;
   }
 
@@ -243,12 +354,12 @@ class PeerFacade extends StateNotifier<Peer?> {
     if (remaining != null) {
       final keyBytes = base64Decode(remaining.key);
       final key = SecretKey(keyBytes);
-      await KeyStore.setPeerId(remaining.id);
-      await KeyStore.setPeerKey(key);
+      await _identityStore.setPeerId(remaining.id);
+      await _identityStore.setPeerKey(key);
       state = remaining;
     } else {
-      await KeyStore.clearPeerId();
-      await KeyStore.clearPeerKey();
+      await _identityStore.clearPeerId();
+      await _identityStore.clearPeerKey();
       state = null;
     }
   }
@@ -258,8 +369,8 @@ class PeerFacade extends StateNotifier<Peer?> {
     if (current != null) {
       await _dao.delete(current.id);
     }
-    await KeyStore.clearPeerId();
-    await KeyStore.clearPeerKey();
+    await _identityStore.clearPeerId();
+    await _identityStore.clearPeerKey();
     state = null;
   }
 }
