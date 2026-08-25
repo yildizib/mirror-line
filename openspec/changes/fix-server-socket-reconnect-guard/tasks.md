@@ -2,7 +2,7 @@
 
 - [x] 1.1 Add a single completed-remote-peer guard to all normal reconnect,
   force-connect, network-change, and fallback-scan entry points.
-- [ ] 1.2 Prevent unpaired network changes and manual reconnect requests from
+- [x] 1.2 Prevent unpaired network changes and manual reconnect requests from
   touching the temporary pairing listener.
 - [ ] 1.3 Separate outbound client socket ownership from pairing/server socket
   ownership and guarantee cleanup for both lifecycles.

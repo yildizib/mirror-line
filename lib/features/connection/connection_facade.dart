@@ -724,6 +724,12 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
       }
     }
 
+    if (!isSource && !_hasCompletedRemotePeer) {
+      _reconnectScheduler.invalidate();
+      _peerDiscoveryCoordinator.invalidate();
+      return;
+    }
+
     // Abandon any connect attempt that's in flight on the old network so
     // the guards (_connecting) don't silently swallow the fast reconnect
     // below -- same pattern forceReconnect()/_maybeRunFallbackScan use.
@@ -754,11 +760,6 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
       // them so a freshly-roamed Main learns the new address right away.
       _broadcaster.updateBroadcastInfo(ips: _allLocalIps);
       return; // server role: fast beacon is all there is to do
-    }
-    if (!_hasCompletedRemotePeer) {
-      _reconnectScheduler.invalidate();
-      _peerDiscoveryCoordinator.invalidate();
-      return;
     }
     // Force the fallback scan immediately: bypass both the 25s grace and
     // the 60s scan backoff, since we have a concrete reason to believe the
