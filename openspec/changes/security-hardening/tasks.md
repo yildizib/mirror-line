@@ -94,7 +94,7 @@
   changes unexpectedly during the transaction.
 - [x] 8.4 Keep pairing persistence atomic and prevent incomplete peer records
   after timeout or acknowledgement loss.
-- [ ] 8.5 Add pairing tests for matching identities, public-key mismatch,
+- [x] 8.5 Add pairing tests for matching identities, public-key mismatch,
   peer-ID mismatch, verification mismatch, timeout, and atomic persistence.
 
 ## 9. Transport Resource Limits
@@ -110,9 +110,9 @@
 
 ## 10. Documentation and Verification
 
-- [ ] 10.1 Update the product document with the verified security behavior and
+- [x] 10.1 Update the product document with the verified security behavior and
   remaining documented non-goals.
-- [ ] 10.2 Add or update security tests covering raw wire confidentiality,
+- [x] 10.2 Add or update security tests covering raw wire confidentiality,
   local storage protection, migration, authentication, replay, pairing, and
   resource limits.
 - [ ] 10.3 Run `dart format lib/ test/` and format any changed Dart files.
