@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:mirrorline/core/data/database.dart';
 import 'package:mirrorline/core/data/models/peer.dart';
+import 'package:mirrorline/core/security/key_store.dart';
+import 'package:mirrorline/core/security/local_storage_crypto.dart';
 import 'package:sqflite/sqflite.dart';
 
 class PeerDao {
@@ -25,7 +27,7 @@ class PeerDao {
     final db = await _database;
     await db.insert(
       'peer',
-      peer.toJson(),
+      await _toStorage(peer),
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
   }
@@ -35,21 +37,21 @@ class PeerDao {
     final db = await _database;
     final maps = await db.query('peer', orderBy: 'created_at DESC', limit: 1);
     if (maps.isEmpty) return null;
-    return Peer.fromJson(maps.first);
+    return _fromStorage(maps.first);
   }
 
   /// Gets all paired peers.
   Future<List<Peer>> getAllPeers() async {
     final db = await _database;
     final maps = await db.query('peer', orderBy: 'created_at DESC');
-    return maps.map(Peer.fromJson).toList();
+    return Future.wait(maps.map(_fromStorage));
   }
 
   Future<void> update(Peer peer) async {
     final db = await _database;
     await db.update(
       'peer',
-      peer.toJson(),
+      await _toStorage(peer),
       where: 'id = ?',
       whereArgs: [peer.id],
     );
@@ -63,13 +65,14 @@ class PeerDao {
   /// representing itself to representing the newly paired other device.
   Future<void> replaceId(String oldId, Peer newPeer) async {
     final db = await _database;
+    final values = await _toStorage(newPeer);
     await db.transaction((txn) async {
       if (oldId != newPeer.id) {
         await txn.delete('peer', where: 'id = ?', whereArgs: [oldId]);
       }
       await txn.insert(
         'peer',
-        newPeer.toJson(),
+        values,
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
     });
@@ -83,5 +86,26 @@ class PeerDao {
   Future<void> deleteAll() async {
     final db = await _database;
     await db.delete('peer');
+  }
+
+  Future<Map<String, dynamic>> _toStorage(Peer peer) async {
+    final values = peer.toJson();
+    final localKey = await KeyStore.ensureLocalDatabaseKey();
+    values['key'] = await LocalStorageCrypto.encrypt(localKey, peer.key);
+    return values;
+  }
+
+  Future<Peer> _fromStorage(Map<String, Object?> row) async {
+    final values = Map<String, dynamic>.from(row);
+    final storedKey = values['key'] as String;
+    if (LocalStorageCrypto.isEncrypted(storedKey)) {
+      final localKey = await KeyStore.ensureLocalDatabaseKey();
+      final decrypted = await LocalStorageCrypto.decrypt(localKey, storedKey);
+      if (decrypted == null) {
+        throw StateError('Cannot decrypt the stored peer network key.');
+      }
+      values['key'] = decrypted;
+    }
+    return Peer.fromJson(values);
   }
 }

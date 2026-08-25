@@ -1,7 +1,11 @@
+import 'dart:convert';
+
+import 'package:cryptography/cryptography.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mirrorline/core/data/database.dart';
 import 'package:mirrorline/core/services/local_storage_migration.dart';
+import 'package:mirrorline/core/security/key_store.dart';
 import 'package:mirrorline/core/security/local_storage_crypto.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -74,7 +78,10 @@ void main() {
         onCreate: AppDatabase.instance.createTables,
       ),
     );
-    await _insertLegacyRows(db);
+    final networkKey = SecretKey(List<int>.generate(32, (index) => index));
+    await KeyStore.setPeerKey(networkKey);
+    final networkKeyBase64 = base64Encode(await networkKey.extractBytes());
+    await _insertLegacyRows(db, networkKeyBase64);
 
     final coordinator = LocalStorageMigrationCoordinator();
     await coordinator.migrate(db, batchSize: 1);
@@ -98,13 +105,16 @@ void main() {
     final ciphertext = rows.single['body'];
     await coordinator.migrate(db, batchSize: 1);
     expect((await db.query('sms_message')).single['body'], ciphertext);
-    expect((await db.query('peer')).single['key'], 'network-key');
+    expect(
+      (await db.query('peer')).single['key'],
+      startsWith(LocalStorageCrypto.currentPrefix),
+    );
 
     await db.close();
   });
 }
 
-Future<void> _insertLegacyRows(Database db) async {
+Future<void> _insertLegacyRows(Database db, String networkKeyBase64) async {
   const timestamp = 1700000000000;
   await db.insert('peer', {
     'id': 'peer-1',
@@ -112,7 +122,7 @@ Future<void> _insertLegacyRows(Database db) async {
     'role': 'main',
     'ip': '192.168.1.10',
     'port': 45678,
-    'key': 'network-key',
+    'key': networkKeyBase64,
     'public_key': 'legacy-public-key',
     'created_at': timestamp,
   });

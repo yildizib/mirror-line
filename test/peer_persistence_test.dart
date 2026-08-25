@@ -3,6 +3,7 @@
 // handshake populates. Uses sqflite_ffi so it exercises the real DAO
 // against the real (in-memory) SQLite schema.
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:mirrorline/core/data/database.dart';
 import 'package:mirrorline/core/data/daos/peer_dao.dart';
 import 'package:mirrorline/core/data/models/peer.dart';
@@ -14,6 +15,10 @@ void main() {
   setUpAll(() {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
+  });
+
+  setUp(() {
+    FlutterSecureStorage.setMockInitialValues({});
   });
 
   test(

@@ -15,7 +15,7 @@
   recovers secure keys before transforming existing records.
 - [x] 2.3 Encrypt existing sensitive records in place, verify successful
   decryption, and resume safely using the versioned storage prefix.
-- [ ] 2.4 Store the network AES key only as versioned local ciphertext in the
+- [x] 2.4 Store the network AES key only as versioned local ciphertext in the
   existing peer key field while keeping secure storage authoritative.
 - [ ] 2.5 Add migration tests for fresh installs, upgrades, interruptions,
   missing secure keys, corrupt records, and repeatable execution.

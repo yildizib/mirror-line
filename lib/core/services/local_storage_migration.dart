@@ -64,6 +64,10 @@ class LocalStorageMigrationCoordinator {
     if (preparation.state == LocalStorageMigrationState.completed) return;
 
     final localKey = preparation.localKey;
+    final peerKey = await KeyStore.getPeerKey();
+    final authoritativePeerKey = peerKey == null
+        ? null
+        : base64Encode(await peerKey.extractBytes());
     await begin();
     final checkpoint = _decodeCheckpoint(preparation.checkpoint);
 
@@ -83,7 +87,12 @@ class LocalStorageMigrationCoordinator {
 
         await db.transaction((txn) async {
           for (final row in rows) {
-            final values = await _encryptedValues(row, table.fields, localKey);
+            final values = await _encryptedValues(
+              row,
+              table,
+              localKey,
+              authoritativePeerKey,
+            );
             if (values.isNotEmpty) {
               await txn.update(
                 table.name,
@@ -131,25 +140,38 @@ class LocalStorageMigrationCoordinator {
 
   Future<Map<String, Object?>> _encryptedValues(
     Map<String, Object?> row,
-    List<String> fields,
+    _MigrationTable table,
     SecretKey key,
+    String? authoritativePeerKey,
   ) async {
     final values = <String, Object?>{};
-    for (final field in fields) {
+    for (final field in table.fields) {
       final storedValue = row[field] as String;
-      if (storedValue.isEmpty) continue;
+      final value = table.name == 'peer' && field == 'key'
+          ? authoritativePeerKey
+          : storedValue;
+      if (value == null) {
+        throw StateError('Cannot migrate peer key without secure storage.');
+      }
+      if (value.isEmpty) continue;
 
       if (LocalStorageCrypto.isEncrypted(storedValue)) {
         final plaintext = await LocalStorageCrypto.decrypt(key, storedValue);
         if (plaintext == null) {
           throw StateError('Cannot verify encrypted value in $field.');
         }
+        if (plaintext == value) continue;
+      } else if (storedValue == value && table.name != 'peer') {
+        // The value is still legacy plaintext and must be replaced below.
+      }
+
+      if (LocalStorageCrypto.isEncrypted(storedValue) && table.name != 'peer') {
         continue;
       }
 
-      final encrypted = await LocalStorageCrypto.encrypt(key, storedValue);
+      final encrypted = await LocalStorageCrypto.encrypt(key, value);
       final verified = await LocalStorageCrypto.decrypt(key, encrypted);
-      if (verified != storedValue) {
+      if (verified != value) {
         throw StateError('Cannot verify migrated value in $field.');
       }
       values[field] = encrypted;
@@ -175,7 +197,7 @@ class LocalStorageMigrationCoordinator {
   }
 
   static const _tables = <_MigrationTable>[
-    _MigrationTable('peer', 'id', ['device_name', 'public_key']),
+    _MigrationTable('peer', 'id', ['device_name', 'public_key', 'key']),
     _MigrationTable('call_event', 'id', ['number', 'contact_name']),
     _MigrationTable('sms_message', 'id', [
       'thread_id',
