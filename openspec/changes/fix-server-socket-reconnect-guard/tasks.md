@@ -61,7 +61,7 @@
   diagnostics for locally-owned or stale endpoints.
 - [x] 6.3 Generate QR and pairing response identity from local self identity,
   not the overloaded remote peer record.
-- [ ] 6.4 Prevent the UI from presenting QR data with missing, placeholder, or
+- [x] 6.4 Prevent the UI from presenting QR data with missing, placeholder, or
   stale local identity fields.
 
 ## 7. Socket Lifecycle and Diagnostics

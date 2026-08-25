@@ -12,9 +12,10 @@ final pairingControllerProvider = Provider<PairingController>((ref) {
 final localPairingIdentityProvider = FutureProvider.family
     .autoDispose<LocalPairingIdentity?, String>((ref, localIp) async {
       ref.watch(peerFacadeProvider);
-      return ref
+      final identity = await ref
           .read(peerFacadeProvider.notifier)
           .getLocalPairingIdentity(ip: localIp);
+      return identity?.isReadyForQr == true ? identity : null;
     });
 
 /// UI Service for PairingScreen (issue #39's F5): orchestrates the

@@ -1,4 +1,5 @@
 import 'package:mirrorline/core/security/crypto_manager.dart';
+import 'package:mirrorline/features/connection/connection_endpoint_guard.dart';
 
 class LocalPairingIdentity {
   final String id;
@@ -23,4 +24,17 @@ class LocalPairingIdentity {
 
   String get verificationCode =>
       CryptoManager.verificationCodeFromKey(keyBase64, id);
+
+  bool get isReadyForQr {
+    final hasRealDeviceName =
+        deviceName.isNotEmpty &&
+        deviceName != 'Unknown Device' &&
+        deviceName != 'Android Device';
+    return id.isNotEmpty &&
+        hasRealDeviceName &&
+        (role == 'main' || role == 'source') &&
+        publicKey.isNotEmpty &&
+        keyBase64.isNotEmpty &&
+        isUsableEndpoint(ip: ip, port: port, localIps: const []);
+  }
 }
