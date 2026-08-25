@@ -21,7 +21,7 @@
   connection and that listener/client cleanup remains independent.
 - [x] 2.4 Test scheduler success/failure callback handling and bounded retry
   delays, including high-attempt behavior.
-- [ ] 2.5 Run a two-device QR pairing flow followed by reconnect and network
+- [x] 2.5 Run a two-device QR pairing flow followed by reconnect and network
   change verification on Android hardware.
 
 ## 3. Verification and Delivery
