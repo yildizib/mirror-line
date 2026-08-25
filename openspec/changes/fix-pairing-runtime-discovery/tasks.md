@@ -24,7 +24,7 @@
 
 - [x] 3.1 Ensure self-only setup records are not presented as paired remote
   devices in Settings or connection status.
-- [ ] 3.2 Ensure completed pairing persists the other device's identity and
+- [x] 3.2 Ensure completed pairing persists the other device's identity and
   endpoint on both devices without replacing it with local identity data.
 - [ ] 3.3 Add non-secret stage diagnostics for QR parsing, TCP connection,
   request delivery, accept, acknowledgement, and rejection paths.
