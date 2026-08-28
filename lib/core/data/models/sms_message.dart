@@ -1,5 +1,3 @@
-import 'package:mirrorline/l10n/app_localizations.dart';
-
 class SmsMessage {
   final String id;
   final String threadId;
@@ -70,19 +68,4 @@ class SmsMessage {
 
   /// Display name for UI/notifications: contact name if resolved, else the
   /// raw address, else a placeholder when neither is known.
-  String displayName(AppLocalizations l) {
-    if (contactName.isNotEmpty) return contactName;
-    if (address.isNotEmpty) return address;
-    return l.smsUnknownSender;
-  }
-
-  /// Status label for the SMS list UI.
-  String statusLabel(AppLocalizations l) => switch (status) {
-    'received' => l.smsStatusReceived,
-    'sent' => l.smsStatusSent,
-    'delivered' => l.smsStatusDelivered,
-    'pending' => l.smsStatusSending,
-    'failed' => l.smsStatusFailed,
-    _ => status,
-  };
 }

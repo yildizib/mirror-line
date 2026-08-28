@@ -1,12 +1,12 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mirrorline/core/data/models/peer.dart';
-import 'package:mirrorline/core/security/key_store.dart';
 import 'package:mirrorline/features/calls/call_facade.dart';
 import 'package:mirrorline/features/connection/connection_facade.dart';
 import 'package:mirrorline/features/notifications/notification_facade.dart';
 import 'package:mirrorline/features/pairing/peer_facade.dart';
 import 'package:mirrorline/features/sms/sms_facade.dart';
 import 'package:mirrorline/core/telephony/telephony_channel.dart';
+import 'package:mirrorline/features/settings/settings_gateways.dart';
 
 final settingsControllerProvider = Provider<SettingsController>((ref) {
   return SettingsController(ref);
@@ -49,9 +49,25 @@ class _TelephonySettingsOperations implements SettingsNativeOperations {
 class SettingsController {
   final Ref _ref;
   final SettingsNativeOperations _native;
+  final SettingsIdentityGateway _identity;
+  final PermissionGateway _permissions;
 
-  SettingsController(this._ref, {SettingsNativeOperations? native})
-    : _native = native ?? _TelephonySettingsOperations();
+  SettingsController(
+    this._ref, {
+    SettingsNativeOperations? native,
+    SettingsIdentityGateway? identity,
+    PermissionGateway? permissions,
+  }) : _native = native ?? _TelephonySettingsOperations(),
+       _identity = identity ?? const KeyStoreSettingsIdentityGateway(),
+       _permissions = permissions ?? const SystemPermissionGateway();
+
+  Future<bool> isBatteryOptimizationIgnored() =>
+      _permissions.isBatteryOptimizationIgnored();
+
+  Future<bool> requestIgnoreBatteryOptimizations() =>
+      _permissions.requestIgnoreBatteryOptimizations();
+
+  Future<bool> openAppInfoSettings() => _permissions.openAppInfoSettings();
 
   Future<bool> hasKnownAutoStartSettings() =>
       _native.hasKnownAutoStartSettings();
@@ -89,7 +105,7 @@ class SettingsController {
     await _ref.read(smsFacadeProvider.notifier).removeAll();
     await _ref.read(notificationFacadeProvider.notifier).removeAll();
     await _ref.read(peerFacadeProvider.notifier).reset();
-    await KeyStore.clearAll();
+    await _identity.clearAll();
     _ref.invalidate(pairedPeersProvider);
   }
 }

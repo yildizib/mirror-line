@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:mirrorline/l10n/app_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:mirrorline/core/services/permission_service.dart';
 import 'package:mirrorline/core/theme/theme.dart';
 import 'package:mirrorline/features/pairing/role_selection_controller.dart';
+import 'package:mirrorline/features/settings/settings_gateways.dart';
 
 class RoleSelectionScreen extends ConsumerWidget {
   const RoleSelectionScreen({super.key});
@@ -83,7 +83,8 @@ class RoleSelectionScreen extends ConsumerWidget {
   }
 
   Future<void> _offerBatteryExemption(BuildContext context) async {
-    if (await PermissionService.isBatteryOptimizationIgnored()) return;
+    final permissions = const SystemPermissionGateway();
+    if (await permissions.isBatteryOptimizationIgnored()) return;
     if (!context.mounted) return;
 
     final proceed = await showDialog<bool>(
@@ -110,7 +111,7 @@ class RoleSelectionScreen extends ConsumerWidget {
     );
 
     if (proceed == true) {
-      await PermissionService.requestIgnoreBatteryOptimizations();
+      await permissions.requestIgnoreBatteryOptimizations();
     }
   }
 }

@@ -2,9 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:mirrorline/l10n/app_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mirrorline/core/data/models/peer.dart';
-import 'package:mirrorline/core/security/key_store.dart';
 import 'package:mirrorline/core/services/locale_service.dart';
-import 'package:mirrorline/core/services/permission_service.dart';
 import 'package:mirrorline/core/theme/theme.dart';
 import 'package:mirrorline/features/connection/connection_facade.dart';
 import 'package:mirrorline/features/connection/connection_status_provider.dart';
@@ -17,6 +15,7 @@ import 'package:mirrorline/features/pairing/widgets/qr_display.dart';
 import 'package:mirrorline/features/settings/diagnostics_screen.dart';
 import 'package:mirrorline/features/settings/settings_controller.dart';
 import 'package:mirrorline/features/settings/watched_apps_screen.dart';
+import 'package:mirrorline/features/settings/settings_gateways.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -30,6 +29,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   String? _selfPublicKey;
   bool _hasKnownAutoStartScreen = false;
   bool _hasKnownBatterySaverScreen = false;
+  final DeviceIdentityGateway _identity = const KeyStoreDeviceIdentityGateway();
 
   @override
   void initState() {
@@ -40,8 +40,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _loadSelfIdentity() async {
-    final name = await KeyStore.getSelfDeviceName();
-    final pubKey = await KeyStore.getDevicePublicKey();
+    final name = await _identity.getDeviceName();
+    final pubKey = await _identity.getPublicKey();
     if (!mounted) return;
     setState(() {
       _selfDeviceName = name;
@@ -843,7 +843,9 @@ class _SystemSection extends ConsumerWidget {
                 subtitle: Text(l.settingsRemoveBatteryOptDesc),
                 trailing: const Icon(Icons.chevron_right_rounded),
                 onTap: () async {
-                  await PermissionService.requestIgnoreBatteryOptimizations();
+                  await ref
+                      .read(settingsControllerProvider)
+                      .requestIgnoreBatteryOptimizations();
                   if (context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(content: Text(l.settingsBatteryOpened)),
@@ -900,7 +902,9 @@ class _SystemSection extends ConsumerWidget {
                 subtitle: Text(l.settingsKeepPermissionsDesc),
                 trailing: const Icon(Icons.chevron_right_rounded),
                 onTap: () async {
-                  await PermissionService.openAppInfoSettings();
+                  await ref
+                      .read(settingsControllerProvider)
+                      .openAppInfoSettings();
                 },
               ),
               const Divider(height: 1, indent: 16, endIndent: 16),

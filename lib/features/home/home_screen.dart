@@ -3,8 +3,6 @@ import 'package:mirrorline/l10n/app_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logger/logger.dart';
 import 'package:mirrorline/core/data/models/notification_event.dart';
-import 'package:mirrorline/core/services/notification_service.dart';
-import 'package:mirrorline/core/services/permission_service.dart';
 import 'package:mirrorline/core/theme/theme.dart';
 import 'package:mirrorline/features/calls/calls_screen.dart';
 import 'package:mirrorline/features/connection/connection_facade.dart';
@@ -16,6 +14,8 @@ import 'package:mirrorline/features/notifications/notifications_screen.dart';
 import 'package:mirrorline/features/settings/settings_screen.dart';
 import 'package:mirrorline/features/sms/sms_screen.dart';
 import 'package:mirrorline/features/sms/sms_thread_screen.dart';
+import 'package:mirrorline/features/settings/settings_gateways.dart';
+import 'package:mirrorline/features/notifications/notification_gateway.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -26,6 +26,9 @@ class HomeScreen extends ConsumerStatefulWidget {
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   int _selectedIndex = 0;
+  final PermissionGateway _permissions = const SystemPermissionGateway();
+  final NotificationNavigationGateway _navigation =
+      const NotificationRouterGateway();
 
   final _pages = const [
     HomeFeedScreen(),
@@ -43,7 +46,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     // system permission dialog appears.
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       try {
-        await PermissionService.requestNotifications();
+        await _permissions.requestNotifications();
       } catch (e) {
         Logger().e('Notification permission request failed: $e');
       }
@@ -51,19 +54,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     });
     // A notification tap may arrive at any time, not just during the first
     // frame -- listen for the lifetime of this screen.
-    NotificationRouter.instance.requests.addListener(_handleNavRequest);
+    _navigation.requests.addListener(_handleNavRequest);
   }
 
   @override
   void dispose() {
-    NotificationRouter.instance.requests.removeListener(_handleNavRequest);
+    _navigation.requests.removeListener(_handleNavRequest);
     super.dispose();
   }
 
   void _handleNavRequest() {
-    final req = NotificationRouter.instance.requests.value;
+    final req = _navigation.requests.value;
     if (req == null) return;
-    NotificationRouter.instance.consume();
+    _navigation.consume();
 
     final payload = req.payload;
     switch (payload.type) {
@@ -116,7 +119,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   void _consumePendingNavRequest() {
     // A tap that happened before this screen existed is still sitting in
     // the router; process it now that we have a context to navigate with.
-    if (NotificationRouter.instance.requests.value != null) {
+    if (_navigation.requests.value != null) {
       _handleNavRequest();
     }
   }

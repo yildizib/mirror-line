@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:mirrorline/core/data/models/sms_message.dart';
+import 'package:mirrorline/core/presentation/message_presentation_extensions.dart';
 import 'package:mirrorline/core/theme/theme.dart';
 import 'package:mirrorline/l10n/app_localizations.dart';
 

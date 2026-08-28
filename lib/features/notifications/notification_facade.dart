@@ -6,6 +6,7 @@ import 'package:mirrorline/core/network/message_protocol.dart';
 import 'package:mirrorline/core/services/notification_service.dart';
 import 'package:mirrorline/core/services/watched_apps_service.dart';
 import 'package:mirrorline/features/connection/connection_facade.dart';
+import 'package:mirrorline/features/connection/transport_ports.dart';
 import 'package:uuid/uuid.dart';
 
 final notificationFacadeProvider =
