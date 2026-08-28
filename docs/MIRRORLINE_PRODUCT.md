@@ -192,6 +192,13 @@ Bağlantı kurulduğunda Main cihazda beş ana bölüm bulunur:
 
 ## Teknik Ürün Sınırları
 
+### Doğrulama Kapsamı
+
+CI; format kontrolü, statik analiz, Flutter testleri ve debug APK derlemesini
+otomatik olarak çalıştırır. İki cihazlı Android testleri pairing, reconnect,
+ağ değişikliği ve arka plan yaşam döngüsü senaryoları için manuel cihaz
+doğrulamasıdır; CI sonucu olarak raporlanmaz.
+
 - Uygulama Android odaklıdır; telephony, SMS ve notification listener özellikleri
   Android native servislerine bağlıdır.
 - Cihazların doğrudan haberleşebilmesi için erişilebilir bir ortak ağ veya VPN
@@ -214,9 +221,13 @@ Uygulama SQLite üzerinde aşağıdaki kayıtları tutar:
 - `call_event`: Çağrı yönü, numara, kişi adı, zaman ve çağrı durumu.
 - `sms_message`: Konuşma, adres, gövde, yön ve gönderim durumu.
 - `notification_event`: Uygulama, başlık, metin, native bildirim kimliği ve zaman.
-- `offline_queue`: Bağlantı yokken bekleyen şifreli mesaj payload'ları ve deneme
-  sayıları.
+- `offline_queue`: Bağlantı yokken bekleyen şifreli mesaj payload'ları, deneme
+  sayıları ve tekrarları önleyen `dedupe_key` değeri.
 - `known_network`: Eş cihaz için daha önce başarılı olmuş ağ/IP bilgileri.
+
+Veritabanı şema sürümü 7'dir. `peer` tablosunda birden fazla eş cihaz kaydı
+tutulabilir; ancak aktif bağlantı runtime'ı aynı anda tek bir peer context'i
+kullanır.
 
 Veritabanı şema sürümü 6'dır ve eski sürümler için migration desteği bulunur.
 
@@ -406,7 +417,10 @@ When connected, Main provides five primary sections:
 
 - QR data contains device identity, IP, port, AES key, role, and public key.
 - Camera-based scanning is used for QR pairing.
-- Multiple paired-device records are supported.
+- Multiple paired-device records can be stored.
+- The current active connection runtime uses one selected peer context at a
+  time; storing multiple peers does not imply simultaneous multi-peer
+  connections.
 - Paired-device information is visible in Settings.
 - Device reset clears peer, call, SMS, notification, and queue records.
 - A new device identity and key can be generated for a new pairing.
@@ -439,6 +453,13 @@ When connected, Main provides five primary sections:
 
 ## Product Boundaries
 
+### Verification Scope
+
+CI automatically runs formatting, static analysis, Flutter tests, and a debug
+APK build. Two-device Android checks for pairing, reconnect, network changes,
+and background lifecycle are manual device verification and must not be
+reported as CI results.
+
 - The application is Android-focused; telephony, SMS, and notification listener
   features depend on Android native services.
 - The devices need an accessible shared network or VPN for direct communication.
@@ -459,11 +480,12 @@ The application stores the following records in SQLite:
 - `sms_message`: Conversation, address, body, direction, and delivery status.
 - `notification_event`: Application, title, text, native notification ID, and
   time.
-- `offline_queue`: Encrypted message payloads waiting for a connection and their
-  retry counts.
+- `offline_queue`: Encrypted message payloads waiting for a connection, retry
+  counts, and the `dedupe_key` used to prevent duplicate delivery.
 - `known_network`: Previously successful network/IP information for a peer.
 
-The database schema is version 6 and includes migrations from older versions.
+The database schema is version 7 and includes migrations from older versions,
+including the `offline_queue.dedupe_key` column migration.
 
 ## Application Architecture
 

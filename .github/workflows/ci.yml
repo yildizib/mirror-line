@@ -23,7 +23,21 @@ jobs:
         with:
           channel: stable
       - run: flutter pub get
+      - run: dart format --set-exit-if-changed lib/ test/
       - run: dart analyze --fatal-infos
+
+  openspec:
+    name: OpenSpec
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install OpenSpec CLI
+        run: npm install --global @fission-ai/openspec@1.9.0
+      - name: Validate all OpenSpec changes and specs
+        run: openspec validate --all --strict --no-interactive
 
   test:
     name: Test

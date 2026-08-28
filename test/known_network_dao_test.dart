@@ -8,6 +8,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:mirrorline/core/data/daos/known_network_dao.dart';
 import 'package:mirrorline/core/data/database.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
@@ -33,6 +34,7 @@ void main() {
   });
 
   setUp(() async {
+    FlutterSecureStorage.setMockInitialValues({});
     tempDir = await Directory.systemTemp.createTemp(
       'mirrorline_known_network_test',
     );

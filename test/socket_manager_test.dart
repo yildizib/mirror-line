@@ -78,6 +78,27 @@ void main() {
     await manager.disconnect();
   });
 
+  test('disconnect cancels the active client stream subscription', () async {
+    final key = CryptoManager.generateKey();
+    final server = SocketManager(onMessage: (_) {});
+    await server.startServer(45911, key);
+    final stream = StreamController<List<int>>();
+    final client = SocketManager(
+      onMessage: (_) {},
+      socketStreamListener: (_, onData, onError, onDone) =>
+          stream.stream.listen(onData, onError: onError, onDone: onDone),
+    );
+
+    expect(await client.connect('127.0.0.1', 45911, key), isTrue);
+    expect(stream.hasListener, isTrue);
+    await client.disconnect();
+    await Future<void>.delayed(Duration.zero);
+    expect(stream.hasListener, isFalse);
+
+    await stream.close();
+    await server.disconnect();
+  });
+
   test('connect to a dead port fails gracefully', () async {
     final key = CryptoManager.generateKey();
     final manager = SocketManager(

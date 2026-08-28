@@ -1,4 +1,4 @@
-## Requirements
+## ADDED Requirements
 
 ### Requirement: Startup migration
 The application MUST invoke the resumable local-storage migration before
@@ -16,4 +16,3 @@ The migration MUST resume from its durable checkpoint after interruption.
 #### Scenario: Startup retries after interruption
 - **WHEN** a prior migration stopped after a batch
 - **THEN** the next startup resumes without corrupting or duplicating records.
-
