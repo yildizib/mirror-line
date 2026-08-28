@@ -3,7 +3,7 @@
 - [x] 1.1 Identify the production database bootstrap boundary.
 - [x] 1.2 Invoke `LocalStorageMigrationCoordinator.migrate` exactly once per
   startup/database lifecycle, with retry-safe error handling.
-- [ ] 1.3 Add startup integration coverage for migration, interruption, retry,
+- [x] 1.3 Add startup integration coverage for migration, interruption, retry,
   and unavailable secure storage.
 
 ## 2. Socket subscription lifecycle
