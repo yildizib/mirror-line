@@ -34,4 +34,4 @@
 
 - [x] 5.1 Run formatting, analyzers, focused tests, and the full test suite.
 - [x] 5.2 Run debug APK build verification.
-- [ ] 5.3 Validate this OpenSpec change and update issue #105 with evidence.
+- [x] 5.3 Validate this OpenSpec change and update issue #105 with evidence.
