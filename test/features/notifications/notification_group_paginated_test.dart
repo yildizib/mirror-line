@@ -225,4 +225,20 @@ void main() {
     final app1Group = state.items.where((g) => g.key == 'com.app1').first;
     expect(app1Group.events.length, 2);
   });
+
+  test('refresh removes a deleted recent notification group', () async {
+    final container = buildContainer();
+    final facade = container.read(notificationFacadeProvider.notifier);
+    await facade.load();
+    await facade.add(makeEvent(id: 'deleted', timestamp: DateTime.now()));
+
+    final notifier = container.read(
+      notificationGroupsPaginatedProvider.notifier,
+    );
+    await notifier.loadInitial();
+    await facade.removeMany(['deleted']);
+    await notifier.refresh();
+
+    expect(container.read(notificationGroupsPaginatedProvider).items, isEmpty);
+  });
 }

@@ -117,6 +117,7 @@ class HomeFeedPaginated
       final notifications = await notifFuture;
 
       final merged = _mergeAndSort(calls, sms, notifications);
+      _recentItemIds = merged.map((item) => item.id).toSet();
       final visible = merged.length > kDefaultPageSize
           ? kDefaultPageSize
           : merged.length;
@@ -220,7 +221,17 @@ class HomeFeedPaginated
       if (!mounted) return;
 
       final fresh = _mergeAndSort(calls, sms, notifications);
-      final merged = dedupeById([...fresh, ...state.items], (i) => i.id)
+      final previousRecentItemIds = _recentItemIds;
+      final freshIds = fresh.map((item) => item.id).toSet();
+      _recentItemIds = freshIds;
+      final retainedOlder = state.items
+          .where(
+            (item) =>
+                !previousRecentItemIds.contains(item.id) ||
+                freshIds.contains(item.id),
+          )
+          .toList();
+      final merged = dedupeById([...fresh, ...retainedOlder], (i) => i.id)
         ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
       state = PaginatedListState<HomeFeedItem>(
         items: merged,
@@ -238,4 +249,5 @@ class HomeFeedPaginated
   int _callOffset = 0;
   int _smsOffset = 0;
   int _notifOffset = 0;
+  Set<String> _recentItemIds = {};
 }

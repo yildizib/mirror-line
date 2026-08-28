@@ -116,6 +116,16 @@ class CallGroupPaginated
   String groupKeyOf(CallEvent event) => event.groupKey;
 
   @override
+  String groupKeyOfGroup(CallGroup group) => group.key;
+
+  @override
+  List<CallEvent> eventsOfGroup(CallGroup group) => group.calls;
+
+  @override
+  bool isRecentEvent(CallEvent event) =>
+      !event.timestamp.isBefore(yesterdayStart());
+
+  @override
   CallGroup buildGroup(String key, List<CallEvent> events) {
     final l = appL10n(ref);
     final sorted = events.toList()

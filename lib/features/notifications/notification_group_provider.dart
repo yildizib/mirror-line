@@ -98,6 +98,17 @@ class NotificationGroupPaginated
   String groupKeyOf(NotificationEvent event) => event.groupKey;
 
   @override
+  String groupKeyOfGroup(NotificationGroup group) => group.key;
+
+  @override
+  List<NotificationEvent> eventsOfGroup(NotificationGroup group) =>
+      group.events;
+
+  @override
+  bool isRecentEvent(NotificationEvent event) =>
+      !event.timestamp.isBefore(yesterdayStart());
+
+  @override
   NotificationGroup buildGroup(String key, List<NotificationEvent> events) {
     final sorted = events.toList()
       ..sort((a, b) => b.timestamp.compareTo(a.timestamp));

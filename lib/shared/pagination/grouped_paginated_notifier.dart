@@ -23,6 +23,9 @@ abstract class GroupedPaginatedNotifier<E, G>
   Future<List<E>> fetchRecent({required int limit});
   Future<List<E>> fetchOlder({required int limit, required int offset});
   String groupKeyOf(E event);
+  String groupKeyOfGroup(G group);
+  List<E> eventsOfGroup(G group);
+  bool isRecentEvent(E event);
   G buildGroup(String key, List<E> events);
   DateTime groupTimestamp(G group);
   List<G> mergeGroups(List<G> existing, List<G> newGroups);
@@ -31,6 +34,7 @@ abstract class GroupedPaginatedNotifier<E, G>
   bool _hasMoreRecent = false;
   bool _exhaustedOlder = false;
   int _recentLimit = 0;
+  Set<String> _recentGroupKeys = {};
 
   Future<void> loadInitial() async {
     if (state.isLoading) return;
@@ -40,6 +44,7 @@ abstract class GroupedPaginatedNotifier<E, G>
       _recentLimit = rawPageSize;
       final raw = await fetchRecent(limit: _recentLimit);
       final allGroups = _groupAndSort(raw);
+      _recentGroupKeys = allGroups.map(groupKeyOfGroup).toSet();
       _hasMoreRecent = raw.length >= _recentLimit;
       final visible = allGroups.length > kDefaultPageSize
           ? kDefaultPageSize
@@ -145,12 +150,30 @@ abstract class GroupedPaginatedNotifier<E, G>
       final raw = await fetchRecent(limit: _recentLimit);
       if (!mounted) return;
       final allGroups = _groupAndSort(raw);
+      final previousRecentGroupKeys = _recentGroupKeys;
+      final freshRecentGroupKeys = allGroups.map(groupKeyOfGroup).toSet();
+      _recentGroupKeys = freshRecentGroupKeys;
       _hasMoreRecent = raw.length >= _recentLimit;
       final visible = allGroups.length > kDefaultPageSize
           ? kDefaultPageSize
           : allGroups.length;
       _remainingGroups = allGroups.sublist(visible);
-      final merged = mergeGroups(state.items, allGroups.sublist(0, visible));
+      final retainedOlder = <G>[];
+      for (final group in state.items) {
+        final key = groupKeyOfGroup(group);
+        if (!previousRecentGroupKeys.contains(key)) {
+          retainedOlder.add(group);
+          continue;
+        }
+
+        final olderEvents = eventsOfGroup(
+          group,
+        ).where((event) => !isRecentEvent(event)).toList();
+        if (olderEvents.isNotEmpty) {
+          retainedOlder.add(buildGroup(key, olderEvents));
+        }
+      }
+      final merged = mergeGroups(retainedOlder, allGroups.sublist(0, visible));
       final reachedEnd = !_hasMoreRecent && _remainingGroups.isEmpty;
       state = PaginatedListState<G>(
         items: merged,
