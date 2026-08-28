@@ -13,7 +13,7 @@
   double-encrypted `v1:` values.
 - [x] 2.2 Implement safe lazy repair or invalid-record handling for peer
   display fields without changing key encryption or schema.
-- [ ] 2.3 Ensure Settings renders a human-readable fallback and never exposes
+- [x] 2.3 Ensure Settings renders a human-readable fallback and never exposes
   ciphertext, public keys, or secret material as a device name.
 
 ## 3. Endpoint and reconnect recovery

@@ -21,6 +21,9 @@ class Peer {
     required this.createdAt,
   });
 
+  String get displayName =>
+      deviceName.startsWith('v1:') ? 'Paired device' : deviceName;
+
   Map<String, dynamic> toJson() => {
     'id': id,
     'device_name': deviceName,
