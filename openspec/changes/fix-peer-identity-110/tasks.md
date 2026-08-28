@@ -33,5 +33,5 @@
   tests, then `flutter test`.
 - [x] 4.4 Run `flutter build apk --debug`; physical-device recovery
   verification remains pending.
-- [ ] 4.5 Validate this OpenSpec change and update Issue #110 with evidence;
+- [x] 4.5 Validate this OpenSpec change and update Issue #110 with evidence;
   implementation commits, if approved later, must start with `#110:`.
