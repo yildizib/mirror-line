@@ -27,8 +27,8 @@
 - [x] 4.1 Update Turkish and English product documentation for schema version
   7 and `offline_queue.dedupe_key`.
 - [x] 4.2 Clarify stored multiple peers versus the single active runtime peer.
-- [ ] 4.3 Add deterministic format/OpenSpec validation to CI as appropriate.
-- [ ] 4.4 Record automated versus manual/device-only acceptance coverage.
+- [x] 4.3 Add deterministic format/OpenSpec validation to CI as appropriate.
+- [x] 4.4 Record automated versus manual/device-only acceptance coverage.
 
 ## 5. Verification
 

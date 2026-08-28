@@ -1,4 +1,4 @@
-## Requirements
+## ADDED Requirements
 
 ### Requirement: UI service boundary
 The Settings screen MUST use a UI-facing controller or facade for native
@@ -16,4 +16,3 @@ Settings sections MUST subscribe only to the connection fields they render.
 - **WHEN** a discovery-log entry changes
 - **THEN** unrelated Settings sections do not rebuild solely because of that
   log update.
-

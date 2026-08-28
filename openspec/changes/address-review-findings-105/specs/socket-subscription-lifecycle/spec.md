@@ -1,4 +1,4 @@
-## Requirements
+## ADDED Requirements
 
 ### Requirement: Subscription ownership
 The socket manager MUST retain ownership of the active stream subscription.
@@ -16,4 +16,3 @@ dispose.
 - **WHEN** the manager is disposed
 - **THEN** the active subscription is cancelled and no later callback reaches
   application handlers.
-

@@ -25,6 +25,7 @@ jobs:
       - run: flutter pub get
       - run: dart format --set-exit-if-changed lib/ test/
       - run: dart analyze --fatal-infos
+      - run: openspec validate address-review-findings-105 --strict
 
   test:
     name: Test

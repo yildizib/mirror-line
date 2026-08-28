@@ -1,4 +1,4 @@
-## Requirements
+## ADDED Requirements
 
 ### Requirement: Accurate product documentation
 The product documentation MUST describe schema version 7, the
@@ -17,4 +17,3 @@ two-device Android QA.
 - **WHEN** an acceptance item is marked complete
 - **THEN** the evidence identifies whether it came from CI, an automated test,
   or a manual device run.
-
