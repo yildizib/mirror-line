@@ -24,6 +24,21 @@ void main() {
       expect(coordinator.isDisconnected, false);
     });
 
+    test('does not broadcast without a local identity', () async {
+      final coordinator = PeerDiscoveryCoordinator(
+        logger: Logger(),
+        onDiscovered: (ip, port, {required fromScan}) async {},
+        getPeerId: () => '',
+        getPeerPort: () => 45678,
+        getDeviceName: () => 'Remote peer name',
+        getAllLocalIps: () => ['192.168.1.10'],
+        getExpectedPeerId: () => 'remote-peer-id',
+      );
+
+      await coordinator.startListening();
+      await coordinator.stopListening();
+    });
+
     test('Beacon IPs collection', () {
       final coordinator = PeerDiscoveryCoordinator(
         logger: Logger(),

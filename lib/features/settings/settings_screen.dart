@@ -542,7 +542,7 @@ class _PairedDeviceSection extends StatelessWidget {
                   const SizedBox(width: AppSpacing.md),
                   Expanded(
                     child: Text(
-                      peer.deviceName,
+                      peer.displayName,
                       style: theme.textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.w700,
                       ),
@@ -722,7 +722,7 @@ class _PairedDevicesSection extends ConsumerWidget {
               : theme.status.successContainer,
         ),
         title: Text(
-          p.deviceName,
+          p.displayName,
           style: const TextStyle(fontWeight: FontWeight.w700),
         ),
         subtitle: Column(

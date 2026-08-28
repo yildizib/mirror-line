@@ -54,6 +54,10 @@ class PeerDiscoveryCoordinator {
     if (!_listener.isListening) {
       final selfId = _getPeerId();
       final selfName = _getDeviceName();
+      if (selfId.isEmpty || selfName.isEmpty) {
+        _logger.w('Skipping beacon start without a local identity.');
+        return;
+      }
       final allIps = _getAllLocalIps().isNotEmpty ? _getAllLocalIps() : null;
       await _listener.start(
         onBeacon: _onBeacon,

@@ -101,11 +101,18 @@ class PeerDao {
 
   Future<Peer> _fromStorage(Map<String, Object?> row) async {
     final values = Map<String, dynamic>.from(row);
-    final decryptedFields = await LocalStorageCrypto.decryptFields(
-      KeyStore.ensureLocalDatabaseKey,
-      values,
-      const ['device_name', 'public_key'],
-    );
+    Map<String, dynamic> decryptedFields;
+    try {
+      decryptedFields = await LocalStorageCrypto.decryptFields(
+        KeyStore.ensureLocalDatabaseKey,
+        values,
+        const ['device_name', 'public_key'],
+      );
+    } on StateError {
+      decryptedFields = Map<String, dynamic>.from(values)
+        ..['device_name'] = 'Paired device'
+        ..['public_key'] = '';
+    }
     values
       ..clear()
       ..addAll(decryptedFields);
