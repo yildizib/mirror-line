@@ -37,6 +37,22 @@ loaded through pagination.
 - **WHEN** a group exists only in a previously loaded older page
 - **THEN** refreshing the recent window does not remove that group
 
+### Requirement: Home feed reflects source deletions
+
+The system SHALL remove deleted calls, SMS messages, and notifications from
+the visible paginated Home feed during refresh.
+
+#### Scenario: A source event is deleted
+
+- **WHEN** a call, SMS message, or notification visible in Home is deleted
+- **THEN** the corresponding Home feed item disappears without restarting the
+  app
+
+#### Scenario: Home refresh repeats after deletion
+
+- **WHEN** Home refresh runs more than once after a source event is deleted
+- **THEN** the deleted item remains absent and no duplicate item is created
+
 ### Requirement: Refresh is idempotent
 
 The system SHALL not create duplicate records or groups when refresh is

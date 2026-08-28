@@ -8,6 +8,7 @@ recent query. Users only see the deletion after restarting the app.
 
 - Reconcile recent paginated results authoritatively during refresh.
 - Remove deleted events and empty groups from Calls, SMS, and Notifications.
+- Remove deleted events from the paginated Home feed as well.
 - Preserve older pages already loaded by pagination.
 - Add regression coverage for single deletes, partial group deletes, empty
   groups, and preservation of older events.

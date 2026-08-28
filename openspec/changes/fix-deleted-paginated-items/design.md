@@ -5,6 +5,11 @@ merges it into a cache that may also contain older loaded pages. Existing
 merge logic can update duplicate identifiers but cannot distinguish a deleted
 recent event from an older event that should remain cached.
 
+The Home feed has the same issue independently: it listens to all three
+facades, but its refresh prepends fresh items to the cached feed and
+deduplicates by ID. Items absent from the fresh result therefore remain
+visible after deletion.
+
 ## Decisions
 
 ### 1. Reconcile by recent event scope
@@ -30,6 +35,9 @@ access is introduced.
 Tests will exercise facade deletion followed by provider refresh for Calls,
 SMS, and Notifications. They will also verify partial deletion within a group,
 last-item deletion, repeated refreshes, and older-page preservation.
+
+Home feed tests will verify that deleting a call, SMS message, or notification
+removes that item from the visible feed without requiring a restart.
 
 ## Risks
 
