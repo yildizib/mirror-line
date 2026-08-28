@@ -221,4 +221,49 @@ void main() {
 
     expect(state.hasReachedEnd, isTrue);
   });
+
+  test('refresh removes deleted calls from Home', () async {
+    final container = buildContainer();
+    final calls = container.read(callFacadeProvider.notifier);
+    await calls.load();
+    await calls.add(makeCall('deleted-call', DateTime.now()));
+
+    final notifier = container.read(homeFeedPaginatedProvider.notifier);
+    await notifier.loadInitial();
+    await calls.remove('deleted-call');
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    await notifier.refresh();
+
+    expect(container.read(homeFeedPaginatedProvider).items, isEmpty);
+  });
+
+  test('refresh removes deleted SMS messages from Home', () async {
+    final container = buildContainer();
+    final sms = container.read(smsFacadeProvider.notifier);
+    await sms.load();
+    await sms.add(makeSms('deleted-sms', DateTime.now()));
+
+    final notifier = container.read(homeFeedPaginatedProvider.notifier);
+    await notifier.loadInitial();
+    await sms.remove('deleted-sms');
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    await notifier.refresh();
+
+    expect(container.read(homeFeedPaginatedProvider).items, isEmpty);
+  });
+
+  test('refresh removes deleted notifications from Home', () async {
+    final container = buildContainer();
+    final notifications = container.read(notificationFacadeProvider.notifier);
+    await notifications.load();
+    await notifications.add(makeNotif('deleted-notification', DateTime.now()));
+
+    final notifier = container.read(homeFeedPaginatedProvider.notifier);
+    await notifier.loadInitial();
+    await notifications.removeMany(['deleted-notification']);
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    await notifier.refresh();
+
+    expect(container.read(homeFeedPaginatedProvider).items, isEmpty);
+  });
 }
