@@ -24,6 +24,24 @@ void main() {
     expect(await LocalStorageCrypto.decrypt(key, stored), 'private value');
   });
 
+  test('repairs one layer of accidental double encryption', () async {
+    final once = await LocalStorageCrypto.encrypt(key, 'device name');
+    final twice = await LocalStorageCrypto.encrypt(key, once);
+
+    expect(await LocalStorageCrypto.decrypt(key, twice), 'device name');
+  });
+
+  test(
+    'rejects ciphertext that remains encrypted after the repair bound',
+    () async {
+      final once = await LocalStorageCrypto.encrypt(key, 'device name');
+      final twice = await LocalStorageCrypto.encrypt(key, once);
+      final threeTimes = await LocalStorageCrypto.encrypt(key, twice);
+
+      expect(await LocalStorageCrypto.decrypt(key, threeTimes), isNull);
+    },
+  );
+
   test('empty values remain empty without encryption overhead', () async {
     final stored = await LocalStorageCrypto.encrypt(key, '');
 

@@ -25,12 +25,21 @@ abstract final class LocalStorageCrypto {
   /// Decrypts a value in the current format. Empty values remain empty.
   /// Legacy plaintext and malformed ciphertext return null so callers cannot
   /// accidentally display or treat unverified storage data as decrypted.
+  ///
+  /// A bounded second pass repairs records written by an older migration bug
+  /// that encrypted an already versioned value. The bound prevents malformed
+  /// data from becoming an unbounded decryption loop.
   static Future<String?> decrypt(SecretKey key, String storedValue) async {
     if (storedValue.isEmpty) return '';
-    if (!isEncrypted(storedValue)) return null;
-
-    final ciphertext = storedValue.substring(currentPrefix.length);
-    return CryptoManager.decrypt(key, ciphertext);
+    var value = storedValue;
+    for (var pass = 0; pass < 2; pass++) {
+      if (!isEncrypted(value)) return pass == 0 ? null : value;
+      final ciphertext = value.substring(currentPrefix.length);
+      final decrypted = await CryptoManager.decrypt(key, ciphertext);
+      if (decrypted == null) return null;
+      value = decrypted;
+    }
+    return isEncrypted(value) ? null : value;
   }
 
   static Future<Map<String, dynamic>> encryptFields(

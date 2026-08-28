@@ -9,9 +9,9 @@
 
 ## 2. Storage and display recovery
 
-- [ ] 2.1 Add DAO/crypto tests for valid values, legacy values, and
+- [x] 2.1 Add DAO/crypto tests for valid values, legacy values, and
   double-encrypted `v1:` values.
-- [ ] 2.2 Implement safe lazy repair or invalid-record handling for peer
+- [x] 2.2 Implement safe lazy repair or invalid-record handling for peer
   display fields without changing key encryption or schema.
 - [ ] 2.3 Ensure Settings renders a human-readable fallback and never exposes
   ciphertext, public keys, or secret material as a device name.
