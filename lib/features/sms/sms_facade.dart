@@ -2,11 +2,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logger/logger.dart';
 import 'package:mirrorline/core/data/daos/sms_message_dao.dart';
 import 'package:mirrorline/core/data/models/sms_message.dart';
+import 'package:mirrorline/core/presentation/message_presentation_extensions.dart';
 import 'package:mirrorline/core/network/message_protocol.dart';
 import 'package:mirrorline/core/services/locale_service.dart';
 import 'package:mirrorline/core/services/notification_service.dart';
 import 'package:mirrorline/core/telephony/telephony_channel.dart';
 import 'package:mirrorline/features/connection/connection_facade.dart';
+import 'package:mirrorline/features/connection/transport_ports.dart';
 import 'package:uuid/uuid.dart';
 
 final smsFacadeProvider = StateNotifierProvider<SmsFacade, List<SmsMessage>>((

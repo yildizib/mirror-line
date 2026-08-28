@@ -1,5 +1,3 @@
-import 'package:mirrorline/l10n/app_localizations.dart';
-
 class CallEvent {
   final String id;
   final String direction; // 'incoming' | 'outgoing'
@@ -69,20 +67,4 @@ class CallEvent {
   /// Display name for UI/notifications: contact name if resolved, else the
   /// raw phone number, else a placeholder when neither is known (the
   /// carrier/OS never delivered a number for this call).
-  String displayName(AppLocalizations l) {
-    if (contactName.isNotEmpty) return contactName;
-    if (number.isNotEmpty) return number;
-    return l.callUnknownNumber;
-  }
-
-  /// Status label shared by the calls list UI and notifications.
-  String statusLabel(AppLocalizations l) => switch (status) {
-    'ringing' => l.callStatusRinging,
-    'answered' => l.callStatusAnswered,
-    'missed' => l.callStatusMissed,
-    'rejected' => l.callStatusRejected,
-    'ended' => l.callStatusEnded,
-    'failed' => l.callStatusFailed,
-    _ => status,
-  };
 }

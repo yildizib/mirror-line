@@ -7,6 +7,7 @@ import 'package:mirrorline/core/data/daos/peer_dao.dart';
 import 'package:mirrorline/core/data/models/peer.dart';
 import 'package:mirrorline/core/network/peer_discovery.dart';
 import 'package:mirrorline/core/security/crypto_manager.dart';
+import 'package:mirrorline/core/services/verification_code_service.dart';
 import 'package:mirrorline/core/security/key_store.dart';
 import 'package:mirrorline/features/pairing/pairing_identity_guard.dart';
 import 'package:mirrorline/features/pairing/local_pairing_identity.dart';
@@ -87,12 +88,18 @@ final pairedPeersProvider = FutureProvider<List<Peer>>((ref) async {
 class PeerFacade extends StateNotifier<Peer?> {
   final PeerDao _dao;
   final PeerIdentityStore _identityStore;
+  final VerificationCodeService _verificationCodes;
   late final Future<void> initialized;
 
-  PeerFacade({PeerDao? dao, PeerIdentityStore? identityStore})
-    : _dao = dao ?? PeerDao(),
-      _identityStore = identityStore ?? const KeyStorePeerIdentityStore(),
-      super(null) {
+  PeerFacade({
+    PeerDao? dao,
+    PeerIdentityStore? identityStore,
+    VerificationCodeService? verificationCodes,
+  }) : _dao = dao ?? PeerDao(),
+       _identityStore = identityStore ?? const KeyStorePeerIdentityStore(),
+       _verificationCodes =
+           verificationCodes ?? const CryptoVerificationCodeService(),
+       super(null) {
     initialized = _load();
   }
 
@@ -120,12 +127,22 @@ class PeerFacade extends StateNotifier<Peer?> {
     String peerId, {
     Iterable<String> expectedPublicKeys = const [],
   }) {
-    return CryptoManager.verificationCodeFromKey(
+    return const CryptoVerificationCodeService().fromKey(
       keyBase64,
       peerId,
       expectedPublicKeys: expectedPublicKeys,
     );
   }
+
+  String verificationCodeFor(
+    String keyBase64,
+    String peerId, {
+    Iterable<String> expectedPublicKeys = const [],
+  }) => _verificationCodes.fromKey(
+    keyBase64,
+    peerId,
+    expectedPublicKeys: expectedPublicKeys,
+  );
 
   Future<void> createPeer(String role) async {
     final existing = await _dao.getPeer();

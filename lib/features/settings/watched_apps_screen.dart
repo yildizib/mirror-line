@@ -5,6 +5,11 @@ import 'package:mirrorline/l10n/app_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mirrorline/core/services/watched_apps_service.dart';
 import 'package:mirrorline/core/telephony/installed_apps_channel.dart';
+import 'package:mirrorline/features/settings/settings_gateways.dart';
+
+final installedAppsGatewayProvider = Provider<InstalledAppsGateway>((ref) {
+  return const PlatformInstalledAppsGateway();
+});
 
 class WatchedAppsScreen extends ConsumerStatefulWidget {
   const WatchedAppsScreen({super.key});
@@ -25,7 +30,9 @@ class _WatchedAppsScreenState extends ConsumerState<WatchedAppsScreen> {
   }
 
   Future<void> _loadApps() async {
-    final apps = await InstalledAppsChannel.getInstalledApps();
+    final apps = await ref
+        .read(installedAppsGatewayProvider)
+        .getInstalledApps();
     if (!mounted) return;
     setState(() {
       _apps = apps;
@@ -71,7 +78,10 @@ class _WatchedAppsScreenState extends ConsumerState<WatchedAppsScreen> {
                     itemBuilder: (context, index) {
                       final app = filtered[index];
                       return SwitchListTile(
-                        secondary: _AppIcon(packageName: app.packageName),
+                        secondary: _AppIcon(
+                          packageName: app.packageName,
+                          gateway: ref.read(installedAppsGatewayProvider),
+                        ),
                         title: Text(app.appName),
                         value: watched.contains(app.packageName),
                         onChanged: (value) => ref
@@ -89,13 +99,14 @@ class _WatchedAppsScreenState extends ConsumerState<WatchedAppsScreen> {
 
 class _AppIcon extends StatelessWidget {
   final String packageName;
+  final InstalledAppsGateway gateway;
 
-  const _AppIcon({required this.packageName});
+  const _AppIcon({required this.packageName, required this.gateway});
 
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<Uint8List?>(
-      future: InstalledAppsChannel.getAppIcon(packageName),
+      future: gateway.getAppIcon(packageName),
       builder: (context, snapshot) {
         final bytes = snapshot.data;
         if (bytes == null) {
