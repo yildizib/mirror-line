@@ -139,9 +139,9 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
     _peerDiscoveryCoordinator = PeerDiscoveryCoordinator(
       logger: _logger,
       onDiscovered: _onDiscovered,
-      getPeerId: () => _selfDiscoveryId ?? _peer?.id ?? '',
+      getPeerId: () => _selfDiscoveryId ?? '',
       getPeerPort: () => _peer?.port ?? 0,
-      getDeviceName: () => _selfDiscoveryName ?? _peer?.deviceName ?? '',
+      getDeviceName: () => _selfDiscoveryName ?? '',
       getAllLocalIps: () => _allLocalIps,
       getExpectedPeerId: () => _peer?.id,
     );
@@ -327,14 +327,13 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
     }
 
     // Broadcast this device's OWN identity, not `peer` (which represents
-    // the *other* device once paired -- see applyPairedPeer). Fall back to
-    // the peer record for pre-fix installs that never persisted a self id.
+    // the *other* device once paired -- see applyPairedPeer).
     // Guarded so the periodic self-healing refresh() (see _healthTimer)
     // doesn't tear down and rebind a perfectly healthy UDP broadcaster
     // every 10 seconds.
     if (!_broadcaster.isBroadcasting) {
-      final selfId = await KeyStore.getSelfId() ?? peer.id;
-      final selfName = await KeyStore.getSelfDeviceName() ?? peer.deviceName;
+      final selfId = await _ensureSelfDiscoveryIdentity();
+      final selfName = _selfDiscoveryName!;
       // Include all local IPs (WiFi + VPN) in the beacon so the receiver
       // can try them all if the UDP source IP is unreachable.
       final allIps = _allLocalIps.isNotEmpty ? _allLocalIps : null;
@@ -397,11 +396,7 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
     // PeerDiscoveryCoordinator's getPeerId/getDeviceName callbacks must be
     // sync) -- matches the old code's "only resolve once" intent, which
     // relied on _listener.isListening as an implicit guard.
-    if (_selfDiscoveryId == null || _selfDiscoveryName == null) {
-      _selfDiscoveryId = await KeyStore.getSelfId() ?? peer.id;
-      _selfDiscoveryName =
-          await KeyStore.getSelfDeviceName() ?? peer.deviceName;
-    }
+    await _ensureSelfDiscoveryIdentity();
     await _peerDiscoveryCoordinator.startListening();
 
     // Periodic retries now come from the role-agnostic _healthTimer (see
@@ -421,6 +416,26 @@ class ConnectionFacade extends StateNotifier<bool> with WidgetsBindingObserver {
         await _connectTo(ip, peer.port);
       }
     }
+  }
+
+  Future<String> _ensureSelfDiscoveryIdentity() async {
+    final existingId = await KeyStore.getSelfId();
+    final existingName = await KeyStore.getSelfDeviceName();
+    final id = existingId?.isNotEmpty == true ? existingId! : const Uuid().v4();
+    final name = existingName?.isNotEmpty == true
+        ? existingName!
+        : 'Android Device';
+
+    if (existingId != id || existingName != name) {
+      await KeyStore.setSelfIdentity(
+        id: id,
+        deviceName: name,
+        role: _peer?.role ?? 'main',
+      );
+    }
+    _selfDiscoveryId = id;
+    _selfDiscoveryName = name;
+    return id;
   }
 
   SocketManager _createSocketManager() {

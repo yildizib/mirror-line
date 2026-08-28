@@ -2,9 +2,9 @@
 
 - [ ] 1.1 Add tests proving discovery/broadcast never uses the remote peer ID as
   the local ID.
-- [ ] 1.2 Implement one facade-level local identity resolver and persist a
+- [x] 1.2 Implement one facade-level local identity resolver and persist a
   generated self ID/name before starting discovery or source broadcasting.
-- [ ] 1.3 Update all connection entry points to use the resolver and preserve
+- [x] 1.3 Update all connection entry points to use the resolver and preserve
   the expected remote peer ID check.
 
 ## 2. Storage and display recovery
