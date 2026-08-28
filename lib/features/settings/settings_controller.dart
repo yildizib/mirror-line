@@ -6,6 +6,7 @@ import 'package:mirrorline/features/connection/connection_facade.dart';
 import 'package:mirrorline/features/notifications/notification_facade.dart';
 import 'package:mirrorline/features/pairing/peer_facade.dart';
 import 'package:mirrorline/features/sms/sms_facade.dart';
+import 'package:mirrorline/core/telephony/telephony_channel.dart';
 
 final settingsControllerProvider = Provider<SettingsController>((ref) {
   return SettingsController(ref);
@@ -19,6 +20,21 @@ class SettingsController {
   final Ref _ref;
 
   SettingsController(this._ref);
+
+  Future<bool> hasKnownAutoStartSettings() =>
+      TelephonyChannel.hasKnownAutoStartSettings();
+
+  Future<bool> hasKnownBatterySaverSettings() =>
+      TelephonyChannel.hasKnownBatterySaverSettings();
+
+  Future<void> openNotificationListenerSettings() =>
+      TelephonyChannel.openNotificationListenerSettings();
+
+  Future<void> openAutoStartSettings() =>
+      TelephonyChannel.openAutoStartSettings();
+
+  Future<void> openBatterySaverSettings() =>
+      TelephonyChannel.openBatterySaverSettings();
 
   Future<void> deletePeer(Peer peer) async {
     await _ref.read(peerFacadeProvider.notifier).deletePeer(peer);

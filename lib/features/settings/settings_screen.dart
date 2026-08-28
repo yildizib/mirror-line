@@ -5,7 +5,6 @@ import 'package:mirrorline/core/data/models/peer.dart';
 import 'package:mirrorline/core/security/key_store.dart';
 import 'package:mirrorline/core/services/locale_service.dart';
 import 'package:mirrorline/core/services/permission_service.dart';
-import 'package:mirrorline/core/telephony/telephony_channel.dart';
 import 'package:mirrorline/core/theme/theme.dart';
 import 'package:mirrorline/features/connection/connection_facade.dart';
 import 'package:mirrorline/features/connection/connection_status_provider.dart';
@@ -51,13 +50,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _loadAutoStartAvailability() async {
-    final known = await TelephonyChannel.hasKnownAutoStartSettings();
+    final known = await ref
+        .read(settingsControllerProvider)
+        .hasKnownAutoStartSettings();
     if (!mounted) return;
     setState(() => _hasKnownAutoStartScreen = known);
   }
 
   Future<void> _loadBatterySaverAvailability() async {
-    final known = await TelephonyChannel.hasKnownBatterySaverSettings();
+    final known = await ref
+        .read(settingsControllerProvider)
+        .hasKnownBatterySaverSettings();
     if (!mounted) return;
     setState(() => _hasKnownBatterySaverScreen = known);
   }
@@ -68,9 +71,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final pairedPeers = ref.watch(pairedPeersProvider);
     final isConnected = ref.watch(connectionFacadeProvider);
     final isConnecting = ref.watch(connectionConnectingProvider);
-    final status = ref.watch(connectionStatusProvider.select((s) => s));
+    final localIp = ref.watch(
+      connectionStatusProvider.select((s) => s.localIp),
+    );
     final localPairingIdentity = ref
-        .watch(localPairingIdentityProvider(status.localIp ?? 'unknown'))
+        .watch(localPairingIdentityProvider(localIp ?? 'unknown'))
         .valueOrNull;
 
     return ListView(
@@ -81,7 +86,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           selfDeviceName: _selfDeviceName,
           selfPublicKey: _selfPublicKey,
           localPairingIdentity: localPairingIdentity,
-          localIp: status.localIp,
+          localIp: localIp,
         ),
         if (peer != null && peer.publicKey.isNotEmpty) ...[
           const SizedBox(height: AppSpacing.lg),
@@ -93,7 +98,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ),
         ],
         const SizedBox(height: AppSpacing.lg),
-        _ConnectionDiagnosticsSection(status: status),
+        _ConnectionDiagnosticsSection(
+          status: ref.watch(connectionStatusProvider),
+        ),
         const SizedBox(height: AppSpacing.lg),
         _PairedDevicesSection(pairedPeers: pairedPeers),
         const SizedBox(height: AppSpacing.lg),
@@ -815,7 +822,9 @@ class _SystemSection extends ConsumerWidget {
                 subtitle: Text(l.settingsNotifAccessDesc),
                 trailing: const Icon(Icons.chevron_right_rounded),
                 onTap: () async {
-                  await TelephonyChannel.openNotificationListenerSettings();
+                  await ref
+                      .read(settingsControllerProvider)
+                      .openNotificationListenerSettings();
                 },
               ),
               const Divider(height: 1, indent: 16, endIndent: 16),
@@ -869,7 +878,9 @@ class _SystemSection extends ConsumerWidget {
                 ),
                 trailing: const Icon(Icons.chevron_right_rounded),
                 onTap: () async {
-                  await TelephonyChannel.openAutoStartSettings();
+                  await ref
+                      .read(settingsControllerProvider)
+                      .openAutoStartSettings();
                 },
               ),
               if (hasKnownBatterySaverScreen) ...[
@@ -880,7 +891,9 @@ class _SystemSection extends ConsumerWidget {
                   subtitle: Text(l.settingsBatterySaverDesc),
                   trailing: const Icon(Icons.chevron_right_rounded),
                   onTap: () async {
-                    await TelephonyChannel.openBatterySaverSettings();
+                    await ref
+                        .read(settingsControllerProvider)
+                        .openBatterySaverSettings();
                   },
                 ),
               ],

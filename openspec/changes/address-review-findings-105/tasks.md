@@ -15,9 +15,10 @@
 
 ## 3. Settings architecture
 
-- [ ] 3.1 Add UI-facing methods for native Settings operations.
-- [ ] 3.2 Remove direct `TelephonyChannel` calls from `settings_screen.dart`.
-- [ ] 3.3 Replace whole-state `ConnectionStatus` watches with field selects.
+- [x] 3.1 Add UI-facing methods for native Settings operations.
+- [x] 3.2 Remove direct `TelephonyChannel` calls from `settings_screen.dart`.
+- [x] 3.3 Replace the top-level whole-state `ConnectionStatus` watch with
+  field selects.
 - [ ] 3.4 Add tests proving Settings actions use the UI service boundary and
   unrelated status changes do not rebuild sections.
 
