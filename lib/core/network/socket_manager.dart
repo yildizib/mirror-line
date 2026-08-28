@@ -61,6 +61,7 @@ class SocketManager {
   ServerSocket? _server;
   Socket? _client;
   StreamSubscription<List<int>>? _clientSubscription;
+  Socket? _subscriptionSocket;
   SecretKey? _key;
   bool _isConnected = false;
   bool _authed = false;
@@ -281,6 +282,7 @@ class SocketManager {
   }
 
   void _listen(Socket socket) {
+    _subscriptionSocket = socket;
     _clientSubscription = _socketStreamListener(
       socket,
       (data) {
@@ -323,7 +325,7 @@ class SocketManager {
     _authed = false;
     _stopHeartbeat();
     _stopServerAuthTimer();
-    _cancelClientSubscription();
+    _cancelClientSubscription(socket: _client);
     _client?.destroy();
     _client = null;
     _buffer.clear();
@@ -331,9 +333,11 @@ class SocketManager {
     _pairingMode = false;
   }
 
-  void _cancelClientSubscription() {
+  void _cancelClientSubscription({Socket? socket}) {
+    if (socket != null && !identical(_subscriptionSocket, socket)) return;
     final subscription = _clientSubscription;
     _clientSubscription = null;
+    _subscriptionSocket = null;
     if (subscription != null) unawaited(subscription.cancel());
   }
 
