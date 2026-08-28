@@ -11,7 +11,7 @@
 - [x] 2.1 Store the active stream subscription and associated socket identity.
 - [x] 2.2 Cancel matching subscriptions during replacement, disconnect, and
   disposal.
-- [ ] 2.3 Add tests for replacement, stale callbacks, disconnect, and dispose.
+- [x] 2.3 Add tests for replacement, stale callbacks, disconnect, and dispose.
 
 ## 3. Settings architecture
 
