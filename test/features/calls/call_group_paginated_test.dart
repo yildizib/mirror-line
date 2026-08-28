@@ -323,6 +323,22 @@ void main() {
     },
   );
 
+  test('refresh removes a deleted recent call group', () async {
+    final container = buildContainer();
+    final facade = container.read(callFacadeProvider.notifier);
+    await facade.load();
+    await facade.add(makeEvent(id: 'deleted', timestamp: DateTime.now()));
+
+    final notifier = container.read(callGroupsPaginatedProvider.notifier);
+    await notifier.loadInitial();
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    await facade.remove('deleted');
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    await notifier.refresh();
+
+    expect(container.read(callGroupsPaginatedProvider).items, isEmpty);
+  });
+
   test('activeCall identifies the ringing call in a mixed group', () {
     final now = DateTime.now();
     final group = CallGroup(

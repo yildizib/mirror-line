@@ -343,4 +343,20 @@ void main() {
       expect(detailState.items.single.status, status);
     });
   }
+
+  test('refresh removes a deleted recent SMS thread', () async {
+    final container = buildContainer();
+    final facade = container.read(smsFacadeProvider.notifier);
+    await facade.load();
+    await facade.add(
+      makeMessage(id: 'deleted', timestamp: DateTime.now(), address: '+111'),
+    );
+
+    final notifier = container.read(smsThreadsPaginatedProvider.notifier);
+    await notifier.loadInitial();
+    await facade.remove('deleted');
+    await notifier.refresh();
+
+    expect(container.read(smsThreadsPaginatedProvider).items, isEmpty);
+  });
 }

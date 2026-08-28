@@ -107,6 +107,16 @@ class SmsThreadPaginated
   String groupKeyOf(SmsMessage msg) => msg.address;
 
   @override
+  String groupKeyOfGroup(SmsThread group) => group.address;
+
+  @override
+  List<SmsMessage> eventsOfGroup(SmsThread group) => group.messages;
+
+  @override
+  bool isRecentEvent(SmsMessage event) =>
+      !event.timestamp.isBefore(yesterdayStart());
+
+  @override
   SmsThread buildGroup(String key, List<SmsMessage> events) {
     final l = appL10n(ref);
     final sorted = events.toList()
