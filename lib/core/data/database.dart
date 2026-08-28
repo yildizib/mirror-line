@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:mirrorline/core/services/local_storage_migration.dart';
 import 'package:sqflite/sqflite.dart';
 
 class AppDatabase {
@@ -19,12 +20,14 @@ class AppDatabase {
     final documentsDirectory = await getApplicationDocumentsDirectory();
     final path = join(documentsDirectory.path, 'mirrorline.db');
 
-    return openDatabase(
+    final database = await openDatabase(
       path,
       version: schemaVersion,
       onCreate: createTables,
       onUpgrade: upgradeTables,
     );
+    await LocalStorageMigrationCoordinator().migrate(database);
+    return database;
   }
 
   /// Exposed (not private) so migration tests can exercise the exact same

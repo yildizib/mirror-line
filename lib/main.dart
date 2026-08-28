@@ -2,10 +2,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logger/logger.dart';
 import 'package:mirrorline/app.dart';
+import 'package:mirrorline/core/data/database.dart';
 import 'package:mirrorline/core/services/notification_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  try {
+    await AppDatabase.instance.database;
+  } catch (e) {
+    Logger().e('Database initialization or migration failed: $e');
+  }
 
   try {
     await NotificationService.init();

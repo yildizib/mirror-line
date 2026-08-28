@@ -1,7 +1,7 @@
 ## 1. Production storage migration
 
-- [ ] 1.1 Identify the production database bootstrap boundary.
-- [ ] 1.2 Invoke `LocalStorageMigrationCoordinator.migrate` exactly once per
+- [x] 1.1 Identify the production database bootstrap boundary.
+- [x] 1.2 Invoke `LocalStorageMigrationCoordinator.migrate` exactly once per
   startup/database lifecycle, with retry-safe error handling.
 - [ ] 1.3 Add startup integration coverage for migration, interruption, retry,
   and unavailable secure storage.
@@ -34,4 +34,3 @@
 - [ ] 5.1 Run formatting, analyzers, focused tests, and the full test suite.
 - [ ] 5.2 Run debug APK build verification.
 - [ ] 5.3 Validate this OpenSpec change and update issue #105 with evidence.
-
