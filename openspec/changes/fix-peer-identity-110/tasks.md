@@ -18,9 +18,9 @@
 
 ## 3. Endpoint and reconnect recovery
 
-- [ ] 3.1 Add tests for accepting a validated authenticated endpoint change and
+- [x] 3.1 Add tests for accepting a validated authenticated endpoint change and
   rejecting unauthenticated identity changes.
-- [ ] 3.2 Persist the accepted current endpoint and invalidate stale retries
+- [x] 3.2 Persist the accepted current endpoint and invalidate stale retries
   targeting the old address.
 - [ ] 3.3 Add regression coverage for beacon races, socket replacement, and
   the disconnected/loading UI state.
