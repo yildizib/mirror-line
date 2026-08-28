@@ -23,6 +23,7 @@ jobs:
         with:
           channel: stable
       - run: flutter pub get
+      - run: dart format --set-exit-if-changed lib/ test/
       - run: dart analyze --fatal-infos
 
   test:

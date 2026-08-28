@@ -192,6 +192,13 @@ Bağlantı kurulduğunda Main cihazda beş ana bölüm bulunur:
 
 ## Teknik Ürün Sınırları
 
+### Doğrulama Kapsamı
+
+CI; format kontrolü, statik analiz, Flutter testleri ve debug APK derlemesini
+otomatik olarak çalıştırır. İki cihazlı Android testleri pairing, reconnect,
+ağ değişikliği ve arka plan yaşam döngüsü senaryoları için manuel cihaz
+doğrulamasıdır; CI sonucu olarak raporlanmaz.
+
 - Uygulama Android odaklıdır; telephony, SMS ve notification listener özellikleri
   Android native servislerine bağlıdır.
 - Cihazların doğrudan haberleşebilmesi için erişilebilir bir ortak ağ veya VPN
@@ -445,6 +452,13 @@ When connected, Main provides five primary sections:
 - Notifications from applications not selected by the user are not mirrored.
 
 ## Product Boundaries
+
+### Verification Scope
+
+CI automatically runs formatting, static analysis, Flutter tests, and a debug
+APK build. Two-device Android checks for pairing, reconnect, network changes,
+and background lifecycle are manual device verification and must not be
+reported as CI results.
 
 - The application is Android-focused; telephony, SMS, and notification listener
   features depend on Android native services.
