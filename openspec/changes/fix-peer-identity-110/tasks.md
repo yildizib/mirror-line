@@ -1,6 +1,6 @@
 ## 1. Identity and discovery
 
-- [ ] 1.1 Add tests proving discovery/broadcast never uses the remote peer ID as
+- [x] 1.1 Add tests proving discovery/broadcast never uses the remote peer ID as
   the local ID.
 - [x] 1.2 Implement one facade-level local identity resolver and persist a
   generated self ID/name before starting discovery or source broadcasting.
@@ -22,7 +22,7 @@
   rejecting unauthenticated identity changes.
 - [x] 3.2 Persist the accepted current endpoint and invalidate stale retries
   targeting the old address.
-- [ ] 3.3 Add regression coverage for beacon races, socket replacement, and
+- [x] 3.3 Add regression coverage for beacon races, socket replacement, and
   the disconnected/loading UI state.
 
 ## 4. Verification and delivery
