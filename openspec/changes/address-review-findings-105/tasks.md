@@ -19,7 +19,7 @@
 - [x] 3.2 Remove direct `TelephonyChannel` calls from `settings_screen.dart`.
 - [x] 3.3 Replace the top-level whole-state `ConnectionStatus` watch with
   field selects.
-- [ ] 3.4 Add tests proving Settings actions use the UI service boundary and
+- [x] 3.4 Add tests proving Settings actions use the UI service boundary and
   unrelated status changes do not rebuild sections.
 
 ## 4. Documentation and verification

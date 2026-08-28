@@ -99,7 +99,29 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         ],
         const SizedBox(height: AppSpacing.lg),
         _ConnectionDiagnosticsSection(
-          status: ref.watch(connectionStatusProvider),
+          localIp: localIp,
+          peerIp: ref.watch(connectionStatusProvider.select((s) => s.peerIp)),
+          serverRunning: ref.watch(
+            connectionStatusProvider.select((s) => s.serverRunning),
+          ),
+          serverPort: ref.watch(
+            connectionStatusProvider.select((s) => s.serverPort),
+          ),
+          connectAttempts: ref.watch(
+            connectionStatusProvider.select((s) => s.connectAttempts),
+          ),
+          lastBeaconIp: ref.watch(
+            connectionStatusProvider.select((s) => s.lastBeaconIp),
+          ),
+          lastBeaconAt: ref.watch(
+            connectionStatusProvider.select((s) => s.lastBeaconAt),
+          ),
+          lastErrorCode: ref.watch(
+            connectionStatusProvider.select((s) => s.lastErrorCode),
+          ),
+          lastErrorDetail: ref.watch(
+            connectionStatusProvider.select((s) => s.lastErrorDetail),
+          ),
         ),
         const SizedBox(height: AppSpacing.lg),
         _PairedDevicesSection(pairedPeers: pairedPeers),
@@ -566,9 +588,27 @@ class _PairedDeviceSection extends StatelessWidget {
 }
 
 class _ConnectionDiagnosticsSection extends StatelessWidget {
-  final ConnectionStatus status;
+  final String? localIp;
+  final String? peerIp;
+  final bool serverRunning;
+  final int serverPort;
+  final int connectAttempts;
+  final String? lastBeaconIp;
+  final DateTime? lastBeaconAt;
+  final ConnectionErrorCode? lastErrorCode;
+  final String? lastErrorDetail;
 
-  const _ConnectionDiagnosticsSection({required this.status});
+  const _ConnectionDiagnosticsSection({
+    required this.localIp,
+    required this.peerIp,
+    required this.serverRunning,
+    required this.serverPort,
+    required this.connectAttempts,
+    required this.lastBeaconIp,
+    required this.lastBeaconAt,
+    required this.lastErrorCode,
+    required this.lastErrorDetail,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -588,32 +628,28 @@ class _ConnectionDiagnosticsSection extends StatelessWidget {
             children: [
               _InfoRowPair(
                 labelA: l.settingsLocalIp,
-                valueA: status.localIp ?? l.settingsIpUnknown,
+                valueA: localIp ?? l.settingsIpUnknown,
                 labelB: l.settingsPeerIp,
-                valueB: status.peerIp ?? '-',
+                valueB: peerIp ?? '-',
               ),
               _InfoRowPair(
                 labelA: l.settingsServer,
-                valueA: status.serverRunning
-                    ? l.settingsServerRunning(status.serverPort)
+                valueA: serverRunning
+                    ? l.settingsServerRunning(serverPort)
                     : l.settingsServerStopped,
                 labelB: l.settingsConnectAttempts,
-                valueB: '${status.connectAttempts}',
+                valueB: '$connectAttempts',
               ),
               _InfoRow(
                 label: l.settingsLastBeacon,
-                value: status.lastBeaconIp == null
+                value: lastBeaconIp == null
                     ? l.settingsNoBeacon
-                    : '${status.lastBeaconIp} (${_formatTime(status.lastBeaconAt!)})',
+                    : '$lastBeaconIp (${_formatTime(lastBeaconAt!)})',
               ),
-              if (status.lastErrorCode != null) ...[
+              if (lastErrorCode != null) ...[
                 const SizedBox(height: AppSpacing.sm),
                 Text(
-                  connectionErrorText(
-                    l,
-                    status.lastErrorCode!,
-                    status.lastErrorDetail,
-                  ),
+                  connectionErrorText(l, lastErrorCode!, lastErrorDetail),
                   style: TextStyle(
                     fontSize: 12,
                     color: theme.colorScheme.error,

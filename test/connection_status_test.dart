@@ -1,6 +1,8 @@
 // Verifies the ConnectionStatus discovery/force-connect live progress
 // fields and the ConnectionStatusNotifier methods that drive them.
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mirrorline/features/connection/connection_status_provider.dart';
 
 void main() {
@@ -13,6 +15,32 @@ void main() {
     expect(status.discoveryDetail, isNull);
     expect(status.forceConnectActive, isFalse);
     expect(status.discoveryLog, isEmpty);
+  });
+
+  testWidgets('selected status fields ignore unrelated changes', (
+    tester,
+  ) async {
+    final notifier = ConnectionStatusNotifier();
+    var builds = 0;
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [connectionStatusProvider.overrideWith((ref) => notifier)],
+        child: Consumer(
+          builder: (context, ref, child) {
+            ref.watch(connectionStatusProvider.select((s) => s.localIp));
+            builds++;
+            return const SizedBox();
+          },
+        ),
+      ),
+    );
+    expect(builds, 1);
+
+    notifier.setServer(45678, true);
+    await tester.pump();
+
+    expect(builds, 1);
   });
 
   test('beginForceConnect clears log and sets active flag', () {
