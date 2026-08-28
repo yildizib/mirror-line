@@ -12,29 +12,59 @@ final settingsControllerProvider = Provider<SettingsController>((ref) {
   return SettingsController(ref);
 });
 
+abstract interface class SettingsNativeOperations {
+  Future<bool> hasKnownAutoStartSettings();
+  Future<bool> hasKnownBatterySaverSettings();
+  Future<void> openNotificationListenerSettings();
+  Future<void> openAutoStartSettings();
+  Future<void> openBatterySaverSettings();
+}
+
+class _TelephonySettingsOperations implements SettingsNativeOperations {
+  @override
+  Future<bool> hasKnownAutoStartSettings() =>
+      TelephonyChannel.hasKnownAutoStartSettings();
+
+  @override
+  Future<bool> hasKnownBatterySaverSettings() =>
+      TelephonyChannel.hasKnownBatterySaverSettings();
+
+  @override
+  Future<void> openNotificationListenerSettings() =>
+      TelephonyChannel.openNotificationListenerSettings();
+
+  @override
+  Future<void> openAutoStartSettings() =>
+      TelephonyChannel.openAutoStartSettings();
+
+  @override
+  Future<void> openBatterySaverSettings() =>
+      TelephonyChannel.openBatterySaverSettings();
+}
+
 /// UI Service for SettingsScreen (issue #39's F4): orchestrates the
 /// facade calls each action chains together, so the screen itself only
 /// ever calls one thing per user action instead of sequencing facades
 /// inline. Pure extraction, no behavior change.
 class SettingsController {
   final Ref _ref;
+  final SettingsNativeOperations _native;
 
-  SettingsController(this._ref);
+  SettingsController(this._ref, {SettingsNativeOperations? native})
+    : _native = native ?? _TelephonySettingsOperations();
 
   Future<bool> hasKnownAutoStartSettings() =>
-      TelephonyChannel.hasKnownAutoStartSettings();
+      _native.hasKnownAutoStartSettings();
 
   Future<bool> hasKnownBatterySaverSettings() =>
-      TelephonyChannel.hasKnownBatterySaverSettings();
+      _native.hasKnownBatterySaverSettings();
 
   Future<void> openNotificationListenerSettings() =>
-      TelephonyChannel.openNotificationListenerSettings();
+      _native.openNotificationListenerSettings();
 
-  Future<void> openAutoStartSettings() =>
-      TelephonyChannel.openAutoStartSettings();
+  Future<void> openAutoStartSettings() => _native.openAutoStartSettings();
 
-  Future<void> openBatterySaverSettings() =>
-      TelephonyChannel.openBatterySaverSettings();
+  Future<void> openBatterySaverSettings() => _native.openBatterySaverSettings();
 
   Future<void> deletePeer(Peer peer) async {
     await _ref.read(peerFacadeProvider.notifier).deletePeer(peer);
