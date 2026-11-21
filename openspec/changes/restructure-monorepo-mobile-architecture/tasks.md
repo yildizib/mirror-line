@@ -9,5 +9,5 @@
 - [x] Add the Spring Boot/PostgreSQL/Flyway/push-gateway skeleton.
 - [x] Add Docker Compose, Caddy, private database networking, healthchecks, and secret mounts.
 - [x] Remove direct-main version commits from release automation.
-- [x] Run all mobile, server, infrastructure, OpenSpec, and graph verification gates.
+- [x] Run all mobile, server build, container, infrastructure, OpenSpec, and graph verification gates.
 - [ ] Complete the documented two-device Android smoke test.

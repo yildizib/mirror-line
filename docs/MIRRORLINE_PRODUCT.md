@@ -492,7 +492,9 @@ When connected, Main provides five primary sections:
 ### Verification Scope
 
 CI automatically runs mobile formatting, static analysis, tests, a debug APK
-build, server Gradle checks, and Compose configuration validation. Two-device
+build, a clean server build, server container-image construction, non-root
+runtime-image checks, and Compose configuration validation. The server build
+also executes the Testcontainers PostgreSQL/Flyway integration test. Two-device
 Android checks for pairing, reconnect, network changes, and background
 lifecycle are manual device verification and must not be reported as CI
 results.

@@ -72,7 +72,7 @@ jobs:
         run: flutter build apk --debug
 
   server:
-    name: Server / Check
+    name: Server / Build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -81,9 +81,22 @@ jobs:
           distribution: temurin
           java-version: "21"
           cache: gradle
-      - name: Run server checks
+      - name: Build and test server
         working-directory: apps/server
-        run: ./gradlew check
+        run: ./gradlew clean build
+
+  server-container:
+    name: Server / Container
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build server image
+        run: docker build --tag mirrorline-server:ci apps/server
+      - name: Verify non-root runtime image
+        run: |
+          test "$(docker image inspect mirrorline-server:ci --format '{{.Config.User}}')" = "mirrorline"
+          docker run --rm --entrypoint /bin/sh mirrorline-server:ci \
+            -c 'test "$(id -u)" -ne 0 && test -r /app/app.jar'
 
   infrastructure:
     name: Infrastructure / Validate
