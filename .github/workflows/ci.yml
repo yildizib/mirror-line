@@ -25,6 +25,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: "3.47.1"
       - run: flutter pub get
       - run: dart format --set-exit-if-changed lib/ test/
       - run: dart analyze --fatal-infos
@@ -53,6 +54,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: "3.47.1"
       - run: flutter pub get
       - run: flutter test --test-randomize-ordering-seed random
 
@@ -67,6 +69,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: "3.47.1"
       - run: flutter pub get
       - name: Build APK
         run: flutter build apk --debug
@@ -83,7 +86,7 @@ jobs:
           cache: gradle
       - name: Build and test server
         working-directory: apps/server
-        run: ./gradlew clean build
+        run: ./gradlew clean build --no-build-cache
 
   server-container:
     name: Server / Container

@@ -7,7 +7,7 @@ mailbox, and relay product APIs are intentionally absent.
 ## Local checks
 
 ```bash
-./gradlew clean build
+./gradlew clean build --no-build-cache
 docker build --tag mirrorline-server:local .
 test "$(docker image inspect mirrorline-server:local --format '{{.Config.User}}')" = "mirrorline"
 docker run --rm --entrypoint /bin/sh mirrorline-server:local \

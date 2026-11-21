@@ -443,6 +443,7 @@ flutter analyze
 flutter test
 ```
 
+- Use Flutter `3.47.1`, matching the CI and release workflow pin.
 - Run `flutter build apk --debug` before pushing feature branches.
 - Verify no compile errors in release mode before release PRs.
 
@@ -451,7 +452,7 @@ flutter test
 Run from `apps/server`:
 
 ```bash
-./gradlew clean build
+./gradlew clean build --no-build-cache
 docker build --tag mirrorline-server:qa .
 test "$(docker image inspect mirrorline-server:qa --format '{{.Config.User}}')" = "mirrorline"
 docker run --rm --entrypoint /bin/sh mirrorline-server:qa \
@@ -488,7 +489,7 @@ affect server/container integration must also pass the server checklist.
 - dart analyze --fatal-infos exits 0 (no warnings)
 - dart format --set-exit-if-changed exits 0 (formatted)
 - flutter test all pass
-- `./gradlew clean build` passes for server changes
+- `./gradlew clean build --no-build-cache` passes for server changes
 - the server Docker image builds and passes the non-root runtime check
 - `docker compose config --quiet` passes for infrastructure changes
 - If any of these fail, fix before requesting review
