@@ -1,0 +1,79 @@
+name: mirrorline
+
+services:
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    depends_on:
+      server:
+        condition: service_healthy
+    environment:
+      MIRRORLINE_DOMAIN: ${MIRRORLINE_DOMAIN:-localhost}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - edge
+
+  server:
+    build:
+      context: ../../apps/server
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-mirrorline}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-mirrorline}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      MIRRORLINE_PUBLIC_DOMAIN: ${MIRRORLINE_DOMAIN:?MIRRORLINE_DOMAIN is required}
+      GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/firebase-service-account.json
+    secrets:
+      - firebase_service_account
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/actuator/health/readiness"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - edge
+      - data
+
+  postgres:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-mirrorline}
+      POSTGRES_USER: ${POSTGRES_USER:-mirrorline}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mirrorline} -d ${POSTGRES_DB:-mirrorline}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - data
+
+secrets:
+  firebase_service_account:
+    file: ${FIREBASE_SERVICE_ACCOUNT_FILE:-./secrets/firebase-service-account.json}
+
+networks:
+  edge:
+    internal: false
+  data:
+    internal: true
+
+volumes:
+  caddy_data:
+  caddy_config:
+  postgres_data:
