@@ -14,9 +14,12 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  analyze:
-    name: Analyze
+  mobile-analyze:
+    name: Mobile / Analyze
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/mobile
     steps:
       - uses: actions/checkout@v7
       - uses: subosito/flutter-action@v2
@@ -39,9 +42,12 @@ jobs:
       - name: Validate all OpenSpec changes and specs
         run: openspec validate --all --strict --no-interactive
 
-  test:
-    name: Test
+  mobile-test:
+    name: Mobile / Test
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/mobile
     steps:
       - uses: actions/checkout@v7
       - uses: subosito/flutter-action@v2
@@ -50,9 +56,12 @@ jobs:
       - run: flutter pub get
       - run: flutter test --test-randomize-ordering-seed random
 
-  build:
-    name: Build
+  mobile-build:
+    name: Mobile / Build
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/mobile
     steps:
       - uses: actions/checkout@v7
       - uses: subosito/flutter-action@v2
@@ -61,3 +70,31 @@ jobs:
       - run: flutter pub get
       - name: Build APK
         run: flutter build apk --debug
+
+  server:
+    name: Server / Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+      - name: Run server checks
+        working-directory: apps/server
+        run: ./gradlew check
+
+  infrastructure:
+    name: Infrastructure / Validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Validate VPS Compose model
+        working-directory: infra/vps
+        env:
+          MIRRORLINE_DOMAIN: mirrorline.example.test
+          POSTGRES_DB: mirrorline
+          POSTGRES_USER: mirrorline
+          POSTGRES_PASSWORD: ci-only-password
+        run: docker compose config --quiet

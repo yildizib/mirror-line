@@ -63,31 +63,31 @@ jobs:
         run: flutter doctor -v
 
       - name: Pub get
+        working-directory: apps/mobile
         run: flutter pub get
 
-      - name: Bump pubspec.yaml
+      - name: Verify release version
+        working-directory: apps/mobile
         run: |
-          sed -i "s/^version: .*/version: ${{ steps.ver.outputs.version }}+1/" pubspec.yaml
-          grep '^version:' pubspec.yaml
+          DECLARED="$(sed -n 's/^version: \([^+]*\).*/\1/p' pubspec.yaml)"
+          if [ "$DECLARED" != "${{ steps.ver.outputs.version }}" ]; then
+            echo "::error::pubspec.yaml version $DECLARED does not match requested ${{ steps.ver.outputs.version }}"
+            exit 1
+          fi
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.ref_name }}" != "main" ]; then
+            echo "::error::Manual releases must run from main after the release PR is merged"
+            exit 1
+          fi
 
       - name: Build release APK
+        working-directory: apps/mobile
         run: flutter build apk --release
 
       - name: Rename APK
         run: |
-          cp build/app/outputs/flutter-apk/app-release.apk \
+          cp apps/mobile/build/app/outputs/flutter-apk/app-release.apk \
              mirrorline-${{ steps.ver.outputs.tag }}.apk
           ls -lh mirrorline-*.apk
-
-      - name: Commit pubspec bump (dispatch only)
-        if: github.event_name == 'workflow_dispatch'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add pubspec.yaml
-          git commit -m "chore(release): ${{ steps.ver.outputs.tag }}" || true
-          git tag ${{ steps.ver.outputs.tag }}
-          git push origin HEAD:main --tags
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
