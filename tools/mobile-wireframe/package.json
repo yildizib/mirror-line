@@ -1,0 +1,32 @@
+{
+  "name": "mirrorline-mobile-wireframe",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "validate": "node --import tsx scripts/validate-manifest.ts",
+    "test": "PLAYWRIGHT_BROWSERS_PATH=.playwright-browsers playwright test",
+    "render": "PLAYWRIGHT_BROWSERS_PATH=.playwright-browsers node --import tsx scripts/render.ts",
+    "artifact": "npm run build && npm run validate && npm run render && node scripts/archive.mjs"
+  },
+  "dependencies": {
+    "@fontsource-variable/geist": "^5.2.6",
+    "@fontsource-variable/geist-mono": "^5.2.6",
+    "@phosphor-icons/react": "^2.1.10",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.10.2",
+    "@playwright/test": "^1.55.0",
+    "@types/node": "^24.3.0",
+    "@types/react": "^19.1.10",
+    "@types/react-dom": "^19.1.7",
+    "@vitejs/plugin-react": "^5.0.2",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.4"
+  }
+}

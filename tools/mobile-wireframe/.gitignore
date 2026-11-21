@@ -1,0 +1,7 @@
+node_modules/
+.playwright-browsers/
+dist/
+build/
+playwright-report/
+test-results/
+*.tsbuildinfo
