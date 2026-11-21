@@ -1,0 +1,4 @@
+{$MIRRORLINE_DOMAIN:localhost} {
+    encode zstd gzip
+    reverse_proxy server:8080
+}

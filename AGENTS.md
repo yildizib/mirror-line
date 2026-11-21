@@ -429,25 +429,71 @@ Device test by developer → gh issue close #ID && gh pr merge #PR --squash --de
 - Never commit with analyzer warnings or info-level issues
 
 ### Pre-Commit Checklist
-Run these in order before every commit. All must pass:
+Run the checks for every area touched by the commit. All applicable checks must
+pass before committing.
+
+#### Mobile changes
+
+Run from `apps/mobile`:
+
 ```bash
 dart format lib/ test/
 dart analyze --fatal-infos
 flutter analyze
 flutter test
-Build Verification
-- Run flutter build apk --debug before pushing feature branches
-- Verify no compile errors in release mode before release PRs
-Test Coverage
+```
+
+- Use Flutter `3.47.1`, matching the CI and release workflow pin.
+- Run `flutter build apk --debug` before pushing feature branches.
+- Verify no compile errors in release mode before release PRs.
+
+#### Server changes
+
+Run from `apps/server`:
+
+```bash
+./gradlew clean build --no-build-cache
+docker build --tag mirrorline-server:qa .
+test "$(docker image inspect mirrorline-server:qa --format '{{.Config.User}}')" = "mirrorline"
+docker run --rm --entrypoint /bin/sh mirrorline-server:qa \
+  -c 'test "$(id -u)" -ne 0 && test -r /app/app.jar'
+```
+
+The Gradle build must compile the server, create the bootable JAR, run static
+checks and unit tests, and pass the Testcontainers PostgreSQL/Flyway integration
+test. The Docker checks must build the complete multi-stage image and prove that
+the runtime image is non-root and contains a readable application artifact.
+
+#### Infrastructure changes
+
+Run from the repository root with validation-only values:
+
+```bash
+POSTGRES_PASSWORD=compose-validation-only \
+MIRRORLINE_DOMAIN=localhost \
+docker compose -f infra/vps/compose.yml config --quiet
+```
+
+Do not place real secrets in the repository or command history. Changes that
+affect server/container integration must also pass the server checklist.
+
+### Test Coverage
+
 - New feature → add its tests
 - Bug fix → add/update test covering the fix
 - Tests must cover all changes (DAOs, facades, providers, UI)
 - All existing tests must still pass
-CI Expectations
+
+### CI Expectations
+
 - dart analyze --fatal-infos exits 0 (no warnings)
 - dart format --set-exit-if-changed exits 0 (formatted)
 - flutter test all pass
+- `./gradlew clean build --no-build-cache` passes for server changes
+- the server Docker image builds and passes the non-root runtime check
+- `docker compose config --quiet` passes for infrastructure changes
 - If any of these fail, fix before requesting review
+
 ---
 
 ## graphify

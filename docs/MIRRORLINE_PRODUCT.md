@@ -8,12 +8,15 @@
 
 MirrorLine, iki Android telefonu aynı yerel ağ üzerinden doğrudan birbirine
 bağlayarak telefon görüşmelerini, SMS mesajlarını ve seçili uygulama
-bildirimlerini yansıtan, sunucusuz ve gizlilik odaklı bir uygulamadır.
+bildirimlerini yansıtan, gizlilik odaklı bir uygulamadır. Mevcut ürün veri yolu
+sunucusuz çalışır; cihazlar LAN veya kullanıcı tarafından sağlanan VPN üzerinden
+birbirine bağlanır.
 
 SIM kartın bulunduğu telefon **Source**, kullanıcının günlük olarak kullandığı
 telefon ise **Main** rolündedir. Source telefon hattı arka planda taşır; Main
 telefon çağrıları, SMS'leri ve yansıtılan bildirimleri tek bir arayüzde gösterir.
-Veriler üçüncü parti bir sunucudan geçmez.
+Mevcut çalışma biçiminde veriler üçüncü parti veya MirrorLine relay sunucusundan
+geçmez.
 
 ## Ürünün Amacı
 
@@ -25,7 +28,7 @@ ana telefonundan yönetebilmesini sağlamaktır.
 
 - İki telefon arasında doğrudan iletişim kurar.
 - Çağrı, SMS ve bildirimleri tek bir deneyimde birleştirir.
-- Verileri bulut veya üçüncü parti relay sunucusuna göndermez.
+- Mevcut LAN çalışma biçiminde verileri bulut veya relay sunucusuna göndermez.
 - Bağlantı geçici olarak kesildiğinde olayları kaybetmemeye çalışır.
 - Kullanıcıya hangi uygulama bildirimlerinin yansıtılacağını seçtirebilir.
 - Çağrı ve SMS gibi hassas işlemleri cihazlar arasında şifreli taşır.
@@ -186,7 +189,7 @@ Bağlantı kurulduğunda Main cihazda beş ana bölüm bulunur:
 - Bağlantı kurulmadan önce auth challenge ve auth acknowledgement tamamlanır.
 - Aynı canlı bağlantı içinde eski mesajların tekrar oynatılmasına karşı timestamp
   kontrolü uygulanır.
-- Sunucu, relay veya bulut veri deposu kullanılmaz.
+- Mevcut mobil veri yolunda sunucu, relay veya bulut veri deposu kullanılmaz.
 - Yerel kayıtlar cihazın SQLite veritabanında tutulur.
 - Kullanıcı seçmediği uygulamaların bildirimlerini yansıtmaz.
 
@@ -194,10 +197,11 @@ Bağlantı kurulduğunda Main cihazda beş ana bölüm bulunur:
 
 ### Doğrulama Kapsamı
 
-CI; format kontrolü, statik analiz, Flutter testleri ve debug APK derlemesini
-otomatik olarak çalıştırır. İki cihazlı Android testleri pairing, reconnect,
-ağ değişikliği ve arka plan yaşam döngüsü senaryoları için manuel cihaz
-doğrulamasıdır; CI sonucu olarak raporlanmaz.
+CI; mobil format/statik analiz/test kontrollerini ve debug APK derlemesini,
+sunucu Gradle kontrollerini ve Compose yapı doğrulamasını otomatik çalıştırır.
+İki cihazlı Android testleri pairing, reconnect, ağ değişikliği ve arka plan
+yaşam döngüsü senaryoları için manuel cihaz doğrulamasıdır; CI sonucu olarak
+raporlanmaz.
 
 - Uygulama Android odaklıdır; telephony, SMS ve notification listener özellikleri
   Android native servislerine bağlıdır.
@@ -212,6 +216,9 @@ doğrulamasıdır; CI sonucu olarak raporlanmaz.
   arka plan kısıtlamalarına bağlıdır.
 - OEM pil tasarrufu ve otomatik başlatma politikaları bağlantı sürekliliğini
   etkileyebilir.
+- Repoda bir sunucu ve VPS iskeleti bulunur; ancak bu iskelet henüz hesap,
+  cihaz kaydı, mailbox, relay, senkronizasyon API'si veya gerçek FCM gönderimi
+  sunmaz. Yayınlanan tek sunucu arayüzleri Actuator health endpoint'leridir.
 
 ## Veri Modeli
 
@@ -229,28 +236,55 @@ Veritabanı şema sürümü 7'dir. `peer` tablosunda birden fazla eş cihaz kayd
 tutulabilir; ancak aktif bağlantı runtime'ı aynı anda tek bir peer context'i
 kullanır.
 
-Veritabanı şema sürümü 6'dır ve eski sürümler için migration desteği bulunur.
-
 ## Uygulama Mimarisi
 
-Ürün kodu aşağıdaki bağımlılık yönünü izler:
+Repo aşağıdaki monorepo sınırlarını kullanır:
 
 ```text
-Base services (core)
-        -> Facades (features/*_facade.dart)
-        -> UI services (providers/controllers)
-        -> Screens and widgets
+apps/mobile       Flutter uygulaması ve Android native runtime
+apps/server       Kotlin/Spring Boot modular monolith iskeleti
+packages/contracts Dil bağımsız protokol fixture ve sözleşmeleri
+infra/vps         Caddy, Spring ve PostgreSQL Compose tanımları
 ```
 
-Core katmanı ağ, güvenlik, telephony, veritabanı ve sistem servislerini sağlar.
-Facade'lar bu servisleri ürün davranışına dönüştürür. UI katmanı doğrudan socket,
-DAO veya native listener erişimi yapmaz.
+Mobil ürün kodu feature-first düzenlenir ve aşağıdaki bağımlılık yönünü izler:
+
+```text
+domain
+  -> base
+  -> facade
+  -> ui_service
+  -> ui
+```
+
+`core` veritabanı motoru, kriptografi, keystore ve platform soyutlamalarını;
+`shared` ise yalnız genel sunum bileşenleri ve pagination yapılarını barındırır.
+UI ve UI service katmanları socket, DAO, MethodChannel veya native listener gibi
+base servislere doğrudan erişmez. Feature'lar arası davranış facade sözleşmeleri
+veya `app` seviyesindeki orchestrator üzerinden yürütülür.
+
+Mevcut TCP, UDP beacon, subnet discovery, reconnect ve wire format davranışı
+`LegacyLanTransportAdapter` arkasındadır. QR bootstrap bağlantısı da
+`LegacyPairingHandshakeAdapter` ile pairing iş akışından ayrılır. Böylece mevcut
+LAN/VPN davranışı korunurken gelecekteki transport değişimi ürün katmanlarından
+izole edilir.
+
+Sunucu tek Gradle projesidir ve `bootstrap`, `shared`, `identity`, `devices`,
+`sync` ve `push` paket sınırlarına sahiptir. Java 21, Spring Boot 4.2,
+PostgreSQL 18, Flyway, Actuator ve varsayılan-deny Spring Security kullanır.
+`PushGateway` development/test ortamında no-op çalışır; mevcut aşamada ürün API'si
+ve gerçek relay davranışı yoktur.
 
 ## Mevcut Durum
 
 Mevcut uygulama; pairing, rol seçimi, çağrı yansıtma, SMS mirroring, seçili
 bildirim yansıtma, offline queue, otomatik yeniden bağlanma, bağlantı teşhisi,
 Android foreground service ve temel cihaz yönetimi özelliklerini içerir.
+
+Repo ayrıca health endpoint'leri çalışan, PostgreSQL migration altyapısı ve
+soyut `PushGateway` sözleşmesi bulunan bir sunucu/deployment iskeleti içerir.
+Bu iskelet gelecekteki sunucu tabanlı senkronizasyon için hazırlıktır ve mevcut
+LAN/VPN ürün davranışını değiştirmez.
 
 Test kapsamı; şifreleme, protocol, socket, beacon, subnet discovery, pairing,
 DAO, migration, facade, pagination, provider ve widget testlerini içerir.
@@ -268,12 +302,14 @@ planları bu belgeye eklenmeden önce mevcut implementasyonla doğrulanmalıdır
 
 MirrorLine mirrors phone calls, SMS messages, and selected application
 notifications between two Android phones over a direct local-network
-connection. It is serverless and privacy-focused.
+connection. It is privacy-focused. The current product data path is serverless;
+devices communicate over a LAN or a user-provided VPN.
 
 The phone containing the SIM card is the **Source** device. The phone used by
 the user is the **Main** device. Source keeps the mobile line in the
 background; Main displays calls, SMS messages, and mirrored notifications in a
-single interface. Data does not pass through a third-party server.
+single interface. In the current operating mode, data does not pass through a
+third-party or MirrorLine relay server.
 
 ## Product Purpose
 
@@ -284,7 +320,7 @@ The product follows these principles:
 
 - Connects the two phones directly.
 - Combines calls, SMS, and notifications into one experience.
-- Does not send data to a cloud or third-party relay server.
+- Does not send data to a cloud or relay server in the current LAN mode.
 - Attempts to prevent event loss during temporary disconnections.
 - Lets users choose which application notifications are mirrored.
 - Transports sensitive call and SMS data between devices in encrypted form.
@@ -447,7 +483,7 @@ When connected, Main provides five primary sections:
   considered ready.
 - Timestamp checks protect against replaying old messages within a live
   connection.
-- No server, relay, or cloud data store is used.
+- The current mobile data path uses no server, relay, or cloud data store.
 - Local records are stored in the device's SQLite database.
 - Notifications from applications not selected by the user are not mirrored.
 
@@ -455,10 +491,13 @@ When connected, Main provides five primary sections:
 
 ### Verification Scope
 
-CI automatically runs formatting, static analysis, Flutter tests, and a debug
-APK build. Two-device Android checks for pairing, reconnect, network changes,
-and background lifecycle are manual device verification and must not be
-reported as CI results.
+CI automatically runs mobile formatting, static analysis, tests, a debug APK
+build, a clean server build, server container-image construction, non-root
+runtime-image checks, and Compose configuration validation. The server build
+also executes the Testcontainers PostgreSQL/Flyway integration test. Two-device
+Android checks for pairing, reconnect, network changes, and background
+lifecycle are manual device verification and must not be reported as CI
+results.
 
 - The application is Android-focused; telephony, SMS, and notification listener
   features depend on Android native services.
@@ -470,6 +509,10 @@ reported as CI results.
 - Notification mirroring depends on Android Notification Listener permission and
   background restrictions imposed by the device manufacturer.
 - OEM battery-saving and auto-start policies can affect connection continuity.
+- The repository contains server and VPS foundations, but they do not yet
+  provide accounts, device registration, a mailbox, relay, synchronization
+  APIs, or real FCM delivery. The only published server interfaces are Actuator
+  health endpoints.
 
 ## Data Model
 
@@ -489,18 +532,42 @@ including the `offline_queue.dedupe_key` column migration.
 
 ## Application Architecture
 
-The product code follows this dependency direction:
+The repository uses these monorepo boundaries:
 
 ```text
-Base services (core)
-        -> Facades (features/*_facade.dart)
-        -> UI services (providers/controllers)
-        -> Screens and widgets
+apps/mobile        Flutter application and Android native runtime
+apps/server        Kotlin/Spring Boot modular-monolith foundation
+packages/contracts Language-neutral protocol fixtures and contracts
+infra/vps          Caddy, Spring, and PostgreSQL Compose definitions
 ```
 
-The core layer provides networking, security, telephony, database, and system
-services. Facades turn those services into product behavior. The UI layer does
-not access sockets, DAOs, or native listeners directly.
+Mobile product code is feature-first and follows this dependency direction:
+
+```text
+domain
+  -> base
+  -> facade
+  -> ui_service
+  -> ui
+```
+
+`core` contains the database engine, cryptography, keystore, and platform
+abstractions. `shared` contains only reusable presentation components and
+pagination. UI and UI-service layers do not access sockets, DAOs,
+MethodChannels, or native listeners directly. Cross-feature behavior goes
+through facade contracts or an app-level orchestrator.
+
+Existing TCP, UDP beacon, subnet discovery, reconnect, and wire-format behavior
+is isolated behind `LegacyLanTransportAdapter`. QR bootstrap connections are
+separated from the pairing workflow through `LegacyPairingHandshakeAdapter`.
+This preserves current LAN/VPN behavior while keeping future transport changes
+outside product and UI layers.
+
+The server is a single Gradle project with `bootstrap`, `shared`, `identity`,
+`devices`, `sync`, and `push` package boundaries. It uses Java 21, Spring Boot
+4.2, PostgreSQL 18, Flyway, Actuator, and default-deny Spring Security.
+`PushGateway` is a no-op in development and test; there is currently no product
+API or relay behavior.
 
 ## Verified Security Behavior
 
@@ -535,6 +602,11 @@ The current application includes pairing, role selection, call mirroring, SMS
 mirroring, selected notification mirroring, offline queue, automatic
 reconnection, connection diagnostics, Android foreground service, and basic
 device management.
+
+The repository also contains a server/deployment foundation with working health
+endpoints, PostgreSQL migrations, and an abstract `PushGateway` contract. It is
+preparation for a future server-backed synchronization change and does not alter
+the current LAN/VPN product behavior.
 
 Tests cover raw wire confidentiality, local storage encryption and migration,
 authenticated sockets, replay protection, pairing identity binding, transport

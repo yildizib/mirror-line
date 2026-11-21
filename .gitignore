@@ -26,11 +26,14 @@ migrate_working_dir/
 # Flutter/Dart/Pub related
 **/doc/api/
 **/ios/Flutter/.last_build_id
-.dart_tool/
-.flutter-plugins-dependencies
+**/.dart_tool/
+**/.flutter-plugins-dependencies
+**/.gradle/
+**/pubspec.lock
 .pub-cache/
 .pub/
-/build/
+**/build/
+**/.vite/
 /coverage/
 
 # Symbolication related
@@ -40,9 +43,9 @@ app.*.symbols
 app.*.map.json
 
 # Android Studio will place build artifacts here
-/android/app/debug
-/android/app/profile
-/android/app/release
+/apps/mobile/android/app/debug
+/apps/mobile/android/app/profile
+/apps/mobile/android/app/release
 .opentoken_tmp/
 
 # Local tooling artifacts

@@ -14,14 +14,18 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  analyze:
-    name: Analyze
+  mobile-analyze:
+    name: Mobile / Analyze
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/mobile
     steps:
       - uses: actions/checkout@v7
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: "3.47.1"
       - run: flutter pub get
       - run: dart format --set-exit-if-changed lib/ test/
       - run: dart analyze --fatal-infos
@@ -39,25 +43,74 @@ jobs:
       - name: Validate all OpenSpec changes and specs
         run: openspec validate --all --strict --no-interactive
 
-  test:
-    name: Test
+  mobile-test:
+    name: Mobile / Test
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/mobile
     steps:
       - uses: actions/checkout@v7
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: "3.47.1"
       - run: flutter pub get
       - run: flutter test --test-randomize-ordering-seed random
 
-  build:
-    name: Build
+  mobile-build:
+    name: Mobile / Build
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/mobile
     steps:
       - uses: actions/checkout@v7
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: "3.47.1"
       - run: flutter pub get
       - name: Build APK
         run: flutter build apk --debug
+
+  server:
+    name: Server / Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+      - name: Build and test server
+        working-directory: apps/server
+        run: ./gradlew clean build --no-build-cache
+
+  server-container:
+    name: Server / Container
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build server image
+        run: docker build --tag mirrorline-server:ci apps/server
+      - name: Verify non-root runtime image
+        run: |
+          test "$(docker image inspect mirrorline-server:ci --format '{{.Config.User}}')" = "mirrorline"
+          docker run --rm --entrypoint /bin/sh mirrorline-server:ci \
+            -c 'test "$(id -u)" -ne 0 && test -r /app/app.jar'
+
+  infrastructure:
+    name: Infrastructure / Validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Validate VPS Compose model
+        working-directory: infra/vps
+        env:
+          MIRRORLINE_DOMAIN: mirrorline.example.test
+          POSTGRES_DB: mirrorline
+          POSTGRES_USER: mirrorline
+          POSTGRES_PASSWORD: ci-only-password
+        run: docker compose config --quiet

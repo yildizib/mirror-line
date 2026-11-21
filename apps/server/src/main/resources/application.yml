@@ -1,0 +1,28 @@
+spring:
+  application:
+    name: mirrorline-server
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/mirrorline}
+    username: ${SPRING_DATASOURCE_USERNAME:mirrorline}
+    password: ${SPRING_DATASOURCE_PASSWORD:mirrorline}
+  flyway:
+    enabled: true
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
+
+server:
+  shutdown: graceful
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+
+mirrorline:
+  public-domain: ${MIRRORLINE_PUBLIC_DOMAIN:}
