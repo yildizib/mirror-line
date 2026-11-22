@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 410" fill="none" role="img" aria-labelledby="title desc">
+  <title id="title">Keys stay on devices</title><desc id="desc">Public keys connect the two devices while private keys stay inside each phone. The relay only carries ciphertext.</desc>
+  <circle cx="300" cy="205" r="185" stroke="#30465D"/><circle cx="300" cy="205" r="139" stroke="#243D53" stroke-dasharray="4 9"/>
+  <path d="M175 205h250" stroke="#5DE2D7" stroke-opacity=".5" stroke-dasharray="5 8"/>
+  <rect x="60" y="112" width="116" height="191" rx="23" fill="#102A3D" stroke="#5DE2D7" stroke-width="2"/><rect x="69" y="122" width="98" height="171" rx="16" fill="#071827"/><rect x="101" y="128" width="34" height="7" rx="4" fill="#102A3D"/>
+  <rect x="424" y="112" width="116" height="191" rx="23" fill="#102A3D" stroke="#5DE2D7" stroke-width="2"/><rect x="433" y="122" width="98" height="171" rx="16" fill="#071827"/><rect x="465" y="128" width="34" height="7" rx="4" fill="#102A3D"/>
+  <circle cx="118" cy="208" r="28" fill="#123744"/><path d="M105 205a13 13 0 0 1 26 0v7h-26z" stroke="#5DE2D7" stroke-width="3"/><rect x="102" y="211" width="32" height="23" rx="5" fill="#5DE2D7"/><circle cx="118" cy="222" r="3" fill="#071827"/>
+  <circle cx="482" cy="208" r="28" fill="#123744"/><path d="M469 205a13 13 0 0 1 26 0v7h-26z" stroke="#5DE2D7" stroke-width="3"/><rect x="466" y="211" width="32" height="23" rx="5" fill="#5DE2D7"/><circle cx="482" cy="222" r="3" fill="#071827"/>
+  <rect x="238" y="151" width="124" height="108" rx="15" fill="#152F43" stroke="#4F6F83"/><rect x="252" y="168" width="96" height="24" rx="5" fill="#1D4054"/><circle cx="268" cy="180" r="4" fill="#FF5F4A"/><rect x="252" y="202" width="96" height="24" rx="5" fill="#1D4054"/><circle cx="268" cy="214" r="4" fill="#5DE2D7"/><path d="M314 185h22m-22 29h22" stroke="#66899D" stroke-width="2"/>
+  <path d="M267 103h66l12 12v25h-78z" fill="#FF5F4A"/><path d="m267 103 39 29 39-29" stroke="#092033" stroke-width="2"/>
+  <text x="118" y="335" fill="#A6BAC8" text-anchor="middle" font-family="Arial,sans-serif" font-size="12">PRIVATE KEY</text><text x="300" y="290" fill="#A6BAC8" text-anchor="middle" font-family="Arial,sans-serif" font-size="12">CIPHERTEXT</text><text x="482" y="335" fill="#A6BAC8" text-anchor="middle" font-family="Arial,sans-serif" font-size="12">PRIVATE KEY</text>
+</svg>

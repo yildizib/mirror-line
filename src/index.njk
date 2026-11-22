@@ -1,0 +1,193 @@
+---
+pagination:
+  data: locales
+  size: 1
+  alias: copy
+permalink: "{{ copy.path }}index.html"
+eleventyExcludeFromCollections: true
+---
+<!doctype html>
+<html lang="{{ copy.lang }}">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ copy.pageTitle }}</title>
+    <meta name="description" content="{{ copy.description }}">
+    <meta name="theme-color" content="#07111f">
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="{{ copy.pageTitle }}">
+    <meta property="og:description" content="{{ copy.description }}">
+    <link rel="icon" href="{{ '/assets/favicon.svg' | url }}" type="image/svg+xml">
+    <link rel="stylesheet" href="{{ '/assets/site.css' | url }}">
+    <script src="{{ '/assets/site.js' | url }}" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">{{ 'İçeriğe geç' if copy.lang == 'tr' else 'Skip to content' }}</a>
+
+    <header class="site-header" data-header>
+      <div class="shell header-inner">
+        <a class="brand" href="{{ '/' | url }}" aria-label="MirrorLine home">
+          <img src="{{ '/assets/logo.svg' | url }}" alt="" width="42" height="42">
+          <span>Mirror<span>Line</span></span>
+        </a>
+        <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">
+          <span></span><span></span>
+          <span class="sr-only">{{ 'Menüyü aç' if copy.lang == 'tr' else 'Open menu' }}</span>
+        </button>
+        <nav id="site-nav" class="site-nav" aria-label="Primary">
+          <a href="#how">{{ copy.nav.how }}</a>
+          <a href="#security">{{ copy.nav.security }}</a>
+          <a href="#roadmap">{{ copy.nav.roadmap }}</a>
+          <a class="nav-source" href="https://github.com/yildizib/mirror-line" target="_blank" rel="noreferrer">
+            {{ copy.nav.source }}
+            <svg aria-hidden="true" viewBox="0 0 16 16"><path d="M6 3h7v7M13 3 5 11"/></svg>
+          </a>
+          <a class="language" href="{{ ('/' + copy.alternatePath) | url }}" hreflang="{{ 'en' if copy.lang == 'tr' else 'tr' }}">{{ copy.alternateLabel }}</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main">
+      <section class="hero shell">
+        <div class="hero-copy" data-reveal>
+          <div class="eyebrow"><span class="pulse"></span>{{ copy.eyebrow }}</div>
+          <h1>{{ copy.heroTitle }}</h1>
+          <p class="hero-lede">{{ copy.heroBody }}</p>
+          <div class="hero-actions">
+            <a class="button button-primary" href="https://github.com/yildizib/mirror-line" target="_blank" rel="noreferrer">
+              <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.87c-2.78.6-3.37-1.18-3.37-1.18-.45-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.61.07-.61 1 .07 1.53 1.03 1.53 1.03.9 1.53 2.35 1.09 2.92.83.09-.65.35-1.09.64-1.34-2.22-.25-4.55-1.11-4.55-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.64 0 0 .84-.27 2.75 1.02A9.58 9.58 0 0 1 12 6.82c.85 0 1.71.11 2.51.34 1.91-1.29 2.75-1.02 2.75-1.02.55 1.37.2 2.39.1 2.64.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.69-4.57 4.94.36.31.68.92.68 1.86v2.75c0 .27.18.58.69.48A10 10 0 0 0 12 2Z"/></svg>
+              {{ copy.primaryCta }}
+            </a>
+            <a class="button button-ghost" href="#how">{{ copy.secondaryCta }} <span aria-hidden="true">↓</span></a>
+          </div>
+          <p class="disclosure">{{ copy.disclosure }}</p>
+        </div>
+        <div class="hero-visual" data-reveal>
+          <div class="orbit orbit-one"></div><div class="orbit orbit-two"></div>
+          <div class="phone source-phone">
+            <div class="phone-top"><span></span></div>
+            <div class="phone-screen">
+              <span class="phone-label">SIM</span>
+              <div class="avatar">A</div>
+              <strong>{{ 'Yeni mesaj' if copy.lang == 'tr' else 'New message' }}</strong>
+              <small>{{ 'Cihazda şifrelendi' if copy.lang == 'tr' else 'Encrypted on device' }}</small>
+              <div class="encrypted-lines"><i></i><i></i><i></i></div>
+            </div>
+          </div>
+          <div class="signal-path" aria-hidden="true"><i></i><i></i><i></i><span class="lock">⌁</span></div>
+          <div class="phone daily-phone">
+            <div class="phone-top"><span></span></div>
+            <div class="phone-screen">
+              <span class="phone-label">DAILY</span>
+              <div class="unlock-mark">✓</div>
+              <strong>{{ 'Güvenle teslim edildi' if copy.lang == 'tr' else 'Delivered securely' }}</strong>
+              <small>{{ 'Yalnız bu cihaz açabilir' if copy.lang == 'tr' else 'Only this device can open it' }}</small>
+            </div>
+          </div>
+          <span class="visual-note note-private">Private key<br><b>{{ 'cihazda kalır' if copy.lang == 'tr' else 'stays on device' }}</b></span>
+          <span class="visual-note note-push">Push<br><b>{{ 'içerik taşımaz' if copy.lang == 'tr' else 'carries no content' }}</b></span>
+        </div>
+      </section>
+
+      <section class="state-strip">
+        <div class="shell state-grid">
+          <article data-reveal><span class="state-label current">{{ copy.nowLabel }}</span><h2>{{ copy.nowTitle }}</h2><p>{{ copy.nowBody }}</p></article>
+          <div class="state-arrow" aria-hidden="true"><span></span></div>
+          <article data-reveal><span class="state-label future">{{ copy.nextLabel }}</span><h2>{{ copy.nextTitle }}</h2><p>{{ copy.nextBody }}</p></article>
+        </div>
+      </section>
+
+      <section id="how" class="section how-section shell">
+        <div class="section-heading" data-reveal>
+          <span class="section-kicker">{{ copy.howEyebrow }}</span>
+          <h2>{{ copy.howTitle }}</h2>
+          <p>{{ copy.howIntro }}</p>
+        </div>
+        <div class="devices-card" data-reveal>
+          <div class="devices-copy"><span class="section-kicker">{{ copy.devicesLabel }}</span><h3>{{ copy.devicesTitle }}</h3><p>{{ copy.devicesBody }}</p></div>
+          <div class="devices-visual" aria-hidden="true">
+            <div class="device-main"><span class="device-screen"><img src="{{ '/assets/logo.svg' | url }}" alt=""><small>{{ copy.mainPhone }}</small></span></div>
+            <div class="device-lines"><i></i><i></i><i></i><i></i><i></i></div>
+            <div class="device-sources">{% for number in [1,2,3,4,5] %}<span><b>{{ number }}</b><small>{{ copy.sourcePhone }}</small></span>{% endfor %}</div>
+          </div>
+        </div>
+        <img class="flow-illustration" src="{{ '/assets/flow.svg' | url }}" alt="{{ 'MirrorLine şifreli mesaj akış diyagramı' if copy.lang == 'tr' else 'MirrorLine encrypted message flow diagram' }}" loading="lazy" data-reveal>
+        <ol class="steps">
+          {% for step in copy.steps %}
+          <li data-reveal><span>{{ step.number }}</span><div><h3>{{ step.title }}</h3><p>{{ step.body }}</p></div></li>
+          {% endfor %}
+        </ol>
+      </section>
+
+      <section id="security" class="section security-section">
+        <div class="shell">
+          <div class="security-intro">
+            <div class="section-heading light" data-reveal>
+              <span class="section-kicker">{{ copy.securityEyebrow }}</span>
+              <h2>{{ copy.securityTitle }}</h2>
+              <p>{{ copy.securityBody }}</p>
+            </div>
+            <img src="{{ '/assets/security.svg' | url }}" alt="{{ 'Private key cihazlarda, şifreli paket relay üzerinde gösteriliyor' if copy.lang == 'tr' else 'Private keys on devices and encrypted package on relay' }}" loading="lazy" data-reveal>
+          </div>
+          <div class="security-cards">
+            {% for card in copy.securityCards %}
+            <article data-reveal>
+              <span class="card-icon icon-{{ card.icon }}" aria-hidden="true"></span>
+              <h3>{{ card.title }}</h3><p>{{ card.body }}</p>
+            </article>
+            {% endfor %}
+          </div>
+          <div class="visibility-panel" data-reveal>
+            <h3>{{ copy.boundaryTitle }}</h3>
+            <div class="visibility-list">
+              {% for row in copy.boundaryRows %}
+              <div><span class="visibility-dot {{ row.state }}"></span><strong>{{ row.label }}</strong><p>{{ row.value }}</p></div>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="roadmap" class="section roadmap-section shell">
+        <div class="roadmap-copy" data-reveal>
+          <span class="section-kicker">{{ copy.roadmapEyebrow }}</span>
+          <h2>{{ copy.roadmapTitle }}</h2><p>{{ copy.roadmapBody }}</p>
+        </div>
+        <div class="roadmap-list">
+          {% for item in copy.roadmapItems %}
+          <article class="roadmap-item {{ item.status }}" data-reveal>
+            <span class="roadmap-marker"></span><div><small>{{ item.label }}</small><h3>{{ item.title }}</h3></div>
+          </article>
+          {% endfor %}
+        </div>
+      </section>
+
+      <section class="section open-section shell" data-reveal>
+        <div class="open-card">
+          <div><span class="section-kicker">{{ copy.openEyebrow }}</span><h2>{{ copy.openTitle }}</h2><p>{{ copy.openBody }}</p></div>
+          <a class="button button-dark" href="https://github.com/yildizib/mirror-line" target="_blank" rel="noreferrer">{{ copy.openCta }} <span aria-hidden="true">↗</span></a>
+          <div class="code-window" aria-hidden="true"><span></span><span></span><span></span><pre><i>01</i> public_key.exchange()
+<i>02</i> payload.encrypt(device)
+<i>03</i> relay.deliver(ciphertext)
+<i>04</i> private_key.decrypt()</pre></div>
+        </div>
+      </section>
+
+      <section class="section sponsor-section shell" data-reveal>
+        <div class="sponsor-card">
+          <div class="sponsor-art"><span class="server-stack"><i></i><i></i><i></i></span><span class="sponsor-signal"></span></div>
+          <div class="sponsor-copy"><span class="sponsor-label">{{ copy.sponsorLabel }}</span><h2>{{ copy.sponsorTitle }}</h2><p>{{ copy.sponsorBody }}</p><a href="https://ehost.com.tr" target="_blank" rel="sponsored noreferrer">{{ copy.sponsorCta }} <span aria-hidden="true">↗</span></a></div>
+          <div class="ehost-wordmark" aria-label="eHost">e<span>Host</span><small>.com.tr</small></div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="shell footer-inner">
+        <div><a class="brand" href="{{ '/' | url }}"><img src="{{ '/assets/logo.svg' | url }}" alt="" width="38" height="38"><span>Mirror<span>Line</span></span></a><p>{{ copy.footerTagline }}</p></div>
+        <div class="footer-links"><a href="https://github.com/yildizib/mirror-line">GitHub</a><a href="#security">{{ copy.nav.security }}</a><a href="#roadmap">{{ copy.nav.roadmap }}</a></div>
+        <p class="footer-note">{{ copy.footerNote }}<br>© 2026 MirrorLine · Apache-2.0</p>
+      </div>
+    </footer>
+  </body>
+</html>
