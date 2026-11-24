@@ -17,7 +17,7 @@
 - [x] 3.1 Add Flyway migrations and explicit `JdbcTemplate` SQL repositories
   for accounts, devices, public keys, pairing, opaque mailbox,
   acknowledgements, sessions, and append-only audit records.
-- [ ] 3.2 Add mobile persistence for identities, public-key versions, mailbox
+- [x] 3.2 Add mobile persistence for identities, public-key versions, mailbox
   cursors, encrypted envelopes, eight-day replay records, and history policy.
 - [x] 3.3 Test PostgreSQL constraints, concurrent quota transitions, upgrades,
   expiry cleanup, idempotency, and retention boundaries without JPA.

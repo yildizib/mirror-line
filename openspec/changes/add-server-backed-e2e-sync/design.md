@@ -78,6 +78,14 @@ Devices retain user-visible local history for one of 7, 30, 90, or 180 days;
 the default is 30 days. Local-history deletion does not rewrite audit history or
 extend mailbox retention.
 
+## Time semantics
+
+PostgreSQL `TIMESTAMPTZ` values and mobile epoch-millisecond values store UTC
+instants. APIs emit ISO-8601 timestamps with a `Z` suffix, and domain values
+normalize to UTC; only the UI converts instants to device-local time. Retention
+uses a half-open interval `[created, expiry)`, so a record is expired exactly
+at its configured expiry instant.
+
 ## Pairing
 
 Pairing is a server transaction. A Main opens a one-use pairing code valid for

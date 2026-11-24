@@ -2,6 +2,9 @@
 // reimplementation of them) so schema changes across the app's released
 // versions are verified to (a) not lose existing data and (b) leave the
 // expected columns/defaults in place for a fresh install.
+import 'dart:io';
+import 'dart:typed_data';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mirrorline/core/data/database.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -86,6 +89,78 @@ void main() {
 
     await db.close();
   });
+
+  test(
+    'persisted version seven database reopens through version eight upgrade',
+    () async {
+      final testDatabaseRoot = Directory('build/test-databases');
+      await testDatabaseRoot.create(recursive: true);
+      final directory = await testDatabaseRoot.createTemp('mirrorline-v7-');
+      addTearDown(() async {
+        if (await directory.exists()) await directory.delete(recursive: true);
+      });
+      final path = '${directory.path}/legacy.db';
+      final legacy = await databaseFactory.openDatabase(
+        path,
+        options: OpenDatabaseOptions(
+          version: 7,
+          onCreate: _createVersion7Schema,
+        ),
+      );
+      var legacyClosed = false;
+      addTearDown(() async {
+        if (!legacyClosed) await legacy.close();
+      });
+      await legacy.insert('peer', {
+        'id': 'legacy',
+        'device_name': '',
+        'role': 'source',
+        'ip': '0',
+        'port': 1,
+        'key': 'legacy',
+        'public_key': '',
+        'created_at': 1,
+      });
+      await legacy.close();
+      legacyClosed = true;
+      final upgraded = await databaseFactory.openDatabase(
+        path,
+        options: OpenDatabaseOptions(
+          version: 8,
+          onConfigure: AppDatabase.instance.configureDatabase,
+          onUpgrade: AppDatabase.instance.upgradeTables,
+        ),
+      );
+      var upgradedClosed = false;
+      addTearDown(() async {
+        if (!upgradedClosed) await upgraded.close();
+      });
+      expect(
+        (await upgraded.rawQuery('PRAGMA user_version')).single.values.single,
+        8,
+      );
+      expect((await upgraded.query('peer')).single['key'], 'legacy');
+      expect(
+        (await upgraded.query('local_history_policy')).single['retention_days'],
+        30,
+      );
+      await expectLater(
+        upgraded.insert('device_key_version', {
+          'user_id': '11111111-1111-4111-8111-111111111111',
+          'device_id': '22222222-2222-4222-8222-222222222222',
+          'version': 1,
+          'signing_public_key': Uint8List.fromList(List<int>.filled(32, 1)),
+          'encryption_public_key': Uint8List.fromList(List<int>.filled(32, 2)),
+          'fingerprint': Uint8List.fromList(List<int>.filled(32, 3)),
+          'status': 'active',
+          'created_at': 1,
+        }),
+        throwsA(isA<DatabaseException>()),
+      );
+      await upgraded.close();
+      upgradedClosed = true;
+    },
+  );
 
   test(
     'upgrading from v1 preserves existing rows and adds new columns',
@@ -370,4 +445,53 @@ void main() {
 Future<List<String>> _columnNames(Database db, String table) async {
   final info = await db.rawQuery('PRAGMA table_info($table)');
   return info.map((row) => row['name'] as String).toList();
+}
+
+/// Exact schema created by the released v7 [AppDatabase.createTables].
+Future<void> _createVersion7Schema(Database db, int _) async {
+  await db.execute('''
+    CREATE TABLE peer (
+      id TEXT PRIMARY KEY, device_name TEXT NOT NULL DEFAULT "",
+      role TEXT NOT NULL, ip TEXT NOT NULL, port INTEGER NOT NULL,
+      key TEXT NOT NULL, public_key TEXT NOT NULL DEFAULT "",
+      created_at INTEGER NOT NULL
+    )
+  ''');
+  await db.execute('''
+    CREATE TABLE call_event (
+      id TEXT PRIMARY KEY, direction TEXT NOT NULL, number TEXT NOT NULL,
+      contact_name TEXT NOT NULL DEFAULT "", timestamp INTEGER NOT NULL,
+      encrypted TEXT NOT NULL, status TEXT NOT NULL, created_at INTEGER NOT NULL
+    )
+  ''');
+  await db.execute('''
+    CREATE TABLE sms_message (
+      id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, address TEXT NOT NULL,
+      contact_name TEXT NOT NULL DEFAULT "", body TEXT NOT NULL,
+      encrypted TEXT NOT NULL, direction TEXT NOT NULL, status TEXT NOT NULL,
+      timestamp INTEGER NOT NULL, created_at INTEGER NOT NULL
+    )
+  ''');
+  await db.execute('''
+    CREATE TABLE offline_queue (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT NOT NULL,
+      payload TEXT NOT NULL, dedupe_key TEXT,
+      retry_count INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL
+    )
+  ''');
+  await db.execute('''
+    CREATE TABLE known_network (
+      peer_id TEXT NOT NULL, subnet_prefix TEXT NOT NULL, ip TEXT NOT NULL,
+      port INTEGER NOT NULL, last_seen_at INTEGER NOT NULL,
+      PRIMARY KEY (peer_id, subnet_prefix)
+    )
+  ''');
+  await db.execute('''
+    CREATE TABLE notification_event (
+      id TEXT PRIMARY KEY, native_id TEXT NOT NULL, package_name TEXT NOT NULL,
+      app_name TEXT NOT NULL DEFAULT "", title TEXT NOT NULL DEFAULT "",
+      text TEXT NOT NULL DEFAULT "", encrypted TEXT NOT NULL,
+      timestamp INTEGER NOT NULL, created_at INTEGER NOT NULL
+    )
+  ''');
 }
