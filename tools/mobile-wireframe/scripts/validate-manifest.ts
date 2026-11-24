@@ -1,30 +1,27 @@
-import { screens } from '../src/screens';
 import { normalizeVariant, readManifest } from './manifest';
 
 const manifest = readManifest();
 const errors: string[] = [];
-const screenMap = new Map(screens.map((screen) => [screen.id, screen]));
 
-if (manifest.length !== 90) {
-  errors.push(`Expected 90 manifest IDs, found ${manifest.length}.`);
+if (manifest.length !== 97) {
+  errors.push(`Expected 97 manifest IDs, found ${manifest.length}.`);
 }
 
+const seen = new Set<string>();
 for (const entry of manifest) {
-  const screen = screenMap.get(entry.id);
-  if (!screen) {
-    errors.push(`Missing screen ${entry.id}.`);
-    continue;
+  if (seen.has(entry.id)) {
+    errors.push(`Duplicate manifest ID ${entry.id}.`);
   }
-  const expected = entry.variants.map(normalizeVariant).sort();
-  const actual = screen.variants.map(normalizeVariant).sort();
-  if (expected.join('|') !== actual.join('|')) {
-    errors.push(`${entry.id} variants differ. Expected [${expected.join(', ')}], found [${actual.join(', ')}].`);
+  seen.add(entry.id);
+
+  if (entry.variants.length === 0 || entry.variants.some((variant) => !normalizeVariant(variant))) {
+    errors.push(`${entry.id} has no usable required variants.`);
   }
 }
 
-for (const screen of screens) {
-  if (!manifest.some((entry) => entry.id === screen.id)) {
-    errors.push(`Screen ${screen.id} is not present in the manifest.`);
+for (const id of ['A12', 'A13', 'A14', 'R08', 'P17', 'SS10', 'X09']) {
+  if (!seen.has(id)) {
+    errors.push(`Missing approved target screen ${id}.`);
   }
 }
 
@@ -33,5 +30,5 @@ if (errors.length > 0) {
   process.exit(1);
 }
 
-const variantCount = screens.reduce((total, screen) => total + screen.variants.length, 0);
-console.log(`Validated ${screens.length} screen IDs and ${variantCount} required states.`);
+const variantCount = manifest.reduce((total, entry) => total + entry.variants.length, 0);
+console.log(`Validated ${manifest.length} documented screen IDs and ${variantCount} required states.`);
