@@ -50,27 +50,33 @@ Her cihaz Ed25519 imzalama ve X25519 anahtar anlaşması özel anahtarlarını
 yalnızca cihazda saklar. Sunucuya yalnızca açık anahtarlar, sürümleri ve gizli
 olmayan yaşam döngüsü meta verisi gider.
 
-- X25519 + HKDF-SHA256 her zarf için anahtar üretir.
+- X25519 + HKDF-SHA256 her zarf için anahtar üretir; HKDF bilgisi yönü,
+  gönderici/alıcı kullanıcı ve cihaz kimliklerini, `senderKeyVersion`,
+  `recipientKeyVersion` ve `messageId` değerini kapsar.
 - AES-256-GCM içerik şifrelemesini sağlar.
 - RFC 8785 canonical JSON, imzalanan yapılandırılmış alanları sabitler.
-- Ed25519 imzası protokol sürümünü, zarfı, gönderici/alıcı kullanıcı ve cihaz
-  kimliklerini, anahtar sürümlerini, türü, zamanları, nonce'u ve şifreli metin
-  bağını kapsar.
-- Alıcı, imza/kimlik/sürüm/zaman/sequence doğrulamasından ve GCM doğrulamasından
-  önce içerik işlemez.
-- Cihazlar kabul edilmiş replay kayıtlarını sekiz gün tutar; aynı zarf tekrar
-  işlenmez.
+- Ed25519 imzası RFC 8785 canonical JSON ile `protocolVersion`, `messageId`,
+  `messageType`, `createdAt`, gönderici/alıcı kullanıcı ve cihaz kimlikleri,
+  `senderKeyVersion`, `recipientKeyVersion`, nonce ve şifreli metni doğrudan
+  kapsar; ayrı bir şifreli metin özeti gerekmez.
+- Alıcı, imza/kimlik/sürüm ve GCM doğrulamasından önce içerik işlemez.
+- Cihazlar gönderici-kapsamlı `messageId` ve kalıcı digest/tombstone replay
+  kayıtlarını sekiz gün tutar; `createdAt` imzalı meta veridir, ancak çevrimdışı
+  veya sıra dışı teslimi tek başına reddetmez.
 
-Sunucu yalnızca şifreli zarfı en fazla yedi gün saklar. Push bildirimi içerik
-taşımaz; sadece senkronizasyon gerektiğini uyandıran opak bir sinyaldir.
+Sunucu kabul ettiği şifreli zarfı yalnızca kendi `acceptedAt + 7 gün` süresince
+saklar; istemci imzalı bir son kullanma alanı bu süreyi belirleyemez veya
+uzatamaz. Push bildirimi içerik taşımaz; sadece senkronizasyon gerektiğini
+uyandıran opak bir sinyaldir.
 
 ## Anahtar yaşam döngüsü
 
 Anahtar döndürme 90 günde bir planlanır; kullanıcı manuel veya acil döndürme
-başlatabilir. Yeni açık anahtar sürümü eski ve yeni Ed25519 anahtarlarıyla
-bağlılık kanıtı sunar. Eşlerden ACK alınır; tüm ACK'ler geldiğinde ya da en geç
-24 saatte yeni sürüm etkinleşir. Eski/yeni doğrulama 14 gün örtüşür. Özel
-anahtarların sunucuya yüklenmesi veya bulut yedeği yoktur.
+başlatabilir. Ed25519 ve X25519 açık anahtarları tek bir `keyVersion` altında
+birlikte döner. Yeni sürüm eski ve yeni Ed25519 anahtarlarıyla bağlılık kanıtı
+sunar. Eşlerden ACK alınır; tüm ACK'ler geldiğinde ya da en geç 24 saatte yeni
+sürüm etkinleşir. Eski/yeni doğrulama 14 gün örtüşür. Özel anahtarların
+sunucuya yüklenmesi veya bulut yedeği yoktur.
 
 ## Geçmiş, oturum ve güvenlik denetimi
 
@@ -102,7 +108,10 @@ Mobil kod `base -> facade -> ui_service -> ui` sınırını korur; UI ve UI serv
 katmanları taban servislerine doğrudan erişmez. Hedef ürün API'leri `/v1`
 altında kimlik/oturum, cihaz, eşleştirme, anahtar yaşam döngüsü, posta kutusu,
 güvenlik denetimi ve iç push gruplarına ayrılır; istemciler metin yerine sabit
-hata kodlarını kullanır.
+hata kodlarını kullanır. Sunucu kalıcılığı Flyway + `JdbcTemplate` ile açık SQL,
+service/facade transaction sınırları ve PostgreSQL constraint'leri kullanır;
+posta kutusu, audit, anahtar yaşam döngüsü ve kota kuralları SQL/concurrency
+yoğun olduğu için JPA kullanılmaz.
 
 **Uygulama durumu (Kasım 2026):** Bu belge onaylanmış hedef ürün sözleşmesini
 tanımlar. Mevcut depo henüz bu sunucu aracılı hesap, cihaz kaydı, eşleştirme,
@@ -162,27 +171,34 @@ Each device keeps its Ed25519 signing and X25519 key-agreement private keys
 locally. The service receives only public keys, versions, and non-secret
 lifecycle metadata.
 
-- X25519 plus HKDF-SHA256 derives an envelope key.
+- X25519 plus HKDF-SHA256 derives an envelope key; HKDF info includes direction,
+  sender/recipient users and devices, `senderKeyVersion`,
+  `recipientKeyVersion`, and `messageId`.
 - AES-256-GCM encrypts content.
 - RFC 8785 canonical JSON fixes the signed structured representation.
-- An Ed25519 signature covers protocol/version, envelope, sender and recipient
-  users/devices, key versions, type, timestamps, nonce, and ciphertext binding.
-- A recipient verifies signature, identity, version, time, sequence, and GCM
-  authentication before dispatching content.
-- Devices retain accepted replay records for eight days and never dispatch a
-  duplicate envelope twice.
+- The Ed25519 signature directly covers RFC 8785 canonical JSON containing
+  `protocolVersion`, `messageId`, `messageType`, `createdAt`, sender/recipient
+  users/devices, `senderKeyVersion`, `recipientKeyVersion`, nonce, and
+  ciphertext; no separate ciphertext digest is needed in the signed envelope.
+- A recipient verifies signature, identity, version, and GCM authentication
+  before dispatching content.
+- Devices retain sender-scoped `messageId` plus persisted digest/tombstone replay
+  records for eight days. `createdAt` is signed metadata, but does not by itself
+  reject legitimate offline or out-of-order delivery.
 
-The service retains opaque encrypted mailbox envelopes for at most seven days.
-Push has no product content; it is only an opaque wake signal that sync is
-required.
+The service retains an accepted opaque encrypted mailbox envelope only until
+its server-assigned `acceptedAt + 7 days`; no client-signed expiry controls that
+retention. Push has no product content; it is only an opaque wake signal that
+sync is required.
 
 ## Key lifecycle
 
 Key rotation is scheduled every 90 days and also supports manual and emergency
-paths. A new public-key version provides a continuity proof signed by both old
-and new Ed25519 keys. Peers acknowledge it; the new version activates at all
-ACKs or after at most 24 hours. Old/new verification overlaps for 14 days.
-Private keys are never uploaded or cloud-backed up.
+paths. Ed25519 and X25519 public keys rotate together under one `keyVersion`.
+A new version provides a continuity proof signed by both old and new Ed25519
+keys. Peers acknowledge it; the new version activates at all ACKs or after at
+most 24 hours. Old/new verification overlaps for 14 days. Private keys are
+never uploaded or cloud-backed up.
 
 ## History, sessions, and security audit
 
@@ -215,7 +231,10 @@ Mobile code preserves the `base -> facade -> ui_service -> ui` boundary; UI
 and UI services do not access base services directly. Target APIs live under
 `/v1` in authentication/session, device, pairing, key lifecycle, mailbox,
 security-audit, and internal-push groups; clients use stable error codes rather
-than response text.
+than response text. Server persistence uses Flyway plus `JdbcTemplate` explicit
+SQL, service/facade transaction boundaries, and PostgreSQL constraints. JPA is
+intentionally not used because mailbox, audit, key-lifecycle, and quota rules
+are SQL- and concurrency-heavy.
 
 **Implementation status (November 2026):** This document describes the
 approved target product contract. The current repository does not yet implement

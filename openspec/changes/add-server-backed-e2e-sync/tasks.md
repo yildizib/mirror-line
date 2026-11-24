@@ -14,11 +14,13 @@
 
 ## T3. Persistence and migrations
 
-- [ ] 3.1 Add server migrations for accounts, devices, public keys, pairing,
-  opaque mailbox, acknowledgements, sessions, and append-only audit records.
+- [ ] 3.1 Add Flyway migrations and explicit `JdbcTemplate` SQL repositories
+  for accounts, devices, public keys, pairing, opaque mailbox,
+  acknowledgements, sessions, and append-only audit records.
 - [ ] 3.2 Add mobile persistence for identities, public-key versions, mailbox
   cursors, encrypted envelopes, eight-day replay records, and history policy.
-- [ ] 3.3 Test upgrades, expiry cleanup, idempotency, and retention boundaries.
+- [ ] 3.3 Test PostgreSQL constraints, concurrent quota transitions, upgrades,
+  expiry cleanup, idempotency, and retention boundaries without JPA.
 
 ## T4. Identity and device registration
 

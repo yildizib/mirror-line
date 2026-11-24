@@ -26,26 +26,33 @@ their product operations to UI services.
 ## Cryptographic contract
 
 Each device has local-only Ed25519 signing and X25519 key-agreement private
-keys. Public keys and monotonically increasing key versions are registered with
-the server. Private keys MUST NOT be uploaded, backed up by the server, or
-included in audit events.
+keys. The two public keys rotate together under one monotonically increasing
+`keyVersion`; they are not independently versioned. Public keys and their
+shared version are registered with the server. Private keys MUST NOT be
+uploaded, backed up by the server, or included in audit events.
 
 For an envelope, the sender obtains the recipient's registered X25519 public
-key version, derives an envelope key with X25519 and HKDF-SHA256, then encrypts
-the plaintext with AES-256-GCM. The structured signed fields are canonicalized
-using RFC 8785 JSON Canonicalization Scheme before the Ed25519 signature is
-created or verified. The exact KDF salt/info and wire byte encoding are T2
-interoperability fixtures, not implementation-defined values.
+key at `recipientKeyVersion`, derives an envelope key with X25519 and
+HKDF-SHA256, then encrypts the plaintext with AES-256-GCM. HKDF info is
+envelope-specific and includes direction (sender/recipient user and device
+IDs), `senderKeyVersion`, `recipientKeyVersion`, and `messageId`. The structured
+signed fields are canonicalized using RFC 8785 JSON Canonicalization Scheme
+before the Ed25519 signature is created or verified. The exact KDF salt and
+wire byte encoding are T2 interoperability fixtures, not implementation-defined
+values.
 
 The signed header contains at least:
 
-- `protocolVersion`, `envelopeId`, `messageType`, `createdAt`, and `expiresAt`;
-- sender `userId`, `deviceId`, signing-key version, and agreement-key version;
-- recipient `userId`, `deviceId`, signing-key version, and agreement-key
-  version;
-- `nonce`, `ciphertext`, and a ciphertext digest or equivalent canonical
-  binding field; and
+- `protocolVersion`, `messageId`, `messageType`, and `createdAt`;
+- sender `userId`, `deviceId`, and `senderKeyVersion`;
+- recipient `userId`, `deviceId`, and `recipientKeyVersion`;
+- `nonce` and `ciphertext`; and
 - `signature` over the canonical header excluding `signature` itself.
+
+The canonical signed representation includes the ciphertext directly. It has no
+client-signed `expiresAt` and needs no separate ciphertext-digest field. The
+server assigns immutable `acceptedAt` after successful admission; retention is
+authoritative from `acceptedAt + 7 days`.
 
 The sender and recipient user IDs MUST be equal for this product. A server
 MUST reject an envelope that addresses an unregistered, revoked, incorrectly
@@ -55,19 +62,21 @@ authentication before dispatching plaintext.
 
 ## Replay and retention
 
-`envelopeId` is unique per sender device and the receiver persists accepted
-replay records for eight days. A duplicate ID, previously accepted signed
-header hash, invalid sequence for the declared stream, expired envelope, or
-timestamp outside the specified replay window is rejected before application
-dispatch. Clock skew and sequencing thresholds are part of the shared T2 test
-fixtures and cannot silently weaken the eight-day deduplication period.
+`messageId` is unique within its sender device identity and the receiver
+persists sender-scoped replay records for eight days. A replay record contains a
+message ID plus a persisted digest/tombstone of the accepted envelope. A
+duplicate sender/message ID, a conflicting digest for that ID, unsupported
+versions, or failed signature/AES-GCM verification is rejected before
+application dispatch. `createdAt` is signed metadata but is neither a
+uniqueness key nor a strict ordering requirement: a legitimate out-of-order or
+offline envelope MUST NOT be rejected solely because of its creation time.
 
-The server stores accepted opaque mailbox envelopes for at most seven days,
-deletes expired envelopes and their content-bearing metadata, and exposes no
-plaintext search. Delivery acknowledgement is idempotent and may safely be
-repeated. Devices retain user-visible local history for one of 7, 30, 90, or
-180 days; the default is 30 days. Local-history deletion does not rewrite audit
-history or extend mailbox retention.
+The server stores accepted opaque mailbox envelopes until `acceptedAt + 7 days`,
+then deletes them and their content-bearing metadata; it exposes no plaintext
+search. Delivery acknowledgement is idempotent and may safely be repeated.
+Devices retain user-visible local history for one of 7, 30, 90, or 180 days;
+the default is 30 days. Local-history deletion does not rewrite audit history or
+extend mailbox retention.
 
 ## Pairing
 
@@ -96,12 +105,13 @@ terminal transaction never reopens.
 ## Key lifecycle
 
 Every device schedules key rotation every 90 days and supports manual and
-emergency rotation. The rotating device registers new public-key versions and
-provides a dual old/new Ed25519 proof so peers can authenticate continuity. It
-collects required peer acknowledgements, activates the new version after all
-acks or no later than 24 hours, and preserves a 14-day old/new verification
-overlap. Emergency rotation may revoke compromised old material immediately;
-affected peers must re-establish trust according to the recovery contract.
+emergency rotation. A rotation advances the single shared `keyVersion` for its
+Ed25519 and X25519 public keys together. The rotating device provides a dual
+old/new Ed25519 proof so peers can authenticate continuity. It collects required
+peer acknowledgements, activates the new version after all acks or no later
+than 24 hours, and preserves a 14-day old/new verification overlap. Emergency
+rotation may revoke compromised old material immediately; affected peers must
+re-establish trust according to the recovery contract.
 
 ## Sessions and audit
 
@@ -126,6 +136,15 @@ and sessions, identity and devices, pairing, key lifecycle, mailbox sync,
 security audit, and internal push wake-up. Responses use a stable JSON error
 shape with a machine-readable `code`; clients branch on codes, never text.
 Push contains only an opaque sync-required wake signal and no E2E content.
+
+## Persistence boundaries
+
+Server persistence uses Flyway migrations and `JdbcTemplate` with explicit SQL.
+Service/facade methods define transaction boundaries, and PostgreSQL constraints
+enforce identity, key-version, mailbox, quota, and append-only audit invariants.
+JPA is intentionally not used: mailbox admission, audit immutability, key
+lifecycle, and role/quota transitions are SQL- and concurrency-heavy rules that
+must remain explicit and reviewable.
 
 ## Migration and rollout
 

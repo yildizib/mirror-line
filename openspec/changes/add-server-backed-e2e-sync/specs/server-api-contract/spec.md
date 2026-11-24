@@ -12,6 +12,20 @@ NOT use internal push administration endpoints.
 - **THEN** the service SHALL return `API_VERSION_UNSUPPORTED`
 - **AND** SHALL not interpret it as `/v1`
 
+### Requirement: Server persistence uses explicit relational boundaries
+
+The server SHALL use Flyway migrations and `JdbcTemplate` explicit SQL for
+product persistence. Service/facade methods SHALL define transaction boundaries,
+and PostgreSQL constraints SHALL enforce identity, key-version, mailbox, quota,
+and append-only audit invariants. The server SHALL NOT use JPA for these
+SQL- and concurrency-heavy rules.
+
+#### Scenario: Concurrent source pairing reaches quota
+- **WHEN** concurrent pairing completions compete for the final Source slot
+- **THEN** the PostgreSQL constraint and transaction boundary SHALL admit at
+  most one completion
+- **AND** the losing request SHALL receive `DEVICE_LIMIT_REACHED`
+
 ### Requirement: Error codes are stable and machine-readable
 
 Errors SHALL return a stable `code`, safe message, request correlation ID, and

@@ -3,8 +3,9 @@
 ### Requirement: Device private keys remain device-local
 
 Each device SHALL generate and protect its Ed25519 and X25519 private keys
-locally. The service SHALL store only public keys, public-key versions, and
-non-secret lifecycle metadata.
+locally. Its public signing and agreement keys SHALL share one `keyVersion` and
+SHALL rotate together. The service SHALL store only public keys, their shared
+version, and non-secret lifecycle metadata.
 
 #### Scenario: A device registers key material
 - **WHEN** a device registers or rotates keys
