@@ -46,6 +46,9 @@ class IdentityApiIntegrationTest {
     @Autowired
     lateinit var jdbcTemplate: JdbcTemplate
 
+    @Autowired
+    lateinit var sessionRepository: SessionRepository
+
     @BeforeEach
     fun resetMail() = mail.clear()
 
@@ -291,6 +294,20 @@ class IdentityApiIntegrationTest {
     }
 
     @Test
+    fun `session repository rotates a hashed opaque refresh token`() {
+        val enrolled = enroll(loginForEnrollment(verifiedAccount()), "MAIN")
+        val rotated =
+            sessionRepository.rotateRefresh(
+                AccountFacade.hash(enrolled["refreshToken"].asText()),
+                AccountFacade.hash(AccountFacade.randomToken()),
+                OffsetDateTime.now().plusMinutes(15),
+                AccountFacade.hash(AccountFacade.randomToken()),
+                OffsetDateTime.now().plusDays(30),
+            )
+        assertThat(rotated).isNotNull
+    }
+
+    @Test
     fun `device APIs deny cross user updates and reject malformed or tampered enrollment`() {
         val first = enroll(loginForEnrollment(verifiedAccount()), "MAIN")
         val second = enroll(loginForEnrollment(verifiedAccount()), "MAIN")
@@ -347,72 +364,82 @@ class IdentityApiIntegrationTest {
     }
 
     @Test
-    fun `main may revoke a source while source cannot revoke main or update another device`() {
+    fun `unpaired Sources are pending and cannot obtain normal product sessions`() {
         val email = verifiedAccount()
         val main = enroll(loginForEnrollment(email), "MAIN")
         val source = enroll(loginForEnrollment(email), "SOURCE")
-        val otherSource = enroll(loginForEnrollment(email), "SOURCE")
-        val sourceTokens = loginForDevice(email, source["deviceId"].asText())
-
+        mockMvc
+            .post("/v1/auth/login") {
+                contentType = MediaType.APPLICATION_JSON
+                content = """{"email":"$email","password":"A-valid-password-123","deviceId":"${source["deviceId"].asText()}"}"""
+            }.andExpect {
+                status { isForbidden() }
+                jsonPath("$.code") { value("DEVICE_REVOKED") }
+            }
+        mockMvc
+            .delete("/v1/devices/${source["deviceId"].asText()}") {
+                header("Authorization", "Bearer ${source["accessToken"].asText()}")
+                header("Idempotency-Key", "source-revoke-main")
+            }.andExpect {
+                status { isForbidden() }
+                jsonPath("$.code") { value("AUTH_FORBIDDEN") }
+            }
+        val otherMain = enroll(loginForEnrollment(verifiedAccount()), "MAIN")
+        mockMvc
+            .delete("/v1/devices/${source["deviceId"].asText()}") {
+                header("Authorization", "Bearer ${otherMain["accessToken"].asText()}")
+                header("Idempotency-Key", "cross-account-revoke")
+            }.andExpect {
+                status { isNotFound() }
+                jsonPath("$.code") { value("DEVICE_NOT_FOUND") }
+            }
+        mockMvc
+            .delete("/v1/devices/${source["deviceId"].asText()}") {
+                header("Authorization", "Bearer ${main["accessToken"].asText()}")
+                header("Idempotency-Key", "main-revoke-source")
+            }.andExpect { status { isNoContent() } }
+        mockMvc
+            .delete("/v1/devices/${source["deviceId"].asText()}") {
+                header("Authorization", "Bearer ${main["accessToken"].asText()}")
+                header("Idempotency-Key", "main-revoke-source")
+            }.andExpect { status { isNoContent() } }
         mockMvc
             .delete("/v1/devices/${main["deviceId"].asText()}") {
-                header("Authorization", "Bearer ${sourceTokens["accessToken"].asText()}")
+                header("Authorization", "Bearer ${main["accessToken"].asText()}")
+                header("Idempotency-Key", "main-revoke-source")
             }.andExpect {
-                status { isForbidden() }
-                jsonPath("$.code") { value("AUTH_FORBIDDEN") }
+                status { isConflict() }
+                jsonPath("$.code") { value("PAIRING_STATE_INVALID") }
             }
-        mockMvc
-            .post("/v1/devices/${main["deviceId"].asText()}/fcm-token") {
-                header("Authorization", "Bearer ${sourceTokens["accessToken"].asText()}")
-                contentType = MediaType.APPLICATION_JSON
-                content = """{"fcmToken":"not-my-device"}"""
-            }.andExpect { status { isForbidden() } }
-        mockMvc
-            .delete("/v1/devices/${otherSource["deviceId"].asText()}") {
-                header("Authorization", "Bearer ${sourceTokens["accessToken"].asText()}")
-            }.andExpect {
-                status { isForbidden() }
-                jsonPath("$.code") { value("AUTH_FORBIDDEN") }
-            }
-        mockMvc
-            .post("/v1/devices/${source["deviceId"].asText()}/fcm-token") {
-                header("Authorization", "Bearer ${sourceTokens["accessToken"].asText()}")
-                contentType = MediaType.APPLICATION_JSON
-                content = """{"fcmToken":"self-device"}"""
-            }.andExpect { status { isNoContent() } }
         assertThat(
             jdbcTemplate.queryForObject(
-                "SELECT fcm_token FROM devices WHERE user_id = ? AND device_id = ?",
+                "SELECT status::text FROM devices WHERE user_id = ? AND device_id = ?",
                 String::class.java,
                 UUID.fromString(source["userId"].asText()),
                 UUID.fromString(source["deviceId"].asText()),
             ),
-        ).isEqualTo("self-device")
-        mockMvc
-            .delete("/v1/devices/${source["deviceId"].asText()}") {
-                header("Authorization", "Bearer ${main["accessToken"].asText()}")
-            }.andExpect { status { isNoContent() } }
+        ).isEqualTo("REVOKED")
     }
 
     @Test
-    fun `database source quota denial has no registration success audit`() {
+    fun `Source enrollment remains pending until pairing completion and does not consume quota`() {
         val email = verifiedAccount()
         enroll(loginForEnrollment(email), "MAIN")
-        repeat(5) { enroll(loginForEnrollment(email), "SOURCE") }
-        val deniedLogin = loginForEnrollment(email)
-        val correlation = UUID.randomUUID()
-        mockMvc
-            .post("/v1/devices/enroll") {
-                header("X-Correlation-Id", correlation.toString())
-                contentType = MediaType.APPLICATION_JSON
-                content = enrollmentPayload(deniedLogin, "SOURCE")
-            }.andExpect {
-                status { isForbidden() }
-                jsonPath("$.code") { value("DEVICE_LIMIT_REACHED") }
-            }
-        val userId = UUID.fromString(deniedLogin["userId"].asText())
-        assertThat(auditCount("DEVICE_REGISTRATION", "FAILURE", userId = userId)).isEqualTo(1)
-        assertThat(auditCount("DEVICE_REGISTERED", "SUCCESS", correlation)).isZero()
+        repeat(6) { enroll(loginForEnrollment(email), "SOURCE") }
+        assertThat(
+            jdbcTemplate.queryForObject(
+                "SELECT count(*) FROM devices d JOIN users u ON d.user_id=u.user_id WHERE u.email_normalized=? AND d.role='SOURCE' AND d.status='ACTIVE'",
+                Int::class.java,
+                email,
+            ),
+        ).isZero()
+        assertThat(
+            jdbcTemplate.queryForObject(
+                "SELECT count(*) FROM devices d JOIN users u ON d.user_id=u.user_id WHERE u.email_normalized=? AND d.role='SOURCE' AND d.status='PENDING'",
+                Int::class.java,
+                email,
+            ),
+        ).isEqualTo(6)
     }
 
     @Test

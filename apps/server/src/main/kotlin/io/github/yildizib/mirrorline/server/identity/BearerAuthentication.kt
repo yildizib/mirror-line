@@ -19,6 +19,7 @@ data class AuthenticatedPrincipal(
     val userId: UUID,
     val deviceId: UUID,
     val sessionId: UUID,
+    val deviceStatus: String = "ACTIVE",
 ) : UserDetails {
     override fun getAuthorities() = AuthorityUtils.NO_AUTHORITIES
 
@@ -57,7 +58,18 @@ class BearerAuthenticationFilter(
                 )
                 return
             }
-            val principal = AuthenticatedPrincipal(session.userId, session.deviceId, session.sessionId)
+            val path = request.requestURI.substringBefore('?')
+            val pairingRoute = path == "/v1/pairings" || path.startsWith("/v1/pairings/")
+            if (session.deviceStatus != "ACTIVE" && !pairingRoute) {
+                response.status = HttpServletResponse.SC_FORBIDDEN
+                response.contentType = MediaType.APPLICATION_JSON_VALUE
+                objectMapper.writeValue(
+                    response.outputStream,
+                    ApiError("AUTH_FORBIDDEN", "The request is not permitted.", CorrelationIds.current()),
+                )
+                return
+            }
+            val principal = AuthenticatedPrincipal(session.userId, session.deviceId, session.sessionId, session.deviceStatus)
             SecurityContextHolder.getContext().authentication = UsernamePasswordAuthenticationToken(principal, null, principal.authorities)
         }
         filterChain.doFilter(request, response)

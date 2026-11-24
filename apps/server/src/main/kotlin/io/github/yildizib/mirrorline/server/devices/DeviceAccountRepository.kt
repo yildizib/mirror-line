@@ -4,6 +4,7 @@ import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.jdbc.core.RowMapper
 import org.springframework.stereotype.Repository
 import java.time.OffsetDateTime
+import java.time.ZoneOffset
 import java.util.UUID
 
 data class DeviceView(
@@ -14,10 +15,69 @@ data class DeviceView(
     val createdAt: OffsetDateTime,
 )
 
+data class DeviceRevokeIdempotency(
+    val targetDeviceId: UUID,
+)
+
 @Repository
 class DeviceAccountRepository(
     private val jdbcTemplate: JdbcTemplate,
 ) {
+    fun lockRevokeIdempotency(
+        userId: UUID,
+        actorDeviceId: UUID,
+        key: String,
+    ) {
+        jdbcTemplate.query(
+            "SELECT pg_advisory_xact_lock(hashtextextended(?, 0))",
+            { _ -> },
+            "$userId:$actorDeviceId:$key",
+        )
+    }
+
+    fun deleteExpiredRevokeIdempotency(
+        userId: UUID,
+        actorDeviceId: UUID,
+        key: String,
+    ) {
+        jdbcTemplate.update(
+            "DELETE FROM device_revoke_idempotency WHERE actor_user_id=? AND actor_device_id=? AND idempotency_key=? AND expires_at<=CURRENT_TIMESTAMP",
+            userId,
+            actorDeviceId,
+            key,
+        )
+    }
+
+    fun findRevokeIdempotency(
+        userId: UUID,
+        actorDeviceId: UUID,
+        key: String,
+    ): DeviceRevokeIdempotency? =
+        jdbcTemplate
+            .query(
+                """SELECT target_device_id FROM device_revoke_idempotency
+                WHERE actor_user_id=? AND actor_device_id=? AND idempotency_key=? AND expires_at>CURRENT_TIMESTAMP""",
+                RowMapper { row, _ -> DeviceRevokeIdempotency(row.getObject(1, UUID::class.java)) },
+                userId,
+                actorDeviceId,
+                key,
+            ).firstOrNull()
+
+    fun saveRevokeIdempotency(
+        userId: UUID,
+        actorDeviceId: UUID,
+        targetDeviceId: UUID,
+        key: String,
+    ): Boolean =
+        jdbcTemplate.update(
+            """INSERT INTO device_revoke_idempotency (actor_user_id,actor_device_id,target_device_id,idempotency_key,expires_at)
+            VALUES (?,?,?,?,CURRENT_TIMESTAMP + INTERVAL '5 minutes') ON CONFLICT DO NOTHING""",
+            userId,
+            actorDeviceId,
+            targetDeviceId,
+            key,
+        ) == 1
+
     fun existsActive(
         userId: UUID,
         deviceId: UUID,
@@ -45,9 +105,24 @@ class DeviceAccountRepository(
                 deviceId,
             ).firstOrNull()
 
-    fun createActive(
+    /** A Main may clean up an unpaired pending Source; no other pending role is manageable. */
+    fun manageableRole(
+        userId: UUID,
+        deviceId: UUID,
+    ): String? =
+        jdbcTemplate
+            .queryForList(
+                """SELECT role::text FROM devices WHERE user_id=? AND device_id=?
+                AND (status='ACTIVE' OR (role='SOURCE' AND status='PENDING'))""",
+                String::class.java,
+                userId,
+                deviceId,
+            ).firstOrNull()
+
+    fun create(
         userId: UUID,
         role: String,
+        status: String,
         platform: String,
         appVersion: String,
         displayName: String,
@@ -55,11 +130,12 @@ class DeviceAccountRepository(
         jdbcTemplate.queryForObject(
             """
             INSERT INTO devices (user_id, role, status, platform, app_version, display_name)
-            VALUES (?, CAST(? AS device_role), 'ACTIVE', ?, ?, ?) RETURNING device_id
+            VALUES (?, CAST(? AS device_role), CAST(? AS device_status), ?, ?, ?) RETURNING device_id
             """.trimIndent(),
             UUID::class.java,
             userId,
             role,
+            status,
             platform,
             appVersion,
             displayName,
@@ -106,7 +182,7 @@ class DeviceAccountRepository(
                     result.getString("role"),
                     result.getString("status"),
                     result.getString("display_name"),
-                    result.getObject("created_at", OffsetDateTime::class.java),
+                    result.getObject("created_at", OffsetDateTime::class.java).withOffsetSameInstant(ZoneOffset.UTC),
                 )
             },
             userId,
@@ -131,7 +207,7 @@ class DeviceAccountRepository(
         jdbcTemplate.update(
             """
             UPDATE devices SET status = 'REVOKED', revoked_at = CURRENT_TIMESTAMP
-            WHERE user_id = ? AND device_id = ? AND status = 'ACTIVE'
+            WHERE user_id = ? AND device_id = ? AND status IN ('ACTIVE', 'PENDING')
             """.trimIndent(),
             userId,
             deviceId,

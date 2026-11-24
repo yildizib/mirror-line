@@ -15,6 +15,7 @@ class SecurityAuditPersistenceRepository(
         userId: UUID? = null,
         deviceId: UUID? = null,
         sessionId: UUID? = null,
+        pairingSessionId: UUID? = null,
         correlationId: UUID? = null,
         failureCode: String? = null,
     ): Long =
@@ -26,9 +27,10 @@ class SecurityAuditPersistenceRepository(
                 user_id,
                 device_id,
                 session_id,
+                pairing_session_id,
                 correlation_id,
                 failure_code
-            ) VALUES (?, CAST(? AS audit_result), ?, ?, ?, ?, ?)
+            ) VALUES (?, CAST(? AS audit_result), ?, ?, ?, ?, ?, ?)
             RETURNING audit_event_id
             """.trimIndent(),
             Long::class.java,
@@ -37,6 +39,7 @@ class SecurityAuditPersistenceRepository(
             userId,
             deviceId,
             sessionId,
+            pairingSessionId,
             correlationId,
             failureCode,
         )!!

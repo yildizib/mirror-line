@@ -58,7 +58,8 @@ class DeviceFacade(
         if (!verifyProof(token.challenge!!, input)) registrationFailure(token.userId, "PAIRING_PROOF_INVALID")
         if (actions.consume("DEVICE_ENROLLMENT", tokenHash) == null) registrationFailure(token.userId, "AUTH_FORBIDDEN")
         try {
-            val deviceId = devices.createActive(token.userId, input.role, input.platform, input.appVersion, input.displayName)
+            val status = if (input.role == "SOURCE") "PENDING" else "ACTIVE"
+            val deviceId = devices.create(token.userId, input.role, status, input.platform, input.appVersion, input.displayName)
             val binding = hash(canonicalProofBytes(token.challenge, input))
             val fingerprint = encode(MessageDigest.getInstance("SHA-256").digest(input.signingPublicKey))
             devices.createActiveKeyVersionOne(
@@ -101,18 +102,32 @@ class DeviceFacade(
         userId: UUID,
         principalDeviceId: UUID,
         deviceId: UUID,
+        idempotencyKey: String,
     ) {
         val principalRole =
             devices.activeRole(userId, principalDeviceId)
                 ?: throw ApiException(HttpStatus.FORBIDDEN, "DEVICE_REVOKED", "The device is unavailable.")
+        devices.lockRevokeIdempotency(userId, principalDeviceId, idempotencyKey)
+        devices.deleteExpiredRevokeIdempotency(userId, principalDeviceId, idempotencyKey)
+        devices.findRevokeIdempotency(userId, principalDeviceId, idempotencyKey)?.let { replay ->
+            if (replay.targetDeviceId != deviceId) {
+                throw ApiException(HttpStatus.CONFLICT, "PAIRING_STATE_INVALID", "The request conflicts with an earlier request.")
+            }
+            return
+        }
         val targetRole =
-            devices.activeRole(userId, deviceId)
+            devices.manageableRole(userId, deviceId)
                 ?: throw ApiException(HttpStatus.NOT_FOUND, "DEVICE_NOT_FOUND", "Device was not found.")
         if (principalDeviceId != deviceId && !(principalRole == "MAIN" && targetRole == "SOURCE")) {
             throw ApiException(HttpStatus.FORBIDDEN, "AUTH_FORBIDDEN", "The request is not permitted.")
         }
         if (devices.revoke(userId, deviceId) == 0) {
             throw ApiException(HttpStatus.NOT_FOUND, "DEVICE_NOT_FOUND", "Device was not found.")
+        }
+        if (!devices.saveRevokeIdempotency(userId, principalDeviceId, deviceId, idempotencyKey)) {
+            val replay = devices.findRevokeIdempotency(userId, principalDeviceId, idempotencyKey)
+            if (replay?.targetDeviceId == deviceId) return
+            throw ApiException(HttpStatus.CONFLICT, "PAIRING_STATE_INVALID", "The request conflicts with an earlier request.")
         }
         sessions.revokeForDevice(userId, deviceId)
         audit.append("DEVICE_REVOKED", "SUCCESS", userId, deviceId, correlationId = CorrelationIds.current())

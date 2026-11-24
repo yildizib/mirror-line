@@ -3,6 +3,7 @@ package io.github.yildizib.mirrorline.server.shared
 import jakarta.servlet.FilterChain
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
+import jakarta.validation.ConstraintViolationException
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.http.converter.HttpMessageNotReadableException
@@ -11,6 +12,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException
 import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.RestControllerAdvice
 import org.springframework.web.filter.OncePerRequestFilter
+import org.springframework.web.method.annotation.HandlerMethodValidationException
 import java.util.UUID
 
 object CorrelationIds {
@@ -59,7 +61,12 @@ class ApiException(
 
 @RestControllerAdvice
 class ApiExceptionHandler {
-    @ExceptionHandler(MethodArgumentNotValidException::class, HttpMessageNotReadableException::class)
+    @ExceptionHandler(
+        MethodArgumentNotValidException::class,
+        HttpMessageNotReadableException::class,
+        HandlerMethodValidationException::class,
+        ConstraintViolationException::class,
+    )
     fun invalidRequest(): ResponseEntity<ApiError> =
         ResponseEntity.status(HttpStatus.BAD_REQUEST).body(
             ApiError("VALIDATION_FAILED", "The request is not valid.", CorrelationIds.current()),

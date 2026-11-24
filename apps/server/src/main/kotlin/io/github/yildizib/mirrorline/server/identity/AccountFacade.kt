@@ -125,7 +125,14 @@ class AccountFacade(
                 hash(refresh),
                 now().plusDays(30),
             ) ?: throw ApiException(HttpStatus.UNAUTHORIZED, "AUTH_SESSION_EXPIRED", "Session is unavailable.")
-        audit.append("SESSION_REFRESHED", "SUCCESS", session.userId, session.deviceId, session.sessionId, CorrelationIds.current())
+        audit.append(
+            "SESSION_REFRESHED",
+            "SUCCESS",
+            session.userId,
+            session.deviceId,
+            sessionId = session.sessionId,
+            correlationId = CorrelationIds.current(),
+        )
         return TokenPair(session.userId, session.deviceId, access, refresh)
     }
 

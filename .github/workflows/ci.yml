@@ -113,4 +113,5 @@ jobs:
           POSTGRES_DB: mirrorline
           POSTGRES_USER: mirrorline
           POSTGRES_PASSWORD: ci-only-password
+          MIRRORLINE_PAIRING_CODE_HMAC_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
         run: docker compose config --quiet
