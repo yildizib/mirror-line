@@ -19,6 +19,7 @@ import org.springframework.http.MediaType
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.delete
+import org.springframework.test.web.servlet.get
 import org.springframework.test.web.servlet.post
 import org.testcontainers.containers.PostgreSQLContainer
 import org.testcontainers.junit.jupiter.Container
@@ -403,6 +404,13 @@ class IdentityApiIntegrationTest {
                 header("Authorization", "Bearer ${main["accessToken"].asText()}")
                 header("Idempotency-Key", "main-revoke-source")
             }.andExpect { status { isNoContent() } }
+        mockMvc
+            .get("/v1/devices") {
+                header("Authorization", "Bearer ${source["accessToken"].asText()}")
+            }.andExpect {
+                status { isUnauthorized() }
+                jsonPath("$.code") { value("AUTH_SESSION_EXPIRED") }
+            }
         mockMvc
             .delete("/v1/devices/${main["deviceId"].asText()}") {
                 header("Authorization", "Bearer ${main["accessToken"].asText()}")

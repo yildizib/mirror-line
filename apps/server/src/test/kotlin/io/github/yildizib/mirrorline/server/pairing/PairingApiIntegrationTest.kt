@@ -218,9 +218,11 @@ class PairingApiIntegrationTest {
         val sourceProof = proof(source, id, redeemed["transcript"], "proof-source")
         assertThat(sourceProof["state"].asText()).isEqualTo("proofs_verified")
         assertThat(sourceProof["comparisonValue"].asText()).matches("\\d{6}")
-        assertThat(confirm(main, id, true, "confirm-main")["state"].asText()).isEqualTo("proofs_verified")
+        assertThat(confirm(main, id, true, "confirm-main")["state"].asText()).isEqualTo("comparison_confirmed")
+        assertThat(confirm(main, id, true, "confirm-main")["state"].asText()).isEqualTo("comparison_confirmed")
         val completed = confirm(source, id, true, "confirm-source")
         assertThat(completed["state"].asText()).isEqualTo("completed")
+        assertThat(confirm(main, id, true, "confirm-main")["state"].asText()).isEqualTo("completed")
         assertThat(
             jdbc.queryForObject(
                 "SELECT status::text FROM devices WHERE user_id=? AND device_id=?",
@@ -316,6 +318,7 @@ class PairingApiIntegrationTest {
         assertThat(audit(UUID.fromString(id), "PAIRING_PROOF_REJECTED", "FAILURE")).isEqualTo(1)
         proof(main, id, redeemed["transcript"], "proof-reject-main")
         proof(source, id, redeemed["transcript"], "proof-reject-source")
+        assertThat(confirm(source, id, false, "mismatch")["state"].asText()).isEqualTo("rejected")
         assertThat(confirm(source, id, false, "mismatch")["state"].asText()).isEqualTo("rejected")
         mockMvc
             .post("/v1/pairings/$id/comparison-confirmations") {

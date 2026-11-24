@@ -74,8 +74,8 @@
 
 ## T11. Mobile pairing and device management foundations
 
-- [ ] 11.1 Implement pairing and device facades plus source/main capacity state.
-- [ ] 11.2 Implement comparison, rejection, expiry, and re-pair recovery state.
+- [x] 11.1 Implement pairing and device facades plus source/main capacity state.
+- [x] 11.2 Implement comparison, rejection, expiry, and re-pair recovery state.
 
 ## T12. Mobile key and relay foundations
 

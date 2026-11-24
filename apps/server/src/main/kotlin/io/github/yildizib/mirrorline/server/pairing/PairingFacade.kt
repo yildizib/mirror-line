@@ -223,7 +223,7 @@ class PairingFacade(
             actor.deviceId == record.main.deviceId
         val both =
             (main && record.sourceMatch == true) || (!main && record.mainMatch == true)
-        pairs.confirmation(id, main, matched, both)
+        pairs.confirmation(id, main, matched)
         var after = record(id, true, actor)
         if (matched &&
             both
