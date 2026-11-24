@@ -7,7 +7,7 @@ import 'package:sqflite/sqflite.dart';
 class AppDatabase {
   static final AppDatabase instance = AppDatabase._internal();
   static Database? _database;
-  static const int schemaVersion = 7;
+  static const int schemaVersion = 8;
 
   AppDatabase._internal();
 
@@ -23,11 +23,24 @@ class AppDatabase {
     final database = await openDatabase(
       path,
       version: schemaVersion,
+      onConfigure: configureDatabase,
       onCreate: createTables,
       onUpgrade: upgradeTables,
     );
     await LocalStorageMigrationCoordinator().migrate(database);
     return database;
+  }
+
+  /// Keeps every database connection consistent with the production setup.
+  ///
+  /// The timeout and WAL journal mode allow independent readers/writers to
+  /// reconcile idempotent admissions rather than leaking transient SQLite
+  /// busy errors to sync callers.
+  @visibleForTesting
+  Future<void> configureDatabase(Database db) async {
+    await db.execute('PRAGMA foreign_keys = ON');
+    await db.execute('PRAGMA busy_timeout = 5000');
+    await db.execute('PRAGMA journal_mode = WAL');
   }
 
   /// Exposed (not private) so migration tests can exercise the exact same
@@ -95,6 +108,7 @@ class AppDatabase {
         );
       }
     }
+    if (oldVersion < 8) await _createSyncPersistenceTables(db);
   }
 
   /// Exposed (not private) so tests can create a fresh-install schema
@@ -177,6 +191,68 @@ class AppDatabase {
         created_at INTEGER NOT NULL
       )
     ''');
+    await _createSyncPersistenceTables(db);
+  }
+
+  Future<void> _createSyncPersistenceTables(Database db) async {
+    await db.execute('''CREATE TABLE IF NOT EXISTS server_identity (
+      user_id TEXT NOT NULL, device_id TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      PRIMARY KEY (user_id, device_id)
+    )''');
+    await db.execute('''CREATE TABLE IF NOT EXISTS device_key_version (
+      user_id TEXT NOT NULL, device_id TEXT NOT NULL, version INTEGER NOT NULL CHECK(version > 0),
+      signing_public_key BLOB NOT NULL CHECK(length(signing_public_key) = 32),
+      encryption_public_key BLOB NOT NULL CHECK(length(encryption_public_key) = 32),
+      fingerprint BLOB NOT NULL CHECK(length(fingerprint) = 32),
+      status TEXT NOT NULL CHECK(status IN ('pending','active','retiring','retired','revoked')),
+      created_at INTEGER NOT NULL, activated_at INTEGER, retiring_at INTEGER, retired_at INTEGER, revoked_at INTEGER,
+      PRIMARY KEY (user_id, device_id, version),
+      FOREIGN KEY (user_id, device_id) REFERENCES server_identity(user_id, device_id) ON DELETE CASCADE
+    )''');
+    await db.execute('''CREATE UNIQUE INDEX IF NOT EXISTS one_active_device_key
+      ON device_key_version(user_id, device_id) WHERE status = 'active' ''');
+    await db.execute('''CREATE TABLE IF NOT EXISTS mailbox_cursor (
+      user_id TEXT NOT NULL, device_id TEXT NOT NULL, cursor TEXT NOT NULL, sequence INTEGER NOT NULL CHECK(sequence >= 0),
+      updated_at INTEGER NOT NULL, PRIMARY KEY (user_id, device_id),
+      FOREIGN KEY (user_id, device_id) REFERENCES server_identity(user_id, device_id) ON DELETE CASCADE
+    )''');
+    await db.execute('''CREATE TABLE IF NOT EXISTS relay_envelope (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, direction TEXT NOT NULL CHECK(direction IN ('outbox','inbox')),
+      message_id TEXT NOT NULL, protocol_version INTEGER NOT NULL CHECK(protocol_version = 1),
+      message_type TEXT NOT NULL, sender_user_id TEXT NOT NULL, sender_device_id TEXT NOT NULL,
+      recipient_user_id TEXT NOT NULL, recipient_device_id TEXT NOT NULL,
+      sender_key_version INTEGER NOT NULL CHECK(sender_key_version > 0),
+      recipient_key_version INTEGER NOT NULL CHECK(recipient_key_version > 0),
+      nonce BLOB NOT NULL CHECK(length(nonce) = 12), ciphertext BLOB NOT NULL CHECK(length(ciphertext) >= 16),
+      signature BLOB NOT NULL CHECK(length(signature) = 64), digest BLOB NOT NULL CHECK(length(digest) = 32),
+      accepted_at INTEGER, expires_at INTEGER, acked_at INTEGER,
+      replay_recorded_at INTEGER NOT NULL, created_at INTEGER NOT NULL,
+      CHECK(sender_user_id = recipient_user_id),
+      CHECK((accepted_at IS NULL AND expires_at IS NULL) OR
+        (accepted_at IS NOT NULL AND expires_at IS NOT NULL AND
+          expires_at = accepted_at + 604800000)),
+      UNIQUE(sender_user_id, sender_device_id, message_id)
+      ,FOREIGN KEY(sender_user_id, sender_device_id, sender_key_version)
+        REFERENCES device_key_version(user_id, device_id, version)
+      ,FOREIGN KEY(recipient_user_id, recipient_device_id, recipient_key_version)
+        REFERENCES device_key_version(user_id, device_id, version)
+    )''');
+    await db.execute('''CREATE TABLE IF NOT EXISTS replay_tombstone (
+      sender_user_id TEXT NOT NULL, sender_device_id TEXT NOT NULL, message_id TEXT NOT NULL,
+      digest BLOB NOT NULL CHECK(length(digest) = 32), accepted_at INTEGER NOT NULL,
+      PRIMARY KEY(sender_user_id, sender_device_id, message_id)
+    )''');
+    await db.execute('''CREATE TABLE IF NOT EXISTS local_history_policy (
+      id INTEGER PRIMARY KEY CHECK(id = 1), retention_days INTEGER NOT NULL DEFAULT 30
+      CHECK(retention_days IN (7, 30, 90, 180))
+    )''');
+    await db.execute(
+      'INSERT OR IGNORE INTO local_history_policy(id, retention_days) VALUES (1, 30)',
+    );
+    await db.execute('''CREATE TABLE IF NOT EXISTS local_history_entry (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, encrypted_payload TEXT NOT NULL, occurred_at INTEGER NOT NULL
+    )''');
   }
 
   Future<void> close() async {
@@ -185,12 +261,26 @@ class AppDatabase {
   }
 
   Future<void> reset() async {
-    final db = await database;
-    await db.delete('peer');
-    await db.delete('call_event');
-    await db.delete('sms_message');
-    await db.delete('offline_queue');
-    await db.delete('known_network');
-    await db.delete('notification_event');
+    await resetDatabase(await database);
   }
+
+  /// Clears user data and restores the default local-history retention.
+  @visibleForTesting
+  Future<void> resetDatabase(Database db) => db.transaction((txn) async {
+    await txn.delete('relay_envelope');
+    await txn.delete('replay_tombstone');
+    await txn.delete('mailbox_cursor');
+    await txn.delete('device_key_version');
+    await txn.delete('server_identity');
+    await txn.delete('local_history_entry');
+    await txn.update('local_history_policy', {
+      'retention_days': 30,
+    }, where: 'id = 1');
+    await txn.delete('peer');
+    await txn.delete('call_event');
+    await txn.delete('sms_message');
+    await txn.delete('offline_queue');
+    await txn.delete('known_network');
+    await txn.delete('notification_event');
+  });
 }
