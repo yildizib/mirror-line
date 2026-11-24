@@ -4,293 +4,121 @@
 
 <a id="turkce"></a>
 
-## MirrorLine Ne İşe Yarar?
+## Onaylanmış hedef ürün
 
-MirrorLine, iki Android telefonu aynı yerel ağ üzerinden doğrudan birbirine
-bağlayarak telefon görüşmelerini, SMS mesajlarını ve seçili uygulama
-bildirimlerini yansıtan, gizlilik odaklı bir uygulamadır. Mevcut ürün veri yolu
-sunucusuz çalışır; cihazlar LAN veya kullanıcı tarafından sağlanan VPN üzerinden
-birbirine bağlanır.
+MirrorLine, iki Android telefon arasındaki çağrı olaylarını, SMS'leri ve
+seçili uygulama bildirimlerini **sunucu aracılı uçtan uca şifreli** olarak
+eşitler. SIM kartın bulunduğu telefon **Kaynak (Source)**, kullanıcının günlük
+kullandığı telefon **Ana (Main)** rolündedir. Ana ve Kaynak farklı ağlarda
+olabilir; hedef üründe LAN, VPN, IP adresi, UDP beacon, subnet taraması veya
+doğrudan cihaz soketi gerekmez.
 
-SIM kartın bulunduğu telefon **Source**, kullanıcının günlük olarak kullandığı
-telefon ise **Main** rolündedir. Source telefon hattı arka planda taşır; Main
-telefon çağrıları, SMS'leri ve yansıtılan bildirimleri tek bir arayüzde gösterir.
-Mevcut çalışma biçiminde veriler üçüncü parti veya MirrorLine relay sunucusundan
-geçmez.
+Sunucu hesap, cihaz, eşleştirme, anahtar meta verisi, şifreli posta kutusu ve
+güvenlik denetimini yönetir. Sunucu çağrı/SMS/bildirim içeriğini veya uçtan uca
+özel anahtarları görmez ya da saklamaz.
 
-## Ürünün Amacı
+## Amaç ve roller
 
-MirrorLine'ın amacı, kullanıcının SIM kartın bulunduğu telefonu yanında
-taşımadan veya sürekli kontrol etmeden o telefondaki iletişim olaylarını kendi
-ana telefonundan yönetebilmesini sağlamaktır.
+MirrorLine, kullanıcının SIM kartlı telefonu yanında değilken iletişim
+olaylarını Ana Telefonda güvenle takip etmesini ve uygun uzaktan eylemleri
+yapmasını sağlar.
 
-Ürün bunu şu prensiplerle yapar:
+- **Ana Telefon:** Birleştirilmiş akışı gösterir, Kaynakları yönetir, geçerli
+  çağrı reddetme ve SMS gönderme eylemlerini başlatır.
+- **Kaynak Telefon:** SIM çağrı/SMS olaylarını ve seçili uygulama
+  bildirimlerini yakalar; geçerli komutları uygular.
+- Her hesapta en fazla **bir Ana**, en fazla **beş Kaynak** vardır.
+- Sunucu `userId` ve `deviceId` değerlerini UUIDv4 olarak üretir; cihazın
+  kanonik kimliği `(userId, deviceId)` çiftidir.
 
-- İki telefon arasında doğrudan iletişim kurar.
-- Çağrı, SMS ve bildirimleri tek bir deneyimde birleştirir.
-- Mevcut LAN çalışma biçiminde verileri bulut veya relay sunucusuna göndermez.
-- Bağlantı geçici olarak kesildiğinde olayları kaybetmemeye çalışır.
-- Kullanıcıya hangi uygulama bildirimlerinin yansıtılacağını seçtirebilir.
-- Çağrı ve SMS gibi hassas işlemleri cihazlar arasında şifreli taşır.
+## Eşleştirme ve cihaz yönetimi
 
-## Çözdüğü Problem
+Eşleştirme sunucunun yönettiği bir işlemdir. Ana Telefon beş dakika geçerli,
+yalnızca bir kez kullanılabilen bir QR/kısa kod açar; Kaynak kodu sunucu
+üzerinden kullanır. İki cihaz kendi Ed25519 anahtarlarıyla aynı işlem kaydını
+imzalar ve her iki ekranda görünen karşılaştırma değerini onaylar. Kanıtlar ve
+onaylar tamamlanmadan eşleştirme kaydı oluşmaz.
 
-Kullanıcının iki telefonu olduğunda SIM kart bir cihazda, günlük kullanım ve
-ekran diğer cihazda kalabilir. Bu durumda kullanıcı gelen çağrıları, SMS'leri
-ve önemli uygulama bildirimlerini kaçırabilir. MirrorLine, SIM'li telefonu
-Source ve kullanıcının ana telefonunu Main olarak eşleştirerek bu iki cihazı
-tek bir iletişim ekranı gibi kullanmayı sağlar.
+Kodlar işlem sonrası, süre dolduğunda veya iptal edildiğinde yeniden kullanılamaz.
+QR/kısa kod özel anahtar, ortak AES anahtarı, IP, port ya da doğrudan bağlanma
+gizlisi taşımaz. Ana değişimi eski Ana oturumunu ve mevcut Kaynak eşleşmelerini
+geçersiz kılar; cihaz güvenliği ekranları bu sonucu açıkça gösterir.
 
-## Temel Feature'lar
+## Şifreleme, relay ve replay koruması
 
-- QR kod ile iki cihazı eşleştirme.
-- Main ve Source cihaz rolleri.
-- Gelen çağrıların Main cihazda gösterilmesi.
-- Main cihazdan Source üzerindeki çağrıyı uzaktan reddetme.
-- Gelen SMS'lerin Main cihaza aktarılması.
-- Main cihazdan Source SIM'i üzerinden SMS gönderme.
-- Seçili uygulamaların bildirimlerini Main cihaza yansıtma.
-- Çağrı, SMS ve bildirimleri ayrı listelerde ve Home akışında görüntüleme.
-- Aynı kişi, numara veya uygulamaya ait olayları gruplama.
-- Sayfalı listeler, detay ekranları ve çoklu seçimle silme.
-- Bağlantı yokken olayları offline queue ile bekletme.
-- UDP beacon, bilinen ağ önbelleği ve subnet taramasıyla cihaz keşfi.
-- Wi-Fi/IP değişikliklerinde otomatik yeniden bağlanma.
-- Bağlantı durumu, discovery kayıtları ve gönderim hattı için teşhis ekranı.
-- Pil optimizasyonu, otomatik başlatma ve sistem izinleri için ayarlar.
-- Türkçe ve İngilizce kullanıcı arayüzü.
+Her cihaz Ed25519 imzalama ve X25519 anahtar anlaşması özel anahtarlarını
+yalnızca cihazda saklar. Sunucuya yalnızca açık anahtarlar, sürümleri ve gizli
+olmayan yaşam döngüsü meta verisi gider.
 
-## Hedef Kullanıcı
+- X25519 + HKDF-SHA256 her zarf için anahtar üretir; HKDF bilgisi yönü,
+  gönderici/alıcı kullanıcı ve cihaz kimliklerini, `senderKeyVersion`,
+  `recipientKeyVersion` ve `messageId` değerini kapsar.
+- AES-256-GCM içerik şifrelemesini sağlar.
+- RFC 8785 canonical JSON, imzalanan yapılandırılmış alanları sabitler.
+- Ed25519 imzası RFC 8785 canonical JSON ile `protocolVersion`, `messageId`,
+  `messageType`, `createdAt`, gönderici/alıcı kullanıcı ve cihaz kimlikleri,
+  `senderKeyVersion`, `recipientKeyVersion`, nonce ve şifreli metni doğrudan
+  kapsar; ayrı bir şifreli metin özeti gerekmez.
+- Alıcı, imza/kimlik/sürüm ve GCM doğrulamasından önce içerik işlemez.
+- Cihazlar gönderici-kapsamlı `messageId` ve kalıcı digest/tombstone replay
+  kayıtlarını sekiz gün tutar; `createdAt` imzalı meta veridir, ancak çevrimdışı
+  veya sıra dışı teslimi tek başına reddetmez.
 
-MirrorLine, iki Android telefon kullanan ve SIM kartı bir telefonda dururken
-iletişimlerini diğer telefondan yönetmek isteyen kullanıcılar içindir. Ürün
-özellikle yerel ağ dışına veri çıkarmak istemeyen, teknik farkındalığı yüksek
-kullanıcıları hedefler.
+Sunucu kabul ettiği şifreli zarfı yalnızca kendi `acceptedAt + 7 gün` süresince
+saklar; istemci imzalı bir son kullanma alanı bu süreyi belirleyemez veya
+uzatamaz. Push bildirimi içerik taşımaz; sadece senkronizasyon gerektiğini
+uyandıran opak bir sinyaldir.
 
-## Cihaz Rolleri
+## Anahtar yaşam döngüsü
 
-### Main
+Anahtar döndürme 90 günde bir planlanır; kullanıcı manuel veya acil döndürme
+başlatabilir. Ed25519 ve X25519 açık anahtarları tek bir `keyVersion` altında
+birlikte döner. Yeni sürüm eski ve yeni Ed25519 anahtarlarıyla bağlılık kanıtı
+sunar. Eşlerden ACK alınır; tüm ACK'ler geldiğinde ya da en geç 24 saatte yeni
+sürüm etkinleşir. Eski/yeni doğrulama 14 gün örtüşür. Özel anahtarların
+sunucuya yüklenmesi veya bulut yedeği yoktur.
 
-- Source cihazdan gelen çağrı, SMS ve bildirimleri gösterir.
-- Gelen çağrıyı uzaktan reddedebilir.
-- Source telefon üzerinden SMS gönderebilir.
-- Bağlantı, keşif ve senkronizasyon durumunu gösterir.
+## Geçmiş, oturum ve güvenlik denetimi
 
-### Source
+Yerel geçmiş için 7, 30, 90 veya 180 gün seçilir; varsayılan 30 gündür.
+Sunucu posta kutusu süresi yedi gün, cihaz replay kaydı süresi sekiz gündür.
 
-- SIM üzerinden gelen çağrı ve SMS olaylarını yakalar.
-- Çağrı, SMS ve seçili uygulama bildirimlerini Main cihaza gönderir.
-- Main cihazdan gelen SMS gönderme ve çağrı reddetme komutlarını uygular.
-- Arka planda foreground service ile çalışır.
+Başarılı giriş cihaz-bağlı bir oturum yaratır. Oturum çıkış, süre dolumu,
+güvenlik geçersizleştirmesi veya cihaz iptaliyle biter. Son giriş; en son
+başarılı oturum oluşturmayı gösterir, başarısız giriş bunu değiştirmez.
 
-## Kullanıcı Akışı
+Güvenlik denetimi; giriş, oturum, cihaz, eşleştirme, anahtar yaşam döngüsü ve
+relay güvenlik kararları için eklemeli kayıttır. Parola, token, özel anahtar,
+eşleştirme kodu, düz metin, şifreli metin, mesaj içeriği ve ham IP kaydı
+tutulmaz. Denetim olayları bir yıl saklanır, sonra silinir veya geri döndürülemez
+biçimde anonimleştirilir.
 
-### İlk Kurulum
+## Kullanıcı deneyimi
 
-1. Uygulama iki Android telefona kurulur.
-2. Her cihazda cihaz rolü seçilir.
-3. Cihazlardan biri pairing ekranında QR kod gösterir.
-4. Diğer cihaz QR kodu tarar.
-5. Kullanıcı karşı cihazın eşleşme isteğini onaylar.
-6. İki cihaz birbirini doğrular ve peer bilgilerini kalıcı olarak kaydeder.
-7. İsteğe bağlı 6 haneli doğrulama kodu karşılaştırılır.
+Ana Telefon; birleşik gelen kutusu, çağrı ayrıntıları, SMS konuşmaları,
+bildirim ayrıntıları ve Kaynak yönetimi sunar. Kaynak Telefon; koruma/izin
+durumunu, paylaşım seçimlerini, duraklatmayı ve Ana bağlantısı bilgisini sunar.
+Uygulama Türkçe ve İngilizce çalışır. Canlı çağrı sesi aktarılmaz; yalnızca çağrı
+olayları ve geçerli kontrol komutları eşitlenir. MMS/RCS ve varsayılan SMS
+uygulaması olma kapsam dışıdır.
 
-Pairing işlemi tek taraflı kayıtla bitmez. Request, accept/reject ve ack
-mesajlarıyla iki cihazın da eşleşmeyi tamamladığı doğrulanır.
+## Teknik ve uygulama durumu
 
-### Günlük Kullanım
+Mobil kod `base -> facade -> ui_service -> ui` sınırını korur; UI ve UI service
+katmanları taban servislerine doğrudan erişmez. Hedef ürün API'leri `/v1`
+altında kimlik/oturum, cihaz, eşleştirme, anahtar yaşam döngüsü, posta kutusu,
+güvenlik denetimi ve iç push gruplarına ayrılır; istemciler metin yerine sabit
+hata kodlarını kullanır. Sunucu kalıcılığı Flyway + `JdbcTemplate` ile açık SQL,
+service/facade transaction sınırları ve PostgreSQL constraint'leri kullanır;
+posta kutusu, audit, anahtar yaşam döngüsü ve kota kuralları SQL/concurrency
+yoğun olduğu için JPA kullanılmaz.
 
-Bağlantı kurulduğunda Main cihazda beş ana bölüm bulunur:
-
-- Home: Çağrı, SMS ve bildirimleri kronolojik birleşik akışta gösterir.
-- Calls: Kişi/numara bazlı çağrı grupları ve çağrı detayları.
-- SMS: Konuşma listesi ve mesajlaşma ekranı.
-- Notifications: Uygulama bazlı yansıtılmış bildirimler ve detayları.
-- Settings: Cihaz, pairing, bağlantı, izin ve teşhis işlemleri.
-
-## Ürün Özellikleri
-
-### Çağrı Yansıtma
-
-- Gelen çağrı Main cihazda yerel bildirim olarak gösterilir.
-- Çağrı durumu ringing, answered, missed ve ended olarak takip edilir.
-- Çağrı numarası ve kişi adı sonradan çözülebilir ve mevcut kayda işlenir.
-- Main cihazdan çağrı reddetme komutu Source cihaza gönderilir.
-- Bağlantı koparsa çağrı olayları offline queue içinde bekletilebilir.
-- Main tarafında uzun süre ringing kalan çağrılar için 90 saniyelik koruma
-  mekanizması bulunur.
-
-### SMS Yansıtma
-
-- Source cihazdaki gelen SMS Main cihaza gönderilir ve yerel veritabanına
-  kaydedilir.
-- Main cihazdan yazılan SMS Source cihazdaki SIM üzerinden gönderilir.
-- Giden SMS durumu pending, sent veya failed olarak güncellenir.
-- SMS konuşmaları adres bazında gruplanır.
-- SMS listeleri ve konuşmalar sayfalı yüklenir.
-- Bağlantı yokken gelen veya giden olaylar kuyruklanır.
-- Yanıt alınamayan pending SMS'ler iki dakika sonra failed durumuna geçirilir.
-- Android'in parçalı SMS yayınları Source tarafında kısa süre birleştirilir.
-
-### Bildirim Yansıtma
-
-- Source cihazdaki seçili uygulama bildirimleri Main cihaza yansıtılır.
-- Kullanıcı hangi uygulamaların izleneceğini Watched Apps ekranından seçer.
-- Aynı sistem bildirimlerinin tekrarları filtrelenir.
-- Bildirim özetleri ve default dialer/SMS uygulamalarının yinelenen bildirimleri
-  atlanır.
-- Main cihazda bildirimler uygulama bazında gruplanır.
-- Yansıtılmış bildirim yerel Android bildirimi olarak gösterilir.
-- Bildirim kayıtları sistem bildiriminden bağımsız olarak veritabanında tutulur.
-
-### Bağlantı ve Yeniden Bağlanma
-
-- Cihazlar aynı yerel ağda doğrudan TCP bağlantısı kurar.
-- Source TCP sunucusu olarak dinler; Main bağlantıyı başlatır.
-- UDP beacon cihazların güncel IP adreslerini duyurur.
-- Bilinen ağ/IP kayıtları hızlı yeniden bağlantı için önbelleğe alınır.
-- Beacon bulunamadığında yerel subnet'ler TCP probe ile taranır.
-- Wi-Fi roam ve IP değişikliklerinde yeniden keşif yapılır.
-- Bağlantı koptuğunda olaylar offline queue içine alınır.
-- Kuyruk öğeleri bağlantı geri geldiğinde en fazla beş denemeyle gönderilir.
-- Bağlantı heartbeat ve watchdog mekanizmalarıyla izlenir.
-- Ekran kapalıyken bağlantıyı korumak için heartbeat aralığı seyreltilir.
-- Settings içinden ilerleme kayıtları görülen manuel Force Connect işlemi
-  başlatılabilir.
-
-### Pairing ve Cihaz Yönetimi
-
-- QR kod cihaz kimliği, IP, port, AES anahtarı, rol ve public key bilgilerini
-  taşır.
-- QR tarama için kamera tabanlı mobil scanner kullanılır.
-- Birden fazla eşli cihaz kaydı desteklenir.
-- Eşli cihaz bilgileri Settings ekranında görülebilir.
-- Cihaz sıfırlama peer, çağrı, SMS, bildirim ve queue kayıtlarını temizler.
-- Yeni pairing işlemi için yeni cihaz kimliği ve anahtar üretilebilir.
-
-### Teşhis ve Ayarlar
-
-- Bağlantı durumu ve son discovery denemeleri görüntülenir.
-- Gerçek gönderim hattını kullanan çağrı, SMS ve bildirim teşhis testleri
-  çalıştırılabilir.
-- Bildirim listener izin durumu kontrol edilir.
-- Android runtime izinleri yönetilir.
-- Pil optimizasyonu, OEM otomatik başlatma ve pil tasarrufu ekranlarına
-  kısayollar sağlanır.
-- Uygulama Türkçe ve İngilizce yerelleştirmeyi destekler.
-
-## Güvenlik ve Gizlilik
-
-- Mesaj payload'ları AES-256-GCM ile şifrelenir.
-- Her mesaj için 12 byte nonce ve 16 byte authentication tag kullanılır.
-- Şifreleme anahtarı Android Keystore tabanlı secure storage'da saklanır.
-- Cihaz kimlik doğrulaması Ed25519 challenge-response ile yapılır.
-- Pairing sırasında karşı cihazın public key'i kaydedilir.
-- Bağlantı kurulmadan önce auth challenge ve auth acknowledgement tamamlanır.
-- Aynı canlı bağlantı içinde eski mesajların tekrar oynatılmasına karşı timestamp
-  kontrolü uygulanır.
-- Mevcut mobil veri yolunda sunucu, relay veya bulut veri deposu kullanılmaz.
-- Yerel kayıtlar cihazın SQLite veritabanında tutulur.
-- Kullanıcı seçmediği uygulamaların bildirimlerini yansıtmaz.
-
-## Teknik Ürün Sınırları
-
-### Doğrulama Kapsamı
-
-CI; mobil format/statik analiz/test kontrollerini ve debug APK derlemesini,
-sunucu Gradle kontrollerini ve Compose yapı doğrulamasını otomatik çalıştırır.
-İki cihazlı Android testleri pairing, reconnect, ağ değişikliği ve arka plan
-yaşam döngüsü senaryoları için manuel cihaz doğrulamasıdır; CI sonucu olarak
-raporlanmaz.
-
-- Uygulama Android odaklıdır; telephony, SMS ve notification listener özellikleri
-  Android native servislerine bağlıdır.
-- Cihazların doğrudan haberleşebilmesi için erişilebilir bir ortak ağ veya VPN
-  gerekir.
-- Farklı ağlar arasında merkezi relay hizmeti bulunmaz.
-- Canlı çağrı sesi taşınmaz; yalnızca çağrı olayları ve kontrol komutları
-  yansıtılır.
-- Varsayılan SMS uygulaması olma, MMS ve RCS yönetimi ürün kapsamına dahil
-  değildir.
-- Bildirim yansıtma, Android Notification Listener izni ve cihaz üreticisinin
-  arka plan kısıtlamalarına bağlıdır.
-- OEM pil tasarrufu ve otomatik başlatma politikaları bağlantı sürekliliğini
-  etkileyebilir.
-- Repoda bir sunucu ve VPS iskeleti bulunur; ancak bu iskelet henüz hesap,
-  cihaz kaydı, mailbox, relay, senkronizasyon API'si veya gerçek FCM gönderimi
-  sunmaz. Yayınlanan tek sunucu arayüzleri Actuator health endpoint'leridir.
-
-## Veri Modeli
-
-Uygulama SQLite üzerinde aşağıdaki kayıtları tutar:
-
-- `peer`: Eşli cihaz kimliği, rol, adres, port, AES anahtarı ve public key.
-- `call_event`: Çağrı yönü, numara, kişi adı, zaman ve çağrı durumu.
-- `sms_message`: Konuşma, adres, gövde, yön ve gönderim durumu.
-- `notification_event`: Uygulama, başlık, metin, native bildirim kimliği ve zaman.
-- `offline_queue`: Bağlantı yokken bekleyen şifreli mesaj payload'ları, deneme
-  sayıları ve tekrarları önleyen `dedupe_key` değeri.
-- `known_network`: Eş cihaz için daha önce başarılı olmuş ağ/IP bilgileri.
-
-Veritabanı şema sürümü 7'dir. `peer` tablosunda birden fazla eş cihaz kaydı
-tutulabilir; ancak aktif bağlantı runtime'ı aynı anda tek bir peer context'i
-kullanır.
-
-## Uygulama Mimarisi
-
-Repo aşağıdaki monorepo sınırlarını kullanır:
-
-```text
-apps/mobile       Flutter uygulaması ve Android native runtime
-apps/server       Kotlin/Spring Boot modular monolith iskeleti
-packages/contracts Dil bağımsız protokol fixture ve sözleşmeleri
-infra/vps         Caddy, Spring ve PostgreSQL Compose tanımları
-```
-
-Mobil ürün kodu feature-first düzenlenir ve aşağıdaki bağımlılık yönünü izler:
-
-```text
-domain
-  -> base
-  -> facade
-  -> ui_service
-  -> ui
-```
-
-`core` veritabanı motoru, kriptografi, keystore ve platform soyutlamalarını;
-`shared` ise yalnız genel sunum bileşenleri ve pagination yapılarını barındırır.
-UI ve UI service katmanları socket, DAO, MethodChannel veya native listener gibi
-base servislere doğrudan erişmez. Feature'lar arası davranış facade sözleşmeleri
-veya `app` seviyesindeki orchestrator üzerinden yürütülür.
-
-Mevcut TCP, UDP beacon, subnet discovery, reconnect ve wire format davranışı
-`LegacyLanTransportAdapter` arkasındadır. QR bootstrap bağlantısı da
-`LegacyPairingHandshakeAdapter` ile pairing iş akışından ayrılır. Böylece mevcut
-LAN/VPN davranışı korunurken gelecekteki transport değişimi ürün katmanlarından
-izole edilir.
-
-Sunucu tek Gradle projesidir ve `bootstrap`, `shared`, `identity`, `devices`,
-`sync` ve `push` paket sınırlarına sahiptir. Java 21, Spring Boot 4.2,
-PostgreSQL 18, Flyway, Actuator ve varsayılan-deny Spring Security kullanır.
-`PushGateway` development/test ortamında no-op çalışır; mevcut aşamada ürün API'si
-ve gerçek relay davranışı yoktur.
-
-## Mevcut Durum
-
-Mevcut uygulama; pairing, rol seçimi, çağrı yansıtma, SMS mirroring, seçili
-bildirim yansıtma, offline queue, otomatik yeniden bağlanma, bağlantı teşhisi,
-Android foreground service ve temel cihaz yönetimi özelliklerini içerir.
-
-Repo ayrıca health endpoint'leri çalışan, PostgreSQL migration altyapısı ve
-soyut `PushGateway` sözleşmesi bulunan bir sunucu/deployment iskeleti içerir.
-Bu iskelet gelecekteki sunucu tabanlı senkronizasyon için hazırlıktır ve mevcut
-LAN/VPN ürün davranışını değiştirmez.
-
-Test kapsamı; şifreleme, protocol, socket, beacon, subnet discovery, pairing,
-DAO, migration, facade, pagination, provider ve widget testlerini içerir.
-
-Bu belge ürünün mevcut davranışını tanımlar. Yeni özellik kararları ve sürüm
-planları bu belgeye eklenmeden önce mevcut implementasyonla doğrulanmalıdır.
+**Uygulama durumu (Kasım 2026):** Bu belge onaylanmış hedef ürün sözleşmesini
+tanımlar. Mevcut depo henüz bu sunucu aracılı hesap, cihaz kaydı, eşleştirme,
+relay, anahtar döndürme, audit veya 97 ekranın tamamını uygulamamaktadır. Mevcut
+mobil yol hâlâ geçişteki eski LAN/VPN mekanizmalarını içerebilir; bu, hedef
+ürünün ağ gereksinimi olduğu anlamına gelmez. Eski yol ancak eşdeğerlik ve
+migrasyon kanıtından sonra kaldırılacaktır.
 
 ---
 
@@ -298,321 +126,119 @@ planları bu belgeye eklenmeden önce mevcut implementasyonla doğrulanmalıdır
 
 # MirrorLine Product Document
 
-## What Does MirrorLine Do?
-
-MirrorLine mirrors phone calls, SMS messages, and selected application
-notifications between two Android phones over a direct local-network
-connection. It is privacy-focused. The current product data path is serverless;
-devices communicate over a LAN or a user-provided VPN.
-
-The phone containing the SIM card is the **Source** device. The phone used by
-the user is the **Main** device. Source keeps the mobile line in the
-background; Main displays calls, SMS messages, and mirrored notifications in a
-single interface. In the current operating mode, data does not pass through a
-third-party or MirrorLine relay server.
-
-## Product Purpose
-
-MirrorLine allows users to manage communication events from their main phone
-without constantly carrying or checking the phone that contains the SIM card.
-
-The product follows these principles:
-
-- Connects the two phones directly.
-- Combines calls, SMS, and notifications into one experience.
-- Does not send data to a cloud or relay server in the current LAN mode.
-- Attempts to prevent event loss during temporary disconnections.
-- Lets users choose which application notifications are mirrored.
-- Transports sensitive call and SMS data between devices in encrypted form.
-
-## Problem Solved
-
-When a user has two phones, the SIM card and the phone used every day may be
-different devices. The user can then miss incoming calls, SMS messages, and
-important application notifications. MirrorLine pairs the SIM-holding Source
-phone with the user's Main phone and makes them work as one communication
-interface.
-
-## Core Features
-
-- QR-code device pairing.
-- Main and Source device roles.
-- Incoming call display on Main.
-- Remote call rejection from Main through Source.
-- Incoming SMS mirroring to Main.
-- SMS sending through the Source SIM from Main.
-- Mirroring notifications from selected applications.
-- Separate Calls, SMS, and Notifications sections plus a combined Home feed.
-- Grouping events by person, phone number, or application.
-- Paginated lists, detail screens, and multi-select deletion.
-- Offline queue for events while the connection is unavailable.
-- Device discovery through UDP beacon, known-network cache, and subnet scan.
-- Automatic reconnection after Wi-Fi or IP changes.
-- Connection diagnostics and delivery-path test screens.
-- Settings for battery optimization, auto-start, and system permissions.
-- Turkish and English user interface.
-
-## Target Users
-
-MirrorLine is intended for people who use two Android phones and want to manage
-communications from one phone while the SIM card remains in the other. It is
-especially suitable for technically aware users who do not want their data to
-leave the local network.
-
-## Device Roles
-
-### Main
-
-- Displays calls, SMS messages, and notifications received from Source.
-- Can reject incoming calls remotely.
-- Can send SMS messages through the Source phone.
-- Displays connection, discovery, and synchronization status.
-
-### Source
-
-- Captures incoming call and SMS events from the SIM.
-- Sends calls, SMS messages, and selected application notifications to Main.
-- Executes SMS sending and call rejection commands from Main.
-- Runs in the background through an Android foreground service.
-
-## User Flow
-
-### Initial Setup
-
-1. Install the application on both Android phones.
-2. Select a device role on each phone.
-3. Show a QR code on one device from the pairing screen.
-4. Scan the QR code with the other device.
-5. Approve the pairing request on the receiving device.
-6. Both devices authenticate each other and persist their peer records.
-7. Optionally compare the six-digit verification code.
-
-Pairing does not finish with a one-sided record. Request, accept/reject, and
-acknowledgement messages verify that both devices completed the pairing.
-
-### Daily Use
-
-When connected, Main provides five primary sections:
-
-- Home: A chronological feed combining calls, SMS messages, and notifications.
-- Calls: Call groups by contact/number and call details.
-- SMS: Conversation list and chat screen.
-- Notifications: Application-based mirrored notification groups and details.
-- Settings: Device, pairing, connection, permission, and diagnostics actions.
-
-## Product Features
-
-### Call Mirroring
-
-- Incoming calls appear as local notifications on Main.
-- Call states are tracked as ringing, answered, missed, and ended.
-- The number and contact name can be resolved later and applied to the existing
-  record.
-- Main sends call-rejection commands to Source.
-- Call events can wait in the offline queue when the connection is unavailable.
-- A 90-second Main-side watchdog prevents a ringing call from remaining stuck.
-
-### SMS Mirroring
-
-- Incoming SMS messages from Source are sent to Main and stored locally.
-- SMS messages composed on Main are sent through the Source SIM.
-- Outgoing SMS status is tracked as pending, sent, or failed.
-- SMS conversations are grouped by address.
-- SMS lists and conversations load through pagination.
-- Events are queued when the connection is unavailable.
-- Pending SMS messages without a response are marked failed after two minutes.
-- Multipart Android SMS broadcasts are briefly combined on Source.
-
-### Notification Mirroring
-
-- Selected application notifications on Source are mirrored to Main.
-- Users choose watched applications from the Watched Apps screen.
-- Duplicate reposts of the same system notification are filtered.
-- Notification summaries and duplicate default dialer/SMS notifications are
-  skipped.
-- Main groups mirrored notifications by application.
-- Mirrored notifications are shown as local Android notifications.
-- Notification records remain in the database independently of the source
-  notification lifecycle.
-
-### Connection and Reconnection
-
-- Devices establish a direct TCP connection on the local network.
-- Source listens as the TCP server; Main initiates the connection.
-- UDP beacon announces current device IP addresses.
-- Known network/IP records are cached for fast reconnection.
-- Local subnets are probed through TCP when beacon discovery is insufficient.
-- Network discovery is repeated after Wi-Fi roaming or IP changes.
-- Events are placed in the offline queue when the connection drops.
-- Queued items are sent with up to five attempts after reconnection.
-- Heartbeat and watchdog mechanisms monitor the connection.
-- Heartbeat frequency is reduced while the screen is off.
-- Settings provides a manual Force Connect action with visible progress logs.
-
-### Pairing and Device Management
-
-- QR data contains device identity, IP, port, AES key, role, and public key.
-- Camera-based scanning is used for QR pairing.
-- Multiple paired-device records can be stored.
-- The current active connection runtime uses one selected peer context at a
-  time; storing multiple peers does not imply simultaneous multi-peer
-  connections.
-- Paired-device information is visible in Settings.
-- Device reset clears peer, call, SMS, notification, and queue records.
-- A new device identity and key can be generated for a new pairing.
-
-### Diagnostics and Settings
-
-- Connection status and recent discovery attempts are visible.
-- Diagnostics can run call, SMS, and notification tests through the real delivery
-  path.
-- Notification listener permission status can be checked.
-- Android runtime permissions are managed from the application.
-- Shortcuts are provided for battery optimization, OEM auto-start, and battery
-  saver settings.
-- The application supports Turkish and English localization.
-
-## Security and Privacy
-
-- Message payloads are encrypted with AES-256-GCM.
-- Each message uses a 12-byte nonce and a 16-byte authentication tag.
-- Encryption keys are stored in Android Keystore-backed secure storage.
-- Device authentication uses an Ed25519 challenge-response handshake.
-- The other device's public key is stored during pairing.
-- Authentication challenge and acknowledgement complete before a connection is
-  considered ready.
-- Timestamp checks protect against replaying old messages within a live
-  connection.
-- The current mobile data path uses no server, relay, or cloud data store.
-- Local records are stored in the device's SQLite database.
-- Notifications from applications not selected by the user are not mirrored.
-
-## Product Boundaries
-
-### Verification Scope
-
-CI automatically runs mobile formatting, static analysis, tests, a debug APK
-build, a clean server build, server container-image construction, non-root
-runtime-image checks, and Compose configuration validation. The server build
-also executes the Testcontainers PostgreSQL/Flyway integration test. Two-device
-Android checks for pairing, reconnect, network changes, and background
-lifecycle are manual device verification and must not be reported as CI
-results.
-
-- The application is Android-focused; telephony, SMS, and notification listener
-  features depend on Android native services.
-- The devices need an accessible shared network or VPN for direct communication.
-- There is no central relay service between different networks.
-- Live call audio is not transported; only call events and control commands are
-  mirrored.
-- Becoming the default SMS application and managing MMS/RCS are out of scope.
-- Notification mirroring depends on Android Notification Listener permission and
-  background restrictions imposed by the device manufacturer.
-- OEM battery-saving and auto-start policies can affect connection continuity.
-- The repository contains server and VPS foundations, but they do not yet
-  provide accounts, device registration, a mailbox, relay, synchronization
-  APIs, or real FCM delivery. The only published server interfaces are Actuator
-  health endpoints.
-
-## Data Model
-
-The application stores the following records in SQLite:
-
-- `peer`: Paired device identity, role, address, port, AES key, and public key.
-- `call_event`: Call direction, number, contact name, time, and call status.
-- `sms_message`: Conversation, address, body, direction, and delivery status.
-- `notification_event`: Application, title, text, native notification ID, and
-  time.
-- `offline_queue`: Encrypted message payloads waiting for a connection, retry
-  counts, and the `dedupe_key` used to prevent duplicate delivery.
-- `known_network`: Previously successful network/IP information for a peer.
-
-The database schema is version 7 and includes migrations from older versions,
-including the `offline_queue.dedupe_key` column migration.
-
-## Application Architecture
-
-The repository uses these monorepo boundaries:
-
-```text
-apps/mobile        Flutter application and Android native runtime
-apps/server        Kotlin/Spring Boot modular-monolith foundation
-packages/contracts Language-neutral protocol fixtures and contracts
-infra/vps          Caddy, Spring, and PostgreSQL Compose definitions
-```
-
-Mobile product code is feature-first and follows this dependency direction:
-
-```text
-domain
-  -> base
-  -> facade
-  -> ui_service
-  -> ui
-```
-
-`core` contains the database engine, cryptography, keystore, and platform
-abstractions. `shared` contains only reusable presentation components and
-pagination. UI and UI-service layers do not access sockets, DAOs,
-MethodChannels, or native listeners directly. Cross-feature behavior goes
-through facade contracts or an app-level orchestrator.
-
-Existing TCP, UDP beacon, subnet discovery, reconnect, and wire-format behavior
-is isolated behind `LegacyLanTransportAdapter`. QR bootstrap connections are
-separated from the pairing workflow through `LegacyPairingHandshakeAdapter`.
-This preserves current LAN/VPN behavior while keeping future transport changes
-outside product and UI layers.
-
-The server is a single Gradle project with `bootstrap`, `shared`, `identity`,
-`devices`, `sync`, and `push` package boundaries. It uses Java 21, Spring Boot
-4.2, PostgreSQL 18, Flyway, Actuator, and default-deny Spring Security.
-`PushGateway` is a no-op in development and test; there is currently no product
-API or relay behavior.
-
-## Verified Security Behavior
-
-- Sensitive SQLite fields and offline queue payloads are encrypted before
-  persistence; the secure storage key is authoritative for local encryption.
-- Network payloads use AES-GCM encryption. Normal messages authenticate their
-  protocol version, type, message ID, and timestamp as associated data.
-- Paired connections use mutual Ed25519 authentication with device IDs and
-  expected public keys, then negotiate a fresh session before application data
-  is accepted.
-- Normal messages reject cross-session delivery, replayed IDs, reordered
-  sequences, and timestamps outside the freshness window.
-- QR pairing binds the request, accept, verification value, and final
-  acknowledgement to one transaction. Peer ID, role, and public-key changes
-  are rejected, and persistence waits for the final acknowledgement.
-- Transport parsing enforces frame, JSON, and encrypted payload limits and
-  closes connections that repeatedly send malformed data.
-
-### Security Non-Goals
-
-- The application does not protect a device that is already compromised or
-  running malicious software with access to its process and secure storage.
-- Local-network availability, TCP metadata, and claimed peer IP addresses are
-  not treated as proof of identity.
-- The product does not provide a cloud relay, remote access outside the local
-  network, or protection against denial of service by the operating system or
-  network infrastructure.
-
-## Current Status
-
-The current application includes pairing, role selection, call mirroring, SMS
-mirroring, selected notification mirroring, offline queue, automatic
-reconnection, connection diagnostics, Android foreground service, and basic
-device management.
-
-The repository also contains a server/deployment foundation with working health
-endpoints, PostgreSQL migrations, and an abstract `PushGateway` contract. It is
-preparation for a future server-backed synchronization change and does not alter
-the current LAN/VPN product behavior.
-
-Tests cover raw wire confidentiality, local storage encryption and migration,
-authenticated sockets, replay protection, pairing identity binding, transport
-limits, beacon, subnet discovery, DAOs, facades, pagination, providers, and
-widgets.
-
-This document describes the current product behavior. New feature decisions and
-release plans should be verified against the implementation before being added
-here.
+## Approved target product
+
+MirrorLine synchronizes phone-call events, SMS messages, and selected app
+notifications between two Android phones through a **server-mediated,
+end-to-end encrypted** service. The SIM-holding phone is the **Source**; the
+day-to-day phone is the **Main**. Main and Source may use independent networks:
+the target product requires no LAN, VPN, IP address, UDP beacon, subnet scan,
+or direct device socket.
+
+The service coordinates accounts, devices, pairing, public-key metadata,
+encrypted mailboxes, and security audit. It neither sees nor retains call/SMS/
+notification content or end-to-end private keys.
+
+## Purpose and roles
+
+MirrorLine lets a user safely follow communication events, and perform valid
+remote actions, from Main while the SIM phone is elsewhere.
+
+- **Main:** Shows the combined feed, manages Sources, and initiates valid
+  call-rejection and SMS-send actions.
+- **Source:** Captures SIM call/SMS events and selected app notifications, and
+  performs valid commands.
+- An account has at most **one Main** and **five Sources**.
+- The service generates UUIDv4 `userId` and `deviceId`; `(userId, deviceId)`
+  is the canonical device identity.
+
+## Pairing and device management
+
+Pairing is a server-managed transaction. Main opens a one-use QR/short code
+valid for five minutes; Source redeems it through the service. Both devices
+sign the same transaction with their Ed25519 keys and confirm a human-comparable
+value shown on both screens. No pairing membership exists until both proofs and
+confirmations pass.
+
+Codes cannot be reused after redemption, expiry, cancellation, or failure. A
+QR/short code carries no private key, shared AES key, IP, port, or direct
+connection secret. Replacing Main invalidates the old Main session and current
+Source pairings; device-security screens make that consequence explicit.
+
+## Encryption, relay, and replay protection
+
+Each device keeps its Ed25519 signing and X25519 key-agreement private keys
+locally. The service receives only public keys, versions, and non-secret
+lifecycle metadata.
+
+- X25519 plus HKDF-SHA256 derives an envelope key; HKDF info includes direction,
+  sender/recipient users and devices, `senderKeyVersion`,
+  `recipientKeyVersion`, and `messageId`.
+- AES-256-GCM encrypts content.
+- RFC 8785 canonical JSON fixes the signed structured representation.
+- The Ed25519 signature directly covers RFC 8785 canonical JSON containing
+  `protocolVersion`, `messageId`, `messageType`, `createdAt`, sender/recipient
+  users/devices, `senderKeyVersion`, `recipientKeyVersion`, nonce, and
+  ciphertext; no separate ciphertext digest is needed in the signed envelope.
+- A recipient verifies signature, identity, version, and GCM authentication
+  before dispatching content.
+- Devices retain sender-scoped `messageId` plus persisted digest/tombstone replay
+  records for eight days. `createdAt` is signed metadata, but does not by itself
+  reject legitimate offline or out-of-order delivery.
+
+The service retains an accepted opaque encrypted mailbox envelope only until
+its server-assigned `acceptedAt + 7 days`; no client-signed expiry controls that
+retention. Push has no product content; it is only an opaque wake signal that
+sync is required.
+
+## Key lifecycle
+
+Key rotation is scheduled every 90 days and also supports manual and emergency
+paths. Ed25519 and X25519 public keys rotate together under one `keyVersion`.
+A new version provides a continuity proof signed by both old and new Ed25519
+keys. Peers acknowledge it; the new version activates at all ACKs or after at
+most 24 hours. Old/new verification overlaps for 14 days. Private keys are
+never uploaded or cloud-backed up.
+
+## History, sessions, and security audit
+
+Local history choices are 7, 30, 90, or 180 days, with 30 days by default.
+Server mailbox retention is seven days and device replay-record retention is
+eight days.
+
+A successful login creates a device-bound session. A session ends through
+sign-out, expiry, security invalidation, or device revocation. Last login is
+the most recent successful session creation; a failed attempt never replaces it.
+
+Security audit is append-only for authentication, sessions, devices, pairing,
+key lifecycle, and relay-security decisions. It never stores passwords, tokens,
+private keys, pairing codes, plaintext, ciphertext, message content, or raw IP
+addresses. Audit events are retained for one year, then deleted or irreversibly
+anonymized.
+
+## User experience
+
+Main provides a combined inbox, call details, SMS conversations, notification
+details, and Source management. Source provides protection/permission status,
+sharing choices, pause controls, and Main-connection information. The app is
+available in Turkish and English. Live call audio is not transported; only call
+events and valid control commands are synchronized. MMS/RCS and becoming the
+default SMS app are out of scope.
+
+## Technical and implementation status
+
+Mobile code preserves the `base -> facade -> ui_service -> ui` boundary; UI
+and UI services do not access base services directly. Target APIs live under
+`/v1` in authentication/session, device, pairing, key lifecycle, mailbox,
+security-audit, and internal-push groups; clients use stable error codes rather
+than response text. Server persistence uses Flyway plus `JdbcTemplate` explicit
+SQL, service/facade transaction boundaries, and PostgreSQL constraints. JPA is
+intentionally not used because mailbox, audit, key-lifecycle, and quota rules
+are SQL- and concurrency-heavy.
+
+**Implementation status (November 2026):** This document describes the
+approved target product contract. The current repository does not yet implement
+the server-mediated accounts, device registration, pairing, relay, key rotation,
+audit, or all 97 screens. The current mobile path may still contain transitional
+legacy LAN/VPN mechanisms; that is not a target-product network requirement.
+The legacy path will be removed only after parity and migration evidence.

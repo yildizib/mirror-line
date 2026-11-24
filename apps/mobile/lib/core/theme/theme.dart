@@ -17,7 +17,7 @@ abstract class AppRadius {
   static const double pill = 999;
 }
 
-const _seedColor = Color(0xFF6C63FF);
+const _seedColor = Color(0xFF27765B);
 
 /// Success/warning roles Material's ColorScheme doesn't provide out of the
 /// box, kept as a proper ThemeExtension so they stay theme-aware (correct
@@ -138,7 +138,9 @@ ThemeData buildMirrorLineTheme(Brightness brightness) {
     useMaterial3: true,
     brightness: brightness,
     colorScheme: colorScheme,
-    scaffoldBackgroundColor: colorScheme.surface,
+    scaffoldBackgroundColor: isDark
+        ? const Color(0xFF17201D)
+        : const Color(0xFFF8FAF9),
     extensions: [isDark ? AppStatusColors.dark : AppStatusColors.light],
     appBarTheme: AppBarTheme(
       backgroundColor: colorScheme.surface,
@@ -182,6 +184,7 @@ ThemeData buildMirrorLineTheme(Brightness brightness) {
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(AppRadius.sm),
         ),
+        minimumSize: const Size.fromHeight(52),
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
         textStyle: const TextStyle(fontWeight: FontWeight.w600),
       ),
@@ -191,6 +194,7 @@ ThemeData buildMirrorLineTheme(Brightness brightness) {
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(AppRadius.sm),
         ),
+        minimumSize: const Size.fromHeight(52),
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
         textStyle: const TextStyle(fontWeight: FontWeight.w600),
         side: BorderSide(color: colorScheme.outlineVariant),
@@ -212,7 +216,7 @@ ThemeData buildMirrorLineTheme(Brightness brightness) {
     ),
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
-      fillColor: colorScheme.surfaceContainerHighest,
+      fillColor: colorScheme.surface,
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(AppRadius.sm),

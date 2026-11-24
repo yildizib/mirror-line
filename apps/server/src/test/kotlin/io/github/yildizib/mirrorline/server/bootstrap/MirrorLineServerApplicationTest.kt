@@ -39,7 +39,10 @@ class MirrorLineServerApplicationTest {
 
     @Test
     fun `unknown product endpoints are denied`() {
-        mockMvc.get("/api/sync").andExpect { status { isForbidden() } }
+        mockMvc.get("/api/sync").andExpect {
+            status { isUnauthorized() }
+            jsonPath("$.code") { value("AUTH_SESSION_EXPIRED") }
+        }
     }
 
     companion object {

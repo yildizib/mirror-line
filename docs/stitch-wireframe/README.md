@@ -27,6 +27,11 @@ infrastructure screens.
 - `07_STITCH_PROMPTS.md` — copy-ready Stitch generation batches.
 - `08_QA_CHECKLIST.md` — visual and flow acceptance checklist.
 
+The approved target manifest contains exactly 97 IDs. The seven target-only
+entries (`A12`–`A14`, `R08`, `P17`, `SS10`, and `X09`) document future
+server-backed security and synchronization UX; they are not implemented by the
+current React wireframe in this contract-only change.
+
 ## Global boundary
 
 The package may mention that the mobile UI receives device eligibility,

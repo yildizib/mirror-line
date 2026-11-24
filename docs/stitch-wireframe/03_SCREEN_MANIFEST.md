@@ -19,6 +19,9 @@ global design system and Android portrait dimensions.
 | A09 | Create new password | New password, confirmation, requirements | default, invalid, expired link, success |
 | A10 | Update banner | Non-blocking message over current destination | visible, dismissed |
 | A11 | Update detail | Installed/latest version, Update and Later | available, check failed, current |
+| A12 | Active sessions | Current and other signed-in devices, last-login context, and revoke action | loading, populated, empty, failed |
+| A13 | Session detail | Device label, coarse last-login context, session status, and revoke confirmation | current, active, revoked, failed |
+| A14 | Security activity | Redacted account, device, pairing, and key-security events | loading, populated, empty, failed |
 
 ## B. Role selection and Main security
 
@@ -31,6 +34,7 @@ global design system and Android portrait dimensions.
 | R05 | Reauthenticate | Password confirmation for replacement | default, failed, submitting |
 | R06 | Final replacement confirmation | Destructive final choice with explicit consequences | default, processing, failed |
 | R07 | Main ready | Main is active; guide toward adding Sources | zero Sources, returning Main |
+| R08 | Register this device | Explain server-issued device identity and protected local keys before role activation | default, registering, failed |
 
 ## C. Pairing
 
@@ -52,6 +56,7 @@ global design system and Android portrait dimensions.
 | P14 | Remove current Main warning | Consequences before Source unpairs | default |
 | P15 | Unpair reauthentication | Password confirmation | default, failed, processing |
 | P16 | Connection removed | Safe success and Start new pairing | default |
+| P17 | Pairing security status | Show server-mediated proof/comparison progress without keys, IP, or relay internals | waiting for proof, comparison required, verified, failed |
 
 ## D. Main Phone permissions
 
@@ -133,6 +138,7 @@ notification listener, battery exemption, or auto-start.
 | SS07 | Diagnostics | Source capability status and copy-report action |
 | SS08 | Remove connection | Security warning and reauthentication path |
 | SS09 | Sign out | Explain effect on Source operation and confirm |
+| SS10 | Keys and sync security | Key rotation state, mailbox retention, replay protection, and recovery guidance | current, rotation due, awaiting acknowledgement, recovery required |
 
 ## J. Shared overlays and state components
 
@@ -146,3 +152,4 @@ notification listener, battery exemption, or auto-start.
 | X06 | Confirmation dialog | normal, destructive, security-sensitive |
 | X07 | Reauthentication sheet | default, submitting, failed |
 | X08 | Skeleton set | form, event rows, device rows, conversation rows |
+| X09 | Sync status notice | Server-mediated sync status with safe recovery action; never a server console | synchronizing, delayed, mailbox expired, security check required |
