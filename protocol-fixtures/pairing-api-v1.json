@@ -1,0 +1,238 @@
+{
+  "protocol": "mirrorline-pairing-api-v1",
+  "transactions": {
+    "created": {
+      "pairingId": "00000000-0000-4000-8000-000000000001",
+      "state": "created",
+      "localRole": "MAIN",
+      "code": "ABCDEFGHJK",
+      "protocolVersion": 1,
+      "expiresAt": "2030-01-01T00:00:00Z",
+      "capacity": { "current": 0, "max": 5 },
+      "comparisonValue": null,
+      "transcript": null
+    },
+    "redeemed": {
+      "pairingId": "00000000-0000-4000-8000-000000000001",
+      "state": "redeemed",
+      "localRole": "MAIN",
+      "protocolVersion": 1,
+      "expiresAt": "2030-01-01T00:00:00Z",
+      "capacity": { "current": 1, "max": 5 },
+      "comparisonValue": null,
+      "transcript": {
+        "protocolVersion": 1,
+        "pairingId": "00000000-0000-4000-8000-000000000001",
+        "challenge": "__________________________________________8",
+        "main": {
+          "userId": "00000000-0000-4000-8000-000000000002",
+          "deviceId": "00000000-0000-4000-8000-000000000003",
+          "role": "MAIN",
+          "keyVersion": 1,
+          "keyFingerprint": "_oEsEvOrTOasXbaaw1L5BssbEe9D-zPiUu9_9VImOIk"
+        },
+        "source": {
+          "userId": "00000000-0000-4000-8000-000000000002",
+          "deviceId": "00000000-0000-4000-8000-000000000004",
+          "role": "SOURCE",
+          "keyVersion": 2,
+          "keyFingerprint": "__________________________________________8"
+        }
+      }
+    },
+    "proofsVerified": {
+      "pairingId": "00000000-0000-4000-8000-000000000001",
+      "state": "proofs_verified",
+      "localRole": "MAIN",
+      "protocolVersion": 1,
+      "expiresAt": "2030-01-01T00:00:00Z",
+      "capacity": { "current": 1, "max": 5 },
+      "comparisonValue": "123456",
+      "transcript": {
+        "protocolVersion": 1,
+        "pairingId": "00000000-0000-4000-8000-000000000001",
+        "challenge": "__________________________________________8",
+        "main": {
+          "userId": "00000000-0000-4000-8000-000000000002",
+          "deviceId": "00000000-0000-4000-8000-000000000003",
+          "role": "MAIN",
+          "keyVersion": 1,
+          "keyFingerprint": "_oEsEvOrTOasXbaaw1L5BssbEe9D-zPiUu9_9VImOIk"
+        },
+        "source": {
+          "userId": "00000000-0000-4000-8000-000000000002",
+          "deviceId": "00000000-0000-4000-8000-000000000004",
+          "role": "SOURCE",
+          "keyVersion": 2,
+          "keyFingerprint": "__________________________________________8"
+        }
+      }
+    },
+    "completed": {
+      "pairingId": "00000000-0000-4000-8000-000000000001",
+      "state": "completed",
+      "localRole": "MAIN",
+      "protocolVersion": 1,
+      "expiresAt": "2030-01-01T00:00:00Z",
+      "capacity": { "current": 1, "max": 5 },
+      "comparisonValue": "123456",
+      "transcript": {
+        "protocolVersion": 1,
+        "pairingId": "00000000-0000-4000-8000-000000000001",
+        "challenge": "__________________________________________8",
+        "main": {
+          "userId": "00000000-0000-4000-8000-000000000002",
+          "deviceId": "00000000-0000-4000-8000-000000000003",
+          "role": "MAIN",
+          "keyVersion": 1,
+          "keyFingerprint": "_oEsEvOrTOasXbaaw1L5BssbEe9D-zPiUu9_9VImOIk"
+        },
+        "source": {
+          "userId": "00000000-0000-4000-8000-000000000002",
+          "deviceId": "00000000-0000-4000-8000-000000000004",
+          "role": "SOURCE",
+          "keyVersion": 2,
+          "keyFingerprint": "__________________________________________8"
+        }
+      }
+    },
+    "comparisonConfirmed": {
+      "pairingId": "00000000-0000-4000-8000-000000000001",
+      "state": "comparison_confirmed",
+      "localRole": "MAIN",
+      "protocolVersion": 1,
+      "expiresAt": "2030-01-01T00:00:00Z",
+      "capacity": { "current": 1, "max": 5 },
+      "comparisonValue": "123456",
+      "transcript": {
+        "protocolVersion": 1,
+        "pairingId": "00000000-0000-4000-8000-000000000001",
+        "challenge": "__________________________________________8",
+        "main": {
+          "userId": "00000000-0000-4000-8000-000000000002",
+          "deviceId": "00000000-0000-4000-8000-000000000003",
+          "role": "MAIN",
+          "keyVersion": 1,
+          "keyFingerprint": "_oEsEvOrTOasXbaaw1L5BssbEe9D-zPiUu9_9VImOIk"
+        },
+        "source": {
+          "userId": "00000000-0000-4000-8000-000000000002",
+          "deviceId": "00000000-0000-4000-8000-000000000004",
+          "role": "SOURCE",
+          "keyVersion": 2,
+          "keyFingerprint": "__________________________________________8"
+        }
+      }
+    },
+    "rejected": {
+      "pairingId": "00000000-0000-4000-8000-000000000001",
+      "state": "rejected",
+      "localRole": "MAIN",
+      "protocolVersion": 1,
+      "expiresAt": "2030-01-01T00:00:00Z",
+      "capacity": { "current": 1, "max": 5 },
+      "comparisonValue": "123456",
+      "transcript": {
+        "protocolVersion": 1,
+        "pairingId": "00000000-0000-4000-8000-000000000001",
+        "challenge": "__________________________________________8",
+        "main": {
+          "userId": "00000000-0000-4000-8000-000000000002",
+          "deviceId": "00000000-0000-4000-8000-000000000003",
+          "role": "MAIN",
+          "keyVersion": 1,
+          "keyFingerprint": "_oEsEvOrTOasXbaaw1L5BssbEe9D-zPiUu9_9VImOIk"
+        },
+        "source": {
+          "userId": "00000000-0000-4000-8000-000000000002",
+          "deviceId": "00000000-0000-4000-8000-000000000004",
+          "role": "SOURCE",
+          "keyVersion": 2,
+          "keyFingerprint": "__________________________________________8"
+        }
+      }
+    },
+    "expired": {
+      "pairingId": "00000000-0000-4000-8000-000000000001",
+      "state": "expired",
+      "localRole": "MAIN",
+      "protocolVersion": 1,
+      "expiresAt": "2030-01-01T00:00:00Z",
+      "capacity": { "current": 0, "max": 5 },
+      "comparisonValue": null,
+      "transcript": null
+    },
+    "cancelled": {
+      "pairingId": "00000000-0000-4000-8000-000000000001",
+      "state": "cancelled",
+      "localRole": "MAIN",
+      "protocolVersion": 1,
+      "expiresAt": "2030-01-01T00:00:00Z",
+      "capacity": { "current": 1, "max": 5 },
+      "comparisonValue": null,
+      "transcript": {
+        "protocolVersion": 1,
+        "pairingId": "00000000-0000-4000-8000-000000000001",
+        "challenge": "__________________________________________8",
+        "main": {
+          "userId": "00000000-0000-4000-8000-000000000002",
+          "deviceId": "00000000-0000-4000-8000-000000000003",
+          "role": "MAIN",
+          "keyVersion": 1,
+          "keyFingerprint": "_oEsEvOrTOasXbaaw1L5BssbEe9D-zPiUu9_9VImOIk"
+        },
+        "source": {
+          "userId": "00000000-0000-4000-8000-000000000002",
+          "deviceId": "00000000-0000-4000-8000-000000000004",
+          "role": "SOURCE",
+          "keyVersion": 2,
+          "keyFingerprint": "__________________________________________8"
+        }
+      }
+    },
+    "failed": {
+      "pairingId": "00000000-0000-4000-8000-000000000001",
+      "state": "failed",
+      "localRole": "MAIN",
+      "protocolVersion": 1,
+      "expiresAt": "2030-01-01T00:00:00Z",
+      "capacity": { "current": 1, "max": 5 },
+      "comparisonValue": "123456",
+      "transcript": {
+        "protocolVersion": 1,
+        "pairingId": "00000000-0000-4000-8000-000000000001",
+        "challenge": "__________________________________________8",
+        "main": {
+          "userId": "00000000-0000-4000-8000-000000000002",
+          "deviceId": "00000000-0000-4000-8000-000000000003",
+          "role": "MAIN",
+          "keyVersion": 1,
+          "keyFingerprint": "_oEsEvOrTOasXbaaw1L5BssbEe9D-zPiUu9_9VImOIk"
+        },
+        "source": {
+          "userId": "00000000-0000-4000-8000-000000000002",
+          "deviceId": "00000000-0000-4000-8000-000000000004",
+          "role": "SOURCE",
+          "keyVersion": 2,
+          "keyFingerprint": "__________________________________________8"
+        }
+      }
+    }
+  },
+  "devices": [
+    {
+      "deviceId": "00000000-0000-4000-8000-000000000003",
+      "role": "MAIN",
+      "status": "ACTIVE",
+      "displayName": "Main device",
+      "createdAt": "2029-12-31T23:00:00Z"
+    },
+    {
+      "deviceId": "00000000-0000-4000-8000-000000000004",
+      "role": "SOURCE",
+      "status": "PENDING",
+      "displayName": "Source device",
+      "createdAt": "2030-01-01T00:00:00Z"
+    }
+  ]
+}

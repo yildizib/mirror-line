@@ -251,16 +251,13 @@ class PairingRepository(
         id: UUID,
         main: Boolean,
         match: Boolean,
-        both: Boolean,
     ) {
         val column = if (main) "main_confirmation" else "source_confirmation"
         val state =
             if (!match) {
                 "REJECTED"
-            } else if (both) {
-                "COMPARISON_CONFIRMED"
             } else {
-                "PROOFS_VERIFIED"
+                "COMPARISON_CONFIRMED"
             }
         ; jdbc.update(
             "UPDATE pairing_sessions SET $column=?,state=CAST(? AS pairing_session_state),terminal_at=CASE WHEN ?='REJECTED' THEN CURRENT_TIMESTAMP ELSE terminal_at END WHERE pairing_session_id=?",
