@@ -14,7 +14,9 @@ class SecurityAuditPersistenceRepository(
         result: String,
         userId: UUID? = null,
         deviceId: UUID? = null,
+        sessionId: UUID? = null,
         correlationId: UUID? = null,
+        failureCode: String? = null,
     ): Long =
         jdbcTemplate.queryForObject(
             """
@@ -23,8 +25,10 @@ class SecurityAuditPersistenceRepository(
                 result,
                 user_id,
                 device_id,
-                correlation_id
-            ) VALUES (?, CAST(? AS audit_result), ?, ?, ?)
+                session_id,
+                correlation_id,
+                failure_code
+            ) VALUES (?, CAST(? AS audit_result), ?, ?, ?, ?, ?)
             RETURNING audit_event_id
             """.trimIndent(),
             Long::class.java,
@@ -32,6 +36,8 @@ class SecurityAuditPersistenceRepository(
             result,
             userId,
             deviceId,
+            sessionId,
             correlationId,
+            failureCode,
         )!!
 }

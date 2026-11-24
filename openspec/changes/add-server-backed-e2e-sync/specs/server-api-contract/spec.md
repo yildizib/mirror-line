@@ -7,6 +7,12 @@ authentication and sessions, identity and devices, pairing, key lifecycle,
 mailbox sync, security audit, and internal push wake-up. Public clients SHALL
 NOT use internal push administration endpoints.
 
+Successful device-bound session creation and refresh responses SHALL include the
+server-issued `userId` and `deviceId` associated with that session. A
+device-enrollment grant response SHALL include its server-issued `userId`.
+Clients SHALL NOT supply either response identity value, and the service SHALL
+not derive it from a client-provided token claim.
+
 #### Scenario: A mobile client requests a future API version
 - **WHEN** the request targets an unsupported version
 - **THEN** the service SHALL return `API_VERSION_UNSUPPORTED`

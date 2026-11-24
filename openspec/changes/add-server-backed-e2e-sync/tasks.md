@@ -7,28 +7,28 @@
 
 ## T2. Interoperable cryptography
 
-- [ ] 2.1 Implement Ed25519, X25519, HKDF-SHA256, AES-256-GCM, RFC 8785, and
+- [x] 2.1 Implement Ed25519, X25519, HKDF-SHA256, AES-256-GCM, RFC 8785, and
   versioned fixture contracts in shared/mobile/server modules.
-- [ ] 2.2 Add cross-language positive, tamper, canonicalization, and key-version
+- [x] 2.2 Add cross-language positive, tamper, canonicalization, and key-version
   interoperability tests.
 
 ## T3. Persistence and migrations
 
-- [ ] 3.1 Add Flyway migrations and explicit `JdbcTemplate` SQL repositories
+- [x] 3.1 Add Flyway migrations and explicit `JdbcTemplate` SQL repositories
   for accounts, devices, public keys, pairing, opaque mailbox,
   acknowledgements, sessions, and append-only audit records.
 - [ ] 3.2 Add mobile persistence for identities, public-key versions, mailbox
   cursors, encrypted envelopes, eight-day replay records, and history policy.
-- [ ] 3.3 Test PostgreSQL constraints, concurrent quota transitions, upgrades,
+- [x] 3.3 Test PostgreSQL constraints, concurrent quota transitions, upgrades,
   expiry cleanup, idempotency, and retention boundaries without JPA.
 
 ## T4. Identity and device registration
 
-- [ ] 4.1 Implement server-generated UUIDv4 users/devices and canonical device
+- [x] 4.1 Implement server-generated UUIDv4 users/devices and canonical device
   identity enforcement.
-- [ ] 4.2 Implement authenticated device registration, one-Main/five-Source
+- [x] 4.2 Implement authenticated device registration, one-Main/five-Source
   limits, revocation, and session semantics.
-- [ ] 4.3 Expose facade-only mobile identity/device flows with tests.
+- [x] 4.3 Expose facade-only mobile identity/device flows with tests.
 
 ## T5. Server-mediated pairing
 
@@ -68,9 +68,9 @@
 
 ## T10. Mobile account and session foundations
 
-- [ ] 10.1 Implement account, verified-session, device-registration, and
+- [x] 10.1 Implement account, verified-session, device-registration, and
   security-session facade contracts.
-- [ ] 10.2 Add local state, failure mapping, secure token handling, and tests.
+- [x] 10.2 Add local state, failure mapping, secure token handling, and tests.
 
 ## T11. Mobile pairing and device management foundations
 
