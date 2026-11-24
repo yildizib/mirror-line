@@ -110,6 +110,10 @@ comparison result, and `DELETE /v1/pairings/{pairingId}` to cancel before
 completion. State-changing calls use request idempotency keys; an expired or
 terminal transaction never reopens.
 
+An authenticated Main may idempotently revoke a managed Source; self-revocation
+invalidates its own session, so a lost-response retry terminates safely at
+session invalidation rather than replaying a successful revoke response.
+
 ## Key lifecycle
 
 Every device schedules key rotation every 90 days and supports manual and

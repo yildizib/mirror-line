@@ -13,6 +13,7 @@ data class SessionRecord(
     val deviceId: UUID,
     val accessExpiresAt: OffsetDateTime,
     val refreshExpiresAt: OffsetDateTime,
+    val deviceStatus: String = "ACTIVE",
 )
 
 data class SessionView(
@@ -69,10 +70,10 @@ class SessionRepository(
         jdbcTemplate
             .query(
                 """
-                SELECT s.session_id, s.user_id, s.device_id, s.access_expires_at, s.refresh_expires_at
+                SELECT s.session_id, s.user_id, s.device_id, s.access_expires_at, s.refresh_expires_at, d.status::text device_status
                 FROM sessions s JOIN devices d ON d.user_id = s.user_id AND d.device_id = s.device_id
                 WHERE s.access_token_hash = ? AND s.status = 'ACTIVE'
-                  AND s.access_expires_at > CURRENT_TIMESTAMP AND d.status = 'ACTIVE'
+                  AND s.access_expires_at > CURRENT_TIMESTAMP AND d.status IN ('ACTIVE', 'PENDING')
                 """.trimIndent(),
                 recordMapper,
                 accessHash,
@@ -91,7 +92,7 @@ class SessionRepository(
                 UPDATE sessions SET access_token_hash = ?, access_expires_at = ?, refresh_token_hash = ?,
                     refresh_expires_at = ?, expires_at = ?, last_used_at = CURRENT_TIMESTAMP
                 WHERE refresh_token_hash = ? AND status = 'ACTIVE' AND refresh_expires_at > CURRENT_TIMESTAMP
-                RETURNING session_id, user_id, device_id, access_expires_at, refresh_expires_at
+                RETURNING session_id, user_id, device_id, access_expires_at, refresh_expires_at, 'ACTIVE'::text device_status
                 """.trimIndent(),
                 recordMapper,
                 accessHash,
@@ -167,6 +168,7 @@ class SessionRepository(
                     result.getObject("device_id", UUID::class.java),
                     result.getObject("access_expires_at", OffsetDateTime::class.java),
                     result.getObject("refresh_expires_at", OffsetDateTime::class.java),
+                    result.getString("device_status"),
                 )
             }
     }

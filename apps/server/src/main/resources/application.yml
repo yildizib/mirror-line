@@ -5,9 +5,12 @@ spring:
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/mirrorline}
     username: ${SPRING_DATASOURCE_USERNAME:mirrorline}
     password: ${SPRING_DATASOURCE_PASSWORD:mirrorline}
+    hikari:
+      connection-init-sql: SET TIME ZONE 'UTC'
   flyway:
     enabled: true
   jackson:
+    time-zone: UTC
     deserialization:
       fail-on-unknown-properties: true
   lifecycle:
@@ -29,3 +32,4 @@ management:
 
 mirrorline:
   public-domain: ${MIRRORLINE_PUBLIC_DOMAIN:}
+  pairing-code-hmac-key: ${MIRRORLINE_PAIRING_CODE_HMAC_KEY:}

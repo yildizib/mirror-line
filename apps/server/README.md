@@ -1,8 +1,9 @@
 # MirrorLine Server
 
-Kotlin/Spring Boot modular-monolith skeleton for the future server-backed
-MirrorLine transport. This change exposes health probes only; account, device,
-mailbox, and relay product APIs are intentionally absent.
+Kotlin/Spring Boot service for server-mediated MirrorLine account, device, and
+pairing workflows. It exposes health probes, opaque-session account APIs,
+device enrollment/revocation, and authenticated server-mediated pairing. Relay
+mailbox delivery remains a separate capability.
 
 ## Local checks
 
@@ -20,4 +21,8 @@ checks build both Docker stages and verify that the runtime image can read the
 application artifact without running as root.
 
 The application expects PostgreSQL. Production also requires
-`MIRRORLINE_PUBLIC_DOMAIN` and Application Default Credentials for Firebase.
+`MIRRORLINE_PUBLIC_DOMAIN`, Application Default Credentials for Firebase, and
+`MIRRORLINE_PAIRING_CODE_HMAC_KEY`: the unpadded base64url encoding of at least
+32 cryptographically random bytes. This HMAC key is validated at startup and
+must be supplied only through environment/secret management, never source or
+logs.

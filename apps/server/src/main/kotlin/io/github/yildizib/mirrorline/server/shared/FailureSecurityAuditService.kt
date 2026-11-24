@@ -17,7 +17,18 @@ class FailureSecurityAuditService(
         userId: UUID? = null,
         deviceId: UUID? = null,
         sessionId: UUID? = null,
+        pairingSessionId: UUID? = null,
         correlationId: UUID? = null,
         failureCode: String? = null,
-    ): Long = audit.append(eventType, result, userId, deviceId, sessionId, correlationId, failureCode)
+    ): Long =
+        audit.append(
+            eventType = eventType,
+            result = result,
+            userId = userId,
+            deviceId = deviceId,
+            sessionId = sessionId,
+            pairingSessionId = pairingSessionId,
+            correlationId = correlationId,
+            failureCode = failureCode,
+        )
 }

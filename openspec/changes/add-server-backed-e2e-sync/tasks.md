@@ -32,8 +32,8 @@
 
 ## T5. Server-mediated pairing
 
-- [ ] 5.1 Implement five-minute, one-use code issue/redeem/cancel/status APIs.
-- [ ] 5.2 Implement signed proofs, comparison confirmation, atomic membership,
+- [x] 5.1 Implement five-minute, one-use code issue/redeem/cancel/status APIs.
+- [x] 5.2 Implement signed proofs, comparison confirmation, atomic membership,
   terminal state handling, and pairing audit events.
 - [ ] 5.3 Add server, mobile, and cross-network integration coverage.
 

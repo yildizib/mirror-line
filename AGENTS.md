@@ -471,6 +471,7 @@ Run from the repository root with validation-only values:
 ```bash
 POSTGRES_PASSWORD=compose-validation-only \
 MIRRORLINE_DOMAIN=localhost \
+MIRRORLINE_PAIRING_CODE_HMAC_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA \
 docker compose -f infra/vps/compose.yml config --quiet
 ```
 

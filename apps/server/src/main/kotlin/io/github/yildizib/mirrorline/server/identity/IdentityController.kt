@@ -11,11 +11,13 @@ import jakarta.validation.constraints.Size
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.security.core.annotation.AuthenticationPrincipal
+import org.springframework.validation.annotation.Validated
 import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
+import org.springframework.web.bind.annotation.RequestHeader
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RestController
 import java.util.Base64
@@ -97,6 +99,7 @@ data class FcmTokenRequest(
 )
 
 @RestController
+@Validated
 @RequestMapping("/v1")
 class IdentityController(
     private val accounts: AccountFacade,
@@ -215,8 +218,9 @@ class IdentityController(
     fun revokeDevice(
         @AuthenticationPrincipal principal: AuthenticatedPrincipal,
         @PathVariable deviceId: UUID,
+        @RequestHeader("Idempotency-Key") @NotBlank @Size(max = 128) idempotencyKey: String,
     ): ResponseEntity<Void> {
-        devices.revoke(principal.userId, principal.deviceId, deviceId)
+        devices.revoke(principal.userId, principal.deviceId, deviceId, idempotencyKey)
         return ResponseEntity.noContent().build()
     }
 

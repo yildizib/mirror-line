@@ -30,6 +30,7 @@ dependencies {
     implementation("org.flywaydb:flyway-database-postgresql")
     implementation("com.google.firebase:firebase-admin:9.7.0")
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
+    implementation("com.fasterxml.jackson.datatype:jackson-datatype-jsr310")
     implementation("org.jetbrains.kotlin:kotlin-reflect")
 
     runtimeOnly("org.postgresql:postgresql")

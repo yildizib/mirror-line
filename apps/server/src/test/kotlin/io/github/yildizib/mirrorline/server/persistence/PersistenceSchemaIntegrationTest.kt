@@ -89,6 +89,7 @@ class PersistenceSchemaIntegrationTest {
 
     @Test
     fun `foreign key unique and check constraints reject invalid records`() {
+        assertThat(jdbcTemplate.queryForObject("SELECT current_setting('TimeZone')", String::class.java)).isEqualTo("UTC")
         assertThatThrownBy {
             jdbcTemplate.update(
                 """
@@ -98,7 +99,6 @@ class PersistenceSchemaIntegrationTest {
                 UUID.randomUUID(),
             )
         }.isInstanceOf(DataAccessException::class.java)
-
         val userId = userRepository.createUser()
         deviceRepository.registerActiveDevice(userId, "MAIN")
         assertThatThrownBy { deviceRepository.registerActiveDevice(userId, "MAIN") }
@@ -315,6 +315,101 @@ class PersistenceSchemaIntegrationTest {
             )
         assertThat(workflowAndStatus["workflow_state"]).isEqualTo("PROOFS_VERIFIED")
         assertThat(workflowAndStatus["status"]).isEqualTo("ACTIVE")
+    }
+
+    @Test
+    fun `V4 pairing idempotency constraints bind actors snapshots digests and expiry`() {
+        val userId = userRepository.createUser()
+        val deviceId = registerDeviceWithKey(userId, "MAIN")
+        val pairingId = UUID.randomUUID()
+        jdbcTemplate.update(
+            """INSERT INTO pairing_sessions (
+                pairing_session_id,initiator_user_id,initiator_device_id,initiator_public_key,initiator_key_version,initiator_key_fingerprint,
+                code_hash,challenge,expires_at
+            ) VALUES (?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP + INTERVAL '5 minutes')""",
+            pairingId,
+            userId,
+            deviceId,
+            ByteArray(32),
+            1,
+            "fingerprint",
+            ByteArray(32),
+            ByteArray(32),
+        )
+        assertThatThrownBy {
+            jdbcTemplate.update(
+                """INSERT INTO pairing_idempotency (
+                    pairing_session_id,actor_user_id,actor_device_id,operation,idempotency_key,resulting_state,
+                    request_digest,response_snapshot,expires_at
+                ) VALUES (?,?,?,?,?,'CREATED',?,CAST(? AS jsonb),CURRENT_TIMESTAMP + INTERVAL '5 minutes')""",
+                pairingId,
+                userId,
+                deviceId,
+                "NOT_AN_OPERATION",
+                "bad-operation",
+                ByteArray(31),
+                "[]",
+            )
+        }.isInstanceOf(DataAccessException::class.java)
+        assertThatThrownBy {
+            jdbcTemplate.update(
+                """INSERT INTO pairing_create_idempotency (
+                    actor_user_id,actor_device_id,idempotency_key,request_digest,pairing_session_id,capacity_current,expires_at
+                ) VALUES (?,?,?,?,?,?,CURRENT_TIMESTAMP + INTERVAL '5 minutes')""",
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                "unknown-actor",
+                ByteArray(32),
+                pairingId,
+                0,
+            )
+        }.isInstanceOf(DataAccessException::class.java)
+        assertThatThrownBy {
+            jdbcTemplate.update(
+                """INSERT INTO pairing_sessions (
+                    pairing_session_id,initiator_user_id,initiator_device_id,initiator_public_key,initiator_key_version,initiator_key_fingerprint,
+                    code_hash,challenge,expires_at
+                ) VALUES (?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP + INTERVAL '5 minutes')""",
+                UUID.randomUUID(),
+                userId,
+                deviceId,
+                ByteArray(32),
+                2,
+                "fingerprint",
+                ByteArray(32),
+                ByteArray(32),
+            )
+        }.isInstanceOf(DataAccessException::class.java)
+        assertThatThrownBy {
+            jdbcTemplate.update(
+                """INSERT INTO pairing_idempotency (
+                    pairing_session_id,actor_user_id,actor_device_id,operation,idempotency_key,resulting_state,
+                    request_digest,response_snapshot,failure_code,expires_at
+                ) VALUES (?,?,?,?,?,'FAILED',?,CAST(? AS jsonb),'UNSAFE_FAILURE',CURRENT_TIMESTAMP + INTERVAL '5 minutes')""",
+                pairingId,
+                userId,
+                deviceId,
+                "CONFIRM",
+                "bad-failure-code",
+                ByteArray(32),
+                "{}",
+            )
+        }.isInstanceOf(DataAccessException::class.java)
+        assertThatThrownBy {
+            jdbcTemplate.update(
+                """INSERT INTO pairing_sessions (
+                    pairing_session_id,initiator_user_id,initiator_device_id,initiator_public_key,initiator_key_version,
+                    code_hash,challenge,state,expires_at
+                ) VALUES (?,?,?,?,?,?,?,'REJECTED',CURRENT_TIMESTAMP + INTERVAL '5 minutes')""",
+                UUID.randomUUID(),
+                userId,
+                deviceId,
+                ByteArray(32),
+                1,
+                ByteArray(32),
+                ByteArray(32),
+            )
+        }.isInstanceOf(DataAccessException::class.java)
     }
 
     @Test
