@@ -574,4 +574,207 @@ class AppLocalizationsTr extends AppLocalizations {
 
   @override
   String get commonYesterday => 'Dün';
+
+  @override
+  String get welcomeTitle => 'Telefonlarını tek yerden takip et';
+
+  @override
+  String get welcomeBody =>
+      'Çağrıları, mesajları ve seçtiğin uygulama bildirimlerini Ana Telefonunda gör.';
+
+  @override
+  String get authSignIn => 'Giriş yap';
+
+  @override
+  String get authCreateAccount => 'Hesap oluştur';
+
+  @override
+  String get authEmail => 'E-posta';
+
+  @override
+  String get authPassword => 'Parola';
+
+  @override
+  String get authConfirmPassword => 'Parolayı doğrula';
+
+  @override
+  String get authShowPassword => 'Parolayı göster';
+
+  @override
+  String get authHidePassword => 'Parolayı gizle';
+
+  @override
+  String get authForgotPassword => 'Parolamı unuttum';
+
+  @override
+  String get authHaveAccount => 'Hesabın var mı?';
+
+  @override
+  String get authNoAccount => 'Hesabın yok mu?';
+
+  @override
+  String get authTerms =>
+      'Koşulları ve Gizlilik Bildirimi’ni okudum, kabul ediyorum.';
+
+  @override
+  String get authRequired => 'Bu alan gerekli.';
+
+  @override
+  String get authInvalidEmail => 'Geçerli bir e-posta adresi gir.';
+
+  @override
+  String get authPasswordMismatch => 'Parolalar eşleşmiyor.';
+
+  @override
+  String get authWrongCredentials => 'E-posta veya parola doğru değil.';
+
+  @override
+  String get authEmailExists => 'Bu e-postayla oluşturulmuş bir hesap var.';
+
+  @override
+  String get authConnectionFailed =>
+      'Bağlantı kurulamadı. Bilgilerin korundu; tekrar deneyebilirsin.';
+
+  @override
+  String get authSigningIn => 'Giriş yapılıyor…';
+
+  @override
+  String get authCreating => 'Hesap oluşturuluyor…';
+
+  @override
+  String get passwordLength => 'En az 12 karakter';
+
+  @override
+  String get passwordUppercase => 'Bir büyük harf';
+
+  @override
+  String get passwordLowercase => 'Bir küçük harf';
+
+  @override
+  String get passwordNumber => 'Bir sayı';
+
+  @override
+  String get verifyTitle => 'E-postanı doğrula';
+
+  @override
+  String verifyBody(String email) {
+    return 'Doğrulama bağlantısını $email adresine gönderdik.';
+  }
+
+  @override
+  String get verifyCheckAgain => 'Tekrar kontrol et';
+
+  @override
+  String get verifyResend => 'Doğrulama e-postasını yeniden gönder';
+
+  @override
+  String get verifyChangeEmail => 'E-postayı değiştir';
+
+  @override
+  String verifyCooldown(int seconds) {
+    return '$seconds saniye sonra yeniden gönderebilirsin.';
+  }
+
+  @override
+  String get verifyExpired =>
+      'Bu doğrulama bağlantısının süresi dolmuş. Yeni bir bağlantı iste.';
+
+  @override
+  String get verifySuccess => 'E-posta doğrulandı.';
+
+  @override
+  String get verifySent => 'Doğrulama e-postası yeniden gönderildi.';
+
+  @override
+  String get verifyResendFailed =>
+      'Doğrulama e-postası yeniden gönderilemedi. Tekrar dene.';
+
+  @override
+  String get resetTitle => 'Parolanı sıfırla';
+
+  @override
+  String get resetBody =>
+      'Parola sıfırlama bağlantısı için e-posta adresini gir.';
+
+  @override
+  String get resetSend => 'Sıfırlama bağlantısı gönder';
+
+  @override
+  String get resetSentTitle => 'E-postanı kontrol et';
+
+  @override
+  String get resetSentBody =>
+      'Hesap eşleşiyorsa parola sıfırlama bağlantısını gönderdik.';
+
+  @override
+  String get resetNewPassword => 'Yeni parola oluştur';
+
+  @override
+  String get resetSuccess => 'Parolan güncellendi. Şimdi giriş yapabilirsin.';
+
+  @override
+  String get roleChooseTitle => 'Bu telefonu nasıl kullanacaksın?';
+
+  @override
+  String get roleChooseBody => '';
+
+  @override
+  String get roleMainPhone => 'Ana Telefon';
+
+  @override
+  String get roleMainBody =>
+      'Kaynak Telefonlarından gelen çağrı, SMS ve bildirimleri burada gör.';
+
+  @override
+  String get roleSourcePhone => 'Kaynak Telefon';
+
+  @override
+  String get roleSourceBody =>
+      'Çağrıları, SMS’leri ve seçili uygulama bildirimlerini Ana Telefonuna ilet.';
+
+  @override
+  String get roleConfirmTitle => 'Bu rolü onayla';
+
+  @override
+  String get roleConfirmMain =>
+      'Bu telefon Kaynaklarındaki etkinlikleri gösterecek.';
+
+  @override
+  String get roleConfirmSource =>
+      'Bu telefon seçili etkinlikleri Ana Telefonuna gönderecek.';
+
+  @override
+  String get deviceRegisterTitle => 'Bu cihazı kaydet';
+
+  @override
+  String get deviceRegisterBody =>
+      'MirrorLine, rol etkinleştirilmeden önce sunucunun verdiği cihaz kimliğini ve korunan yerel anahtarları oluşturur.';
+
+  @override
+  String get deviceRegisterAction => 'Bu cihazı kaydet';
+
+  @override
+  String get deviceRegistering => 'Bu cihaz kaydediliyor…';
+
+  @override
+  String get deviceRegisterFailed => 'Bu cihaz kaydedilemedi. Tekrar dene.';
+
+  @override
+  String get actionContinue => 'Devam et';
+
+  @override
+  String get actionBack => 'Geri';
+
+  @override
+  String get actionTryAgain => 'Tekrar dene';
+
+  @override
+  String get actionSignOut => 'Çıkış yap';
+
+  @override
+  String get stateOffline =>
+      'Çevrim dışısın. Bağlantını kontrol edip tekrar dene.';
+
+  @override
+  String get stateLoading => 'Yükleniyor…';
 }

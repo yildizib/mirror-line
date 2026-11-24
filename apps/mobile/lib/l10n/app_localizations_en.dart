@@ -573,4 +573,207 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get commonYesterday => 'Yesterday';
+
+  @override
+  String get welcomeTitle => 'Keep track of your phones in one place';
+
+  @override
+  String get welcomeBody =>
+      'See calls, messages, and selected app notifications on your Main Phone.';
+
+  @override
+  String get authSignIn => 'Sign in';
+
+  @override
+  String get authCreateAccount => 'Create account';
+
+  @override
+  String get authEmail => 'Email';
+
+  @override
+  String get authPassword => 'Password';
+
+  @override
+  String get authConfirmPassword => 'Confirm password';
+
+  @override
+  String get authShowPassword => 'Show password';
+
+  @override
+  String get authHidePassword => 'Hide password';
+
+  @override
+  String get authForgotPassword => 'Forgot password';
+
+  @override
+  String get authHaveAccount => 'Already have an account?';
+
+  @override
+  String get authNoAccount => 'Don’t have an account?';
+
+  @override
+  String get authTerms =>
+      'I have read and accept the Terms and Privacy Notice.';
+
+  @override
+  String get authRequired => 'This field is required.';
+
+  @override
+  String get authInvalidEmail => 'Enter a valid email address.';
+
+  @override
+  String get authPasswordMismatch => 'Passwords do not match.';
+
+  @override
+  String get authWrongCredentials => 'The email or password is incorrect.';
+
+  @override
+  String get authEmailExists => 'An account already exists for this email.';
+
+  @override
+  String get authConnectionFailed =>
+      'Couldn’t connect. Your entries were kept; you can try again.';
+
+  @override
+  String get authSigningIn => 'Signing in…';
+
+  @override
+  String get authCreating => 'Creating account…';
+
+  @override
+  String get passwordLength => 'At least 12 characters';
+
+  @override
+  String get passwordUppercase => 'An uppercase letter';
+
+  @override
+  String get passwordLowercase => 'A lowercase letter';
+
+  @override
+  String get passwordNumber => 'A number';
+
+  @override
+  String get verifyTitle => 'Verify your email';
+
+  @override
+  String verifyBody(String email) {
+    return 'We sent a verification link to $email.';
+  }
+
+  @override
+  String get verifyCheckAgain => 'Check again';
+
+  @override
+  String get verifyResend => 'Resend verification email';
+
+  @override
+  String get verifyChangeEmail => 'Change email';
+
+  @override
+  String verifyCooldown(int seconds) {
+    return 'You can resend in $seconds seconds.';
+  }
+
+  @override
+  String get verifyExpired =>
+      'This verification link has expired. Request a new one.';
+
+  @override
+  String get verifySuccess => 'Email verified.';
+
+  @override
+  String get verifySent => 'Verification email sent again.';
+
+  @override
+  String get verifyResendFailed =>
+      'Verification email couldn’t be resent. Try again.';
+
+  @override
+  String get resetTitle => 'Reset your password';
+
+  @override
+  String get resetBody => 'Enter your email to receive a password reset link.';
+
+  @override
+  String get resetSend => 'Send reset link';
+
+  @override
+  String get resetSentTitle => 'Check your email';
+
+  @override
+  String get resetSentBody =>
+      'If an account matches, we sent a password reset link.';
+
+  @override
+  String get resetNewPassword => 'Create new password';
+
+  @override
+  String get resetSuccess => 'Your password was updated. You can now sign in.';
+
+  @override
+  String get roleChooseTitle => 'How will you use this phone?';
+
+  @override
+  String get roleChooseBody => '';
+
+  @override
+  String get roleMainPhone => 'Main Phone';
+
+  @override
+  String get roleMainBody =>
+      'View calls, SMS, and notifications from your Source Phones here.';
+
+  @override
+  String get roleSourcePhone => 'Source Phone';
+
+  @override
+  String get roleSourceBody =>
+      'Forward calls, SMS, and selected app notifications to your Main Phone.';
+
+  @override
+  String get roleConfirmTitle => 'Confirm this role';
+
+  @override
+  String get roleConfirmMain =>
+      'This phone will show activity from your Sources.';
+
+  @override
+  String get roleConfirmSource =>
+      'This phone will send selected activity to your Main Phone.';
+
+  @override
+  String get deviceRegisterTitle => 'Register this device';
+
+  @override
+  String get deviceRegisterBody =>
+      'MirrorLine will create a server-issued device identity and protected local keys before activating this role.';
+
+  @override
+  String get deviceRegisterAction => 'Register this device';
+
+  @override
+  String get deviceRegistering => 'Registering this device…';
+
+  @override
+  String get deviceRegisterFailed =>
+      'This device could not be registered. Try again.';
+
+  @override
+  String get actionContinue => 'Continue';
+
+  @override
+  String get actionBack => 'Back';
+
+  @override
+  String get actionTryAgain => 'Try again';
+
+  @override
+  String get actionSignOut => 'Sign out';
+
+  @override
+  String get stateOffline =>
+      'You’re offline. Check your connection and try again.';
+
+  @override
+  String get stateLoading => 'Loading…';
 }

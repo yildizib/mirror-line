@@ -1123,6 +1123,378 @@ abstract class AppLocalizations {
   /// In tr, this message translates to:
   /// **'Dün'**
   String get commonYesterday;
+
+  /// No description provided for @welcomeTitle.
+  ///
+  /// In tr, this message translates to:
+  /// **'Telefonlarını tek yerden takip et'**
+  String get welcomeTitle;
+
+  /// No description provided for @welcomeBody.
+  ///
+  /// In tr, this message translates to:
+  /// **'Çağrıları, mesajları ve seçtiğin uygulama bildirimlerini Ana Telefonunda gör.'**
+  String get welcomeBody;
+
+  /// No description provided for @authSignIn.
+  ///
+  /// In tr, this message translates to:
+  /// **'Giriş yap'**
+  String get authSignIn;
+
+  /// No description provided for @authCreateAccount.
+  ///
+  /// In tr, this message translates to:
+  /// **'Hesap oluştur'**
+  String get authCreateAccount;
+
+  /// No description provided for @authEmail.
+  ///
+  /// In tr, this message translates to:
+  /// **'E-posta'**
+  String get authEmail;
+
+  /// No description provided for @authPassword.
+  ///
+  /// In tr, this message translates to:
+  /// **'Parola'**
+  String get authPassword;
+
+  /// No description provided for @authConfirmPassword.
+  ///
+  /// In tr, this message translates to:
+  /// **'Parolayı doğrula'**
+  String get authConfirmPassword;
+
+  /// No description provided for @authShowPassword.
+  ///
+  /// In tr, this message translates to:
+  /// **'Parolayı göster'**
+  String get authShowPassword;
+
+  /// No description provided for @authHidePassword.
+  ///
+  /// In tr, this message translates to:
+  /// **'Parolayı gizle'**
+  String get authHidePassword;
+
+  /// No description provided for @authForgotPassword.
+  ///
+  /// In tr, this message translates to:
+  /// **'Parolamı unuttum'**
+  String get authForgotPassword;
+
+  /// No description provided for @authHaveAccount.
+  ///
+  /// In tr, this message translates to:
+  /// **'Hesabın var mı?'**
+  String get authHaveAccount;
+
+  /// No description provided for @authNoAccount.
+  ///
+  /// In tr, this message translates to:
+  /// **'Hesabın yok mu?'**
+  String get authNoAccount;
+
+  /// No description provided for @authTerms.
+  ///
+  /// In tr, this message translates to:
+  /// **'Koşulları ve Gizlilik Bildirimi’ni okudum, kabul ediyorum.'**
+  String get authTerms;
+
+  /// No description provided for @authRequired.
+  ///
+  /// In tr, this message translates to:
+  /// **'Bu alan gerekli.'**
+  String get authRequired;
+
+  /// No description provided for @authInvalidEmail.
+  ///
+  /// In tr, this message translates to:
+  /// **'Geçerli bir e-posta adresi gir.'**
+  String get authInvalidEmail;
+
+  /// No description provided for @authPasswordMismatch.
+  ///
+  /// In tr, this message translates to:
+  /// **'Parolalar eşleşmiyor.'**
+  String get authPasswordMismatch;
+
+  /// No description provided for @authWrongCredentials.
+  ///
+  /// In tr, this message translates to:
+  /// **'E-posta veya parola doğru değil.'**
+  String get authWrongCredentials;
+
+  /// No description provided for @authEmailExists.
+  ///
+  /// In tr, this message translates to:
+  /// **'Bu e-postayla oluşturulmuş bir hesap var.'**
+  String get authEmailExists;
+
+  /// No description provided for @authConnectionFailed.
+  ///
+  /// In tr, this message translates to:
+  /// **'Bağlantı kurulamadı. Bilgilerin korundu; tekrar deneyebilirsin.'**
+  String get authConnectionFailed;
+
+  /// No description provided for @authSigningIn.
+  ///
+  /// In tr, this message translates to:
+  /// **'Giriş yapılıyor…'**
+  String get authSigningIn;
+
+  /// No description provided for @authCreating.
+  ///
+  /// In tr, this message translates to:
+  /// **'Hesap oluşturuluyor…'**
+  String get authCreating;
+
+  /// No description provided for @passwordLength.
+  ///
+  /// In tr, this message translates to:
+  /// **'En az 12 karakter'**
+  String get passwordLength;
+
+  /// No description provided for @passwordUppercase.
+  ///
+  /// In tr, this message translates to:
+  /// **'Bir büyük harf'**
+  String get passwordUppercase;
+
+  /// No description provided for @passwordLowercase.
+  ///
+  /// In tr, this message translates to:
+  /// **'Bir küçük harf'**
+  String get passwordLowercase;
+
+  /// No description provided for @passwordNumber.
+  ///
+  /// In tr, this message translates to:
+  /// **'Bir sayı'**
+  String get passwordNumber;
+
+  /// No description provided for @verifyTitle.
+  ///
+  /// In tr, this message translates to:
+  /// **'E-postanı doğrula'**
+  String get verifyTitle;
+
+  /// No description provided for @verifyBody.
+  ///
+  /// In tr, this message translates to:
+  /// **'Doğrulama bağlantısını {email} adresine gönderdik.'**
+  String verifyBody(String email);
+
+  /// No description provided for @verifyCheckAgain.
+  ///
+  /// In tr, this message translates to:
+  /// **'Tekrar kontrol et'**
+  String get verifyCheckAgain;
+
+  /// No description provided for @verifyResend.
+  ///
+  /// In tr, this message translates to:
+  /// **'Doğrulama e-postasını yeniden gönder'**
+  String get verifyResend;
+
+  /// No description provided for @verifyChangeEmail.
+  ///
+  /// In tr, this message translates to:
+  /// **'E-postayı değiştir'**
+  String get verifyChangeEmail;
+
+  /// No description provided for @verifyCooldown.
+  ///
+  /// In tr, this message translates to:
+  /// **'{seconds} saniye sonra yeniden gönderebilirsin.'**
+  String verifyCooldown(int seconds);
+
+  /// No description provided for @verifyExpired.
+  ///
+  /// In tr, this message translates to:
+  /// **'Bu doğrulama bağlantısının süresi dolmuş. Yeni bir bağlantı iste.'**
+  String get verifyExpired;
+
+  /// No description provided for @verifySuccess.
+  ///
+  /// In tr, this message translates to:
+  /// **'E-posta doğrulandı.'**
+  String get verifySuccess;
+
+  /// No description provided for @verifySent.
+  ///
+  /// In tr, this message translates to:
+  /// **'Doğrulama e-postası yeniden gönderildi.'**
+  String get verifySent;
+
+  /// No description provided for @verifyResendFailed.
+  ///
+  /// In tr, this message translates to:
+  /// **'Doğrulama e-postası yeniden gönderilemedi. Tekrar dene.'**
+  String get verifyResendFailed;
+
+  /// No description provided for @resetTitle.
+  ///
+  /// In tr, this message translates to:
+  /// **'Parolanı sıfırla'**
+  String get resetTitle;
+
+  /// No description provided for @resetBody.
+  ///
+  /// In tr, this message translates to:
+  /// **'Parola sıfırlama bağlantısı için e-posta adresini gir.'**
+  String get resetBody;
+
+  /// No description provided for @resetSend.
+  ///
+  /// In tr, this message translates to:
+  /// **'Sıfırlama bağlantısı gönder'**
+  String get resetSend;
+
+  /// No description provided for @resetSentTitle.
+  ///
+  /// In tr, this message translates to:
+  /// **'E-postanı kontrol et'**
+  String get resetSentTitle;
+
+  /// No description provided for @resetSentBody.
+  ///
+  /// In tr, this message translates to:
+  /// **'Hesap eşleşiyorsa parola sıfırlama bağlantısını gönderdik.'**
+  String get resetSentBody;
+
+  /// No description provided for @resetNewPassword.
+  ///
+  /// In tr, this message translates to:
+  /// **'Yeni parola oluştur'**
+  String get resetNewPassword;
+
+  /// No description provided for @resetSuccess.
+  ///
+  /// In tr, this message translates to:
+  /// **'Parolan güncellendi. Şimdi giriş yapabilirsin.'**
+  String get resetSuccess;
+
+  /// No description provided for @roleChooseTitle.
+  ///
+  /// In tr, this message translates to:
+  /// **'Bu telefonu nasıl kullanacaksın?'**
+  String get roleChooseTitle;
+
+  /// No description provided for @roleChooseBody.
+  ///
+  /// In tr, this message translates to:
+  /// **''**
+  String get roleChooseBody;
+
+  /// No description provided for @roleMainPhone.
+  ///
+  /// In tr, this message translates to:
+  /// **'Ana Telefon'**
+  String get roleMainPhone;
+
+  /// No description provided for @roleMainBody.
+  ///
+  /// In tr, this message translates to:
+  /// **'Kaynak Telefonlarından gelen çağrı, SMS ve bildirimleri burada gör.'**
+  String get roleMainBody;
+
+  /// No description provided for @roleSourcePhone.
+  ///
+  /// In tr, this message translates to:
+  /// **'Kaynak Telefon'**
+  String get roleSourcePhone;
+
+  /// No description provided for @roleSourceBody.
+  ///
+  /// In tr, this message translates to:
+  /// **'Çağrıları, SMS’leri ve seçili uygulama bildirimlerini Ana Telefonuna ilet.'**
+  String get roleSourceBody;
+
+  /// No description provided for @roleConfirmTitle.
+  ///
+  /// In tr, this message translates to:
+  /// **'Bu rolü onayla'**
+  String get roleConfirmTitle;
+
+  /// No description provided for @roleConfirmMain.
+  ///
+  /// In tr, this message translates to:
+  /// **'Bu telefon Kaynaklarındaki etkinlikleri gösterecek.'**
+  String get roleConfirmMain;
+
+  /// No description provided for @roleConfirmSource.
+  ///
+  /// In tr, this message translates to:
+  /// **'Bu telefon seçili etkinlikleri Ana Telefonuna gönderecek.'**
+  String get roleConfirmSource;
+
+  /// No description provided for @deviceRegisterTitle.
+  ///
+  /// In tr, this message translates to:
+  /// **'Bu cihazı kaydet'**
+  String get deviceRegisterTitle;
+
+  /// No description provided for @deviceRegisterBody.
+  ///
+  /// In tr, this message translates to:
+  /// **'MirrorLine, rol etkinleştirilmeden önce sunucunun verdiği cihaz kimliğini ve korunan yerel anahtarları oluşturur.'**
+  String get deviceRegisterBody;
+
+  /// No description provided for @deviceRegisterAction.
+  ///
+  /// In tr, this message translates to:
+  /// **'Bu cihazı kaydet'**
+  String get deviceRegisterAction;
+
+  /// No description provided for @deviceRegistering.
+  ///
+  /// In tr, this message translates to:
+  /// **'Bu cihaz kaydediliyor…'**
+  String get deviceRegistering;
+
+  /// No description provided for @deviceRegisterFailed.
+  ///
+  /// In tr, this message translates to:
+  /// **'Bu cihaz kaydedilemedi. Tekrar dene.'**
+  String get deviceRegisterFailed;
+
+  /// No description provided for @actionContinue.
+  ///
+  /// In tr, this message translates to:
+  /// **'Devam et'**
+  String get actionContinue;
+
+  /// No description provided for @actionBack.
+  ///
+  /// In tr, this message translates to:
+  /// **'Geri'**
+  String get actionBack;
+
+  /// No description provided for @actionTryAgain.
+  ///
+  /// In tr, this message translates to:
+  /// **'Tekrar dene'**
+  String get actionTryAgain;
+
+  /// No description provided for @actionSignOut.
+  ///
+  /// In tr, this message translates to:
+  /// **'Çıkış yap'**
+  String get actionSignOut;
+
+  /// No description provided for @stateOffline.
+  ///
+  /// In tr, this message translates to:
+  /// **'Çevrim dışısın. Bağlantını kontrol edip tekrar dene.'**
+  String get stateOffline;
+
+  /// No description provided for @stateLoading.
+  ///
+  /// In tr, this message translates to:
+  /// **'Yükleniyor…'**
+  String get stateLoading;
 }
 
 class _AppLocalizationsDelegate
