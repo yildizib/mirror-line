@@ -93,6 +93,12 @@ class PairingCopy {
   String get generatingCode =>
       tr ? 'Yeni kod oluşturuluyor…' : 'Generating a new code…';
   String get pairingCode => tr ? 'Eşleştirme kodu' : 'Pairing code';
+  String get transferCodeHint => tr
+      ? 'Ana Telefonda gösterilen 10 karakterli kodu gir.'
+      : 'Enter the 10-character code shown on the Main Phone.';
+  String transferProgress(int entered) => tr
+      ? '$entered / 10 karakter girildi'
+      : '$entered / 10 characters entered';
   String roleContext(PairingRole role) => role == PairingRole.main
       ? (tr ? 'Ana Telefonundaki kod' : 'Code on this Main Phone')
       : (tr ? 'Kaynak Telefonundaki kod' : 'Code on this Source Phone');
@@ -330,12 +336,20 @@ class MainPairingCodeScreen extends StatelessWidget {
           ),
         const SizedBox(height: 16),
         if (!expired && !refreshing)
-          Text(
-            code,
-            textAlign: TextAlign.center,
-            style: Theme.of(
-              context,
-            ).textTheme.headlineMedium?.copyWith(letterSpacing: 4),
+          Semantics(
+            label: _formatTransferCode(code),
+            child: ExcludeSemantics(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  _formatTransferCode(code),
+                  textAlign: TextAlign.center,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.headlineMedium?.copyWith(letterSpacing: 3),
+                ),
+              ),
+            ),
           ),
         if (!expired && !refreshing) const SizedBox(height: 8),
         if (phase == PairingPhase.expiring)
@@ -428,7 +442,7 @@ class ManualCodeScreen extends StatefulWidget {
 }
 
 class _ManualCodeScreenState extends State<ManualCodeScreen> {
-  static const _codeLength = 6;
+  static const _codeLength = 10;
   final controller = TextEditingController();
   @override
   void dispose() {
@@ -440,6 +454,7 @@ class _ManualCodeScreenState extends State<ManualCodeScreen> {
   Widget build(BuildContext context) {
     final c = PairingCopy.of(context);
     final busy = widget.phase == PairingPhase.submitting;
+    final ready = controller.text.length == _codeLength;
     return PairingPage(
       title: c.manual,
       children: [
@@ -448,36 +463,49 @@ class _ManualCodeScreenState extends State<ManualCodeScreen> {
           PairingMessage(text: c.invalid, warning: true),
         const SizedBox(height: 12),
         Text(c.pairingCode),
+        const SizedBox(height: 4),
+        Text(c.transferCodeHint),
         const SizedBox(height: 8),
         Semantics(
           label: c.pairingCode,
-          value: '${controller.text.length} / $_codeLength',
+          value: c.transferProgress(controller.text.length),
           textField: true,
           child: Stack(
             alignment: Alignment.center,
             children: [
               IgnorePointer(
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: List.generate(
-                    _codeLength,
-                    (index) => KeyedSubtree(
-                      key: ValueKey('pairing-code-segment-$index'),
-                      child: _CodeSegment(
-                        value: index < controller.text.length
-                            ? controller.text[index]
-                            : '',
-                      ),
-                    ),
+                child: LayoutBuilder(
+                  builder: (context, constraints) => Row(
+                    children: [
+                      for (var index = 0; index < _codeLength; index++) ...[
+                        if (index == 5) const SizedBox(width: 8),
+                        Expanded(
+                          child: Padding(
+                            padding: EdgeInsets.only(
+                              right: index == 4 || index == 9 ? 0 : 3,
+                            ),
+                            child: KeyedSubtree(
+                              key: ValueKey('pairing-code-segment-$index'),
+                              child: _CodeSegment(
+                                value: index < controller.text.length
+                                    ? controller.text[index]
+                                    : '',
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                 ),
               ),
               TextField(
                 controller: controller,
                 enabled: !busy,
-                keyboardType: TextInputType.number,
+                keyboardType: TextInputType.text,
+                textCapitalization: TextCapitalization.characters,
                 inputFormatters: [
-                  FilteringTextInputFormatter.digitsOnly,
+                  const _TransferCodeFormatter(),
                   LengthLimitingTextInputFormatter(_codeLength),
                 ],
                 onChanged: (_) => setState(() {}),
@@ -494,11 +522,9 @@ class _ManualCodeScreenState extends State<ManualCodeScreen> {
         ),
         const SizedBox(height: 16),
         FilledButton(
-          onPressed: busy
+          onPressed: busy || !ready
               ? null
-              : () => widget.onSubmit(
-                  controller.text.replaceAll(RegExp(r'\s+'), ''),
-                ),
+              : () => widget.onSubmit(controller.text),
           child: busy
               ? const SizedBox(
                   height: 18,
@@ -558,6 +584,7 @@ class VerificationComparisonScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = PairingCopy.of(context);
+    final comparisonCode = _formatComparisonCode(code);
     return PairingPage(
       title: c.compare,
       children: [
@@ -574,10 +601,10 @@ class VerificationComparisonScreen extends StatelessWidget {
         const SizedBox(height: 12),
         Semantics(
           container: true,
-          label: code,
+          label: comparisonCode,
           child: ExcludeSemantics(
             child: Text(
-              code,
+              comparisonCode,
               textAlign: TextAlign.center,
               style: Theme.of(
                 context,
@@ -920,13 +947,57 @@ class _CodeSegment extends StatelessWidget {
   final String value;
   @override
   Widget build(BuildContext context) => Container(
-    width: 44,
     height: 56,
     alignment: Alignment.center,
     decoration: BoxDecoration(
       border: Border.all(color: Theme.of(context).colorScheme.outline),
       borderRadius: BorderRadius.circular(10),
     ),
-    child: Text(value, style: Theme.of(context).textTheme.titleLarge),
+    child: FittedBox(
+      fit: BoxFit.scaleDown,
+      child: Text(value, style: Theme.of(context).textTheme.titleLarge),
+    ),
   );
+}
+
+class _TransferCodeFormatter extends TextInputFormatter {
+  const _TransferCodeFormatter();
+
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    final normalized = newValue.text
+        .toUpperCase()
+        .split('')
+        .where(_transferCodeAlphabet.contains)
+        .take(10)
+        .join();
+    return TextEditingValue(
+      text: normalized,
+      selection: TextSelection.collapsed(offset: normalized.length),
+    );
+  }
+}
+
+const _transferCodeAlphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+String _formatTransferCode(String code) {
+  final normalized = code
+      .toUpperCase()
+      .split('')
+      .where(_transferCodeAlphabet.contains)
+      .take(10)
+      .join();
+  return normalized.length == 10
+      ? '${normalized.substring(0, 5)} ${normalized.substring(5)}'
+      : normalized;
+}
+
+String _formatComparisonCode(String code) {
+  final digits = code.replaceAll(RegExp(r'[^0-9]'), '');
+  return digits.length == 6
+      ? '${digits.substring(0, 3)} ${digits.substring(3)}'
+      : digits;
 }

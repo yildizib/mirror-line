@@ -63,7 +63,7 @@ void main() {
       PairingIntroductionScreen(onContinue: noop),
       MainPairingCodeScreen(
         payload: 'opaque-presentation-data',
-        code: '123 456',
+        code: 'ABCDE23456',
         remaining: '01:00',
         phase: PairingPhase.active,
         onRefresh: noop,
@@ -71,7 +71,7 @@ void main() {
       ),
       MainPairingCodeScreen(
         payload: 'opaque-presentation-data',
-        code: '123 456',
+        code: 'ABCDE23456',
         remaining: '00:10',
         phase: PairingPhase.expiring,
         onRefresh: noop,
@@ -79,7 +79,7 @@ void main() {
       ),
       MainPairingCodeScreen(
         payload: 'opaque-presentation-data',
-        code: '123 456',
+        code: 'ABCDE23456',
         remaining: '00:00',
         phase: PairingPhase.expired,
         onRefresh: noop,
@@ -87,7 +87,7 @@ void main() {
       ),
       MainPairingCodeScreen(
         payload: 'opaque-presentation-data',
-        code: '123 456',
+        code: 'ABCDE23456',
         remaining: '01:00',
         phase: PairingPhase.refreshing,
         onRefresh: noop,
@@ -267,7 +267,7 @@ void main() {
       app(
         MainPairingCodeScreen(
           payload: 'opaque',
-          code: '123 456',
+          code: 'ABCDE23456',
           remaining: '00:00',
           phase: PairingPhase.expired,
           onRefresh: () => count++,
@@ -283,7 +283,7 @@ void main() {
       app(
         MainPairingCodeScreen(
           payload: 'opaque',
-          code: '123 456',
+          code: 'ABCDE23456',
           remaining: '01:00',
           phase: PairingPhase.refreshing,
           onRefresh: () => count++,
@@ -296,7 +296,7 @@ void main() {
       isNull,
     );
     expect(find.byType(QrImageView), findsNothing);
-    expect(find.text('123 456'), findsNothing);
+    expect(find.text('ABCDE 23456'), findsNothing);
 
     await tester.pumpWidget(
       app(
@@ -406,7 +406,7 @@ void main() {
   });
 
   testWidgets(
-    'manual code uses six visible segments and submits normalized digits',
+    'manual code uses ten grouped transfer characters and rejects excluded input',
     (tester) async {
       String? submitted;
       await tester.pumpWidget(
@@ -418,18 +418,43 @@ void main() {
           ),
         ),
       );
-      for (var index = 0; index < 6; index++) {
+      for (var index = 0; index < 10; index++) {
         expect(
           find.byKey(ValueKey('pairing-code-segment-$index')),
           findsOneWidget,
         );
       }
-      await tester.enterText(find.byType(TextField), '12a34 567');
+      expect(
+        tester.widget<FilledButton>(find.byType(FilledButton)).onPressed,
+        isNull,
+      );
+      await tester.enterText(find.byType(TextField), 'abcde23456o789');
       await tester.pump();
       await tester.tap(find.text('Confirm'));
-      expect(submitted, '123456');
+      expect(submitted, 'ABCDE23456');
     },
   );
+
+  testWidgets('transfer code is presented as an accessible 5 plus 5 value', (
+    tester,
+  ) async {
+    final semantics = tester.ensureSemantics();
+    await tester.pumpWidget(
+      app(
+        MainPairingCodeScreen(
+          payload: 'opaque',
+          code: 'abcde23456',
+          remaining: '01:00',
+          phase: PairingPhase.active,
+          onRefresh: () {},
+          onCancel: () {},
+        ),
+      ),
+    );
+    expect(find.text('ABCDE 23456'), findsOneWidget);
+    expect(find.bySemanticsLabel('ABCDE 23456'), findsOneWidget);
+    semantics.dispose();
+  });
 
   testWidgets(
     'copy, semantics, password visibility and safe presentation work in English and Turkish',
